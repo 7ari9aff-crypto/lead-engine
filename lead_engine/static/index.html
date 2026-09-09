@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>محرّك الـLeads — لوحة التحكم</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">⚡</span>
+      <span>محرّك الـLeads</span>
+      <span class="ver" dir="ltr" data-testid="app-version"></span>
+    </div>
+    <div class="pill" data-testid="system-pill" id="system-pill">
+      <span class="dot"></span><span id="pill-text">جارِ التحميل…</span>
+    </div>
+    <div class="refresh-note">تحديث تلقائي كل 5 ثوانٍ</div>
+  </header>
+
+  <nav class="tabs" role="tablist" data-testid="tab-nav">
+    <button class="tab active" data-tab="overview" role="tab">نظرة عامة</button>
+    <button class="tab" data-tab="providers" role="tab">المزوّدون</button>
+    <button class="tab" data-tab="jobs" role="tab">المهام</button>
+    <button class="tab" data-tab="leads" role="tab">النتائج</button>
+    <button class="tab" data-tab="verify" role="tab">فحص إيميل</button>
+    <button class="tab" data-tab="config" role="tab">الإعدادات</button>
+  </nav>
+
+  <main>
+    <!-- ===================== نظرة عامة ===================== -->
+    <section id="tab-overview" class="panel active">
+      <div class="cards" data-testid="overview-cards" id="overview-cards"></div>
+      <div class="grid-2">
+        <div class="card">
+          <h3>آخر المهام</h3>
+          <div id="overview-jobs" class="feed"></div>
+        </div>
+        <div class="card">
+          <h3>أعلى استهلاك (units)</h3>
+          <div id="overview-usage" class="feed"></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>معلومات النظام</h3>
+        <div id="system-info" class="sysinfo"></div>
+      </div>
+    </section>
+
+    <!-- ===================== المزوّدون ===================== -->
+    <section id="tab-providers" class="panel">
+      <div class="section-head">
+        <h2>سجلّ المزوّدين</h2>
+        <p class="muted">الحالة هنا مقروءة مباشرة من قاعدة البيانات — نفس اللي بياخدها الـRouter قراره. التعطيل والتصفير بيأثروا على التشغيل القادم فورًا.</p>
+      </div>
+      <div class="card table-wrap" data-testid="providers-table">
+        <table id="providers-table">
+          <thead>
+            <tr>
+              <th>المزوّد</th><th>المهمة</th><th>النوع</th><th>الأولوية</th>
+              <th>الحالة</th><th>المفتاح</th><th>الاستهلاك</th><th>الاستدعاءات</th><th>آخر استخدام</th><th>إجراءات</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===================== المهام ===================== -->
+    <section id="tab-jobs" class="panel">
+      <div class="card run-card" data-testid="run-form">
+        <h3>تشغيل الـPipeline</h3>
+        <div class="run-row">
+          <label>ملف الـICP
+            <input id="run-icp" dir="ltr" value="v0_saudi_dental" spellcheck="false">
+          </label>
+          <label class="check">
+            <input type="checkbox" id="run-dry" checked>
+            تجربة (fixtures — بدون شبكة)
+          </label>
+          <button class="btn primary" id="btn-run" data-testid="button-run">تشغيل الآن</button>
+        </div>
+        <p class="muted">التشغيل بيتم في الخلفية، والحالة بتتحدث تحت تلقائيًا. أوقف علامة التجربة بس لو المفاتيح مضبوطة في <code dir="ltr">.env</code>.</p>
+      </div>
+      <div class="card table-wrap" data-testid="jobs-table">
+        <table id="jobs-table">
+          <thead>
+            <tr><th>المهمة</th><th>ICP</th><th>الحالة</th><th>سبب الإيقاف</th><th>بدأت</th><th>آخر تحديث</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===================== النتائج ===================== -->
+    <section id="tab-leads" class="panel">
+      <div class="section-head">
+        <h2>الـLeads الناتجة</h2>
+        <button class="btn" id="btn-export" data-testid="button-export">تنزيل CSV</button>
+      </div>
+      <div class="filters">
+        <label>المهمة
+          <select id="leads-job"><option value="">الكل</option></select>
+        </label>
+        <label>المرحلة
+          <select id="leads-stage">
+            <option value="">الكل</option>
+            <option value="ACCEPTED">مقبولة</option>
+            <option value="REVIEW">مراجعة</option>
+            <option value="REJECTED">مرفوضة</option>
+          </select>
+        </label>
+      </div>
+      <div class="card table-wrap" data-testid="leads-table">
+        <table id="leads-table">
+          <thead>
+            <tr>
+              <th>الاسم</th><th>المدينة</th><th>الدومين</th><th>التقييم</th><th>الدرجة</th>
+              <th>الإيميل</th><th>الحالة</th><th>صانع القرار</th><th>الوضع</th><th>القانوني</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===================== فحص إيميل ===================== -->
+    <section id="tab-verify" class="panel">
+      <div class="card verify-card" data-testid="verify-form">
+        <h3>فحص إيميل (5 حالات + catch-all)</h3>
+        <div class="run-row">
+          <input id="verify-email" dir="ltr" placeholder="name@clinic.com" spellcheck="false">
+          <label class="check"><input type="checkbox" id="verify-dry">تجربة</label>
+          <button class="btn primary" id="btn-verify" data-testid="button-verify">افحص</button>
+        </div>
+        <div id="verify-result"></div>
+      </div>
+    </section>
+
+    <!-- ===================== الإعدادات ===================== -->
+    <section id="tab-config" class="panel">
+      <div class="section-head">
+        <h2>ملفات الإعداد</h2>
+        <p class="muted">أي تعديل بيتطبق من التشغيل الجاي، وبيتعمل منه نسخة احتياطية <code dir="ltr">.bak</code> تلقائيًا.</p>
+      </div>
+      <div class="subtabs" id="config-subtabs"></div>
+      <div class="card editor-card">
+        <textarea id="config-text" dir="ltr" spellcheck="false" data-testid="config-editor"></textarea>
+        <div class="editor-actions">
+          <span id="config-path" class="muted" dir="ltr"></span>
+          <button class="btn primary" id="btn-config-save" data-testid="button-config-save">حفظ</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="modal" class="modal hidden" data-testid="modal">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h3 id="modal-title"></h3>
+        <button class="btn ghost" id="modal-close">إغلاق ✕</button>
+      </div>
+      <div id="modal-body" class="modal-body"></div>
+    </div>
+  </div>
+  <div id="toast" class="toast hidden" data-testid="toast"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

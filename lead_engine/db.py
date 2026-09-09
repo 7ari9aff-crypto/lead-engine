@@ -113,8 +113,12 @@ CREATE TABLE IF NOT EXISTS cache (
 
 class Database:
     def __init__(self, path):
-        self.conn = sqlite3.connect(str(path))
+        self.conn = sqlite3.connect(str(path), timeout=10)
         self.conn.row_factory = sqlite3.Row
+        # dashboard requests + background engine runs share the file:
+        # WAL + busy_timeout keep concurrent readers/writers from clashing
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA busy_timeout=5000")
         self.conn.executescript(SCHEMA)
         self.conn.commit()
 

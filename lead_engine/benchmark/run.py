@@ -29,6 +29,8 @@ def load_seed_csv(path) -> list:
 
 def run_benchmark(icp_name: str = "v0_saudi_dental", dry_run: bool = True,
                   job_id=None, seed_csv=None, write=True):
+    import json
+
     load_env()
     DATA_DIR.mkdir(exist_ok=True)
     db = Database(DB_PATH)
@@ -41,7 +43,17 @@ def run_benchmark(icp_name: str = "v0_saudi_dental", dry_run: bool = True,
     usage_rows = db.query("SELECT units FROM usage_ledger WHERE job_id=?", (summary["job_id"],))
     metrics = compute_metrics(summary, leads, usage_rows)
     outputs = write_outputs(metrics, summary, leads) if write else {}
+    existing = {}
+    row = db.one("SELECT params FROM jobs WHERE job_id=?", (summary["job_id"],))
+    if row and row["params"]:
+        try:
+            existing = json.loads(row["params"])
+        except json.JSONDecodeError:
+            existing = {}
+    existing["dry_run"] = dry_run
+    existing["metrics"] = metrics
+    existing["outputs"] = outputs
     db.execute("UPDATE jobs SET params=? WHERE job_id=?",
-               (str({"metrics": metrics, "outputs": outputs}), summary["job_id"]))
+               (json.dumps(existing, ensure_ascii=False, default=str), summary["job_id"]))
     db.conn.close()
     return summary, metrics, outputs

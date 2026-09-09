@@ -97,7 +97,7 @@ class Registry:
     def status_table(self):
         return self.db.query(
             "SELECT name, task, type, priority, quota_kind, quota_limit, quota_used,"
-            " period, rpm_limit, status, status_reason, env_key FROM providers"
+            " period, rpm_limit, status, status_reason, cooldown_until, env_key FROM providers"
             " ORDER BY task, priority"
         )
 

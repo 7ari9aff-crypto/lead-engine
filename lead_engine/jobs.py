@@ -37,13 +37,15 @@ class JobManager:
         self.db = db
 
     def create_job(self, icp_id: str, params: dict = None) -> str:
+        import json
         import uuid
 
         job_id = f"job-{uuid.uuid4().hex[:10]}"
         self.db.execute(
             "INSERT INTO jobs (job_id, icp_id, state, params, created_at, updated_at)"
             " VALUES (?,?,?,?,?,?)",
-            (job_id, icp_id, QUEUED, str(params or {}), utcnow(), utcnow()),
+            (job_id, icp_id, QUEUED, json.dumps(params or {}, ensure_ascii=False),
+             utcnow(), utcnow()),
         )
         return job_id
 
