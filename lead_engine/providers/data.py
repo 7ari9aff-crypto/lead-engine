@@ -19,7 +19,7 @@ class ApolloProvider(BaseProvider):
 
     def _post(self, path, body):
         body = dict(body)
-        body["api_key"] = self.api_key
+        body["api_key"] = self.current_key()
         return self._json(self._http("POST", self.BASE + path, json=body,
                                      headers={"Content-Type": "application/json"}))
 

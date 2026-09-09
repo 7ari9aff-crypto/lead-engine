@@ -15,7 +15,7 @@ class TavilyProvider(BaseProvider):
     def request(self, task, payload):
         depth = payload.get("depth", "basic")
         body = {
-            "api_key": self.api_key,
+            "api_key": self.current_key(),
             "query": payload["query"],
             "search_depth": depth,
             "max_results": payload.get("max_results", 8),
@@ -41,7 +41,7 @@ class BraveProvider(BaseProvider):
         data = self._json(self._http(
             "GET", self.URL,
             params={"q": payload["query"], "count": payload.get("max_results", 8)},
-            headers={"X-Subscription-Token": self.api_key, "Accept": "application/json"},
+            headers={"X-Subscription-Token": self.current_key(), "Accept": "application/json"},
         ))
         results = [
             {"title": r.get("title", ""), "url": r.get("url", ""),
@@ -63,7 +63,7 @@ class ExaProvider(BaseProvider):
             "POST", self.URL,
             json={"query": payload["query"], "numResults": payload.get("max_results", 8),
                   "type": "auto", "contents": {"text": {"maxCharacters": 400}}},
-            headers={"x-api-key": self.api_key},
+            headers={"x-api-key": self.current_key()},
         ))
         results = [
             {"title": r.get("title", ""), "url": r.get("url", ""),

@@ -11,10 +11,17 @@ from lead_engine.router import (
 class FakeAdapter:
     tasks = ("web_search",)
     available = True
+    keys: list = []
 
     def __init__(self, name, behavior):
         self.name = name
         self.behavior = behavior
+
+    def current_key(self):
+        return self.keys[0] if self.keys else None
+
+    def rotate_key(self):
+        return False
 
     def request(self, task, payload):
         action = self.behavior

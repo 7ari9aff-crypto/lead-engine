@@ -45,7 +45,7 @@ class GeminiProvider(LLMBase):
         if json_mode:
             gen_cfg["responseMimeType"] = "application/json"
         resp = self._http(
-            "POST", self.URL.format(model=model) + f"?key={self.api_key}",
+            "POST", self.URL.format(model=model) + f"?key={self.current_key()}",
             json={"contents": [{"parts": [{"text": prompt}]}], "generationConfig": gen_cfg},
         )
         data = self._json(resp)
@@ -77,7 +77,7 @@ class GroqProvider(_OpenAICompat):
     URL = "https://api.groq.com/openai/v1/chat/completions"
 
     def _headers(self):
-        return {"Authorization": f"Bearer {self.api_key}"}
+        return {"Authorization": f"Bearer {self.current_key()}"}
 
 
 class OpenRouterProvider(_OpenAICompat):
@@ -87,7 +87,7 @@ class OpenRouterProvider(_OpenAICompat):
     URL = "https://openrouter.ai/api/v1/chat/completions"
 
     def _headers(self):
-        return {"Authorization": f"Bearer {self.api_key}"}
+        return {"Authorization": f"Bearer {self.current_key()}"}
 
 
 class OllamaProvider(LLMBase):

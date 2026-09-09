@@ -34,11 +34,33 @@ class BaseProvider:
         self.settings = settings or {}
         self.timeout = (self.settings.get("router", {}) or {}).get("timeout_seconds", 30)
         self.api_key = os.environ.get(self.env_key) if self.env_key else None
+        self._key_index = 0
+
+    # ------------------------------------------------------------ key pool
+    @property
+    def keys(self) -> list:
+        """Multiple keys per provider, comma-separated in the env var.
+        The router rotates to the next key on 429/quota BEFORE switching
+        provider — 5 Tavily keys means 5x the monthly credits."""
+        return [k.strip() for k in (self.api_key or "").replace("\n", ",").split(",") if k.strip()]
 
     @property
     def available(self) -> bool:
         # env_key None => local provider (Ollama / SMTP), always "available"
-        return self.env_key is None or bool(self.api_key)
+        return self.env_key is None or bool(self.keys)
+
+    def current_key(self):
+        keys = self.keys
+        if not keys:
+            return None
+        return keys[min(self._key_index, len(keys) - 1)]
+
+    def rotate_key(self) -> bool:
+        """Move to the next key. Returns False when the pool is exhausted."""
+        if self._key_index < len(self.keys) - 1:
+            self._key_index += 1
+            return True
+        return False
 
     def request(self, task: str, payload: dict) -> dict:
         raise NotImplementedError

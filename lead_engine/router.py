@@ -87,7 +87,10 @@ class Router:
         rate_window = cfg.get("rate_window_seconds", 60)
 
         tried = []
-        for row in self.registry.providers_for_task(task, ignore_keys=self.dry_run):
+        key_counts = {name: max(1, len(getattr(a, "keys", []) or []))
+                      for name, a in self.adapters.items()}
+        for row in self.registry.providers_for_task(task, ignore_keys=self.dry_run,
+                                                    key_counts=key_counts):
             name = row["name"]
             adapter = self.adapters.get(name)
             if adapter is None or not getattr(adapter, "available", False):
@@ -101,35 +104,53 @@ class Router:
                 tried.append(f"{name}:rpm")
                 continue
 
-            started = time.time()
-            try:
-                result = adapter.request(task, payload)
-            except RateLimited as exc:
-                wait = exc.retry_after or cooldown_default
-                self.registry.mark(name, task, COOLDOWN, str(exc), cooldown_seconds=wait)
-                self.registry.record_usage(name, task, job_id, 0, row["quota_kind"], "rate_limited",
-                                           int((time.time() - started) * 1000))
-                tried.append(f"{name}:429")
-                continue
-            except QuotaExhausted as exc:
-                self.registry.mark(name, task, EXHAUSTED, str(exc))
-                tried.append(f"{name}:quota")
-                continue
-            except ProviderUnavailable as exc:
-                self.registry.mark(name, task, COOLDOWN, str(exc), cooldown_seconds=unavailable_cooldown)
-                tried.append(f"{name}:unavailable")
-                continue
-            except ProviderError as exc:
-                self.registry.record_usage(name, task, job_id, 0, row["quota_kind"], "error",
-                                           int((time.time() - started) * 1000))
-                tried.append(f"{name}:error({exc})")
+            # key pool: on 429/quota rotate to the next key BEFORE giving up
+            # on the provider — 5 Tavily keys = 5x monthly credits.
+            pool = max(1, len(getattr(adapter, "keys", []) or []))
+            result = None
+            for _attempt in range(pool):
+                started = time.time()
+                try:
+                    result = adapter.request(task, payload)
+                    break
+                except RateLimited as exc:
+                    self.registry.record_usage(name, task, job_id, 0, row["quota_kind"],
+                                               "rate_limited", int((time.time() - started) * 1000))
+                    if adapter.rotate_key():
+                        tried.append(f"{name}:key{adapter._key_index}(429)")
+                        continue
+                    self.registry.mark(name, task, COOLDOWN, str(exc),
+                                       cooldown_seconds=exc.retry_after or cooldown_default)
+                    tried.append(f"{name}:429")
+                    break
+                except QuotaExhausted as exc:
+                    self.registry.record_usage(name, task, job_id, 0, row["quota_kind"],
+                                               "quota", int((time.time() - started) * 1000))
+                    if adapter.rotate_key():
+                        tried.append(f"{name}:key{adapter._key_index}(quota)")
+                        continue
+                    self.registry.mark(name, task, EXHAUSTED, str(exc))
+                    tried.append(f"{name}:quota")
+                    break
+                except ProviderUnavailable as exc:
+                    self.registry.mark(name, task, COOLDOWN, str(exc),
+                                       cooldown_seconds=unavailable_cooldown)
+                    tried.append(f"{name}:unavailable")
+                    break
+                except ProviderError as exc:
+                    self.registry.record_usage(name, task, job_id, 0, row["quota_kind"], "error",
+                                               int((time.time() - started) * 1000))
+                    tried.append(f"{name}:error({exc})")
+                    break
+
+            if result is None:
                 continue
 
             latency = int((time.time() - started) * 1000)
             units = float(result.get("units", 1))
             rate_info = result.pop("rate_info", None) or {}
             self.registry.record_usage(name, task, job_id, units, row["quota_kind"], "ok", latency)
-            self.registry.add_quota_used(name, task, units)
+            self.registry.add_quota_used(name, task, units, key_counts.get(name, 1))
             if "remaining_requests" in rate_info:
                 self.registry.set_rpm_from_headers(name, task, rate_info["remaining_requests"])
 

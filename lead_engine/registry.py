@@ -56,7 +56,11 @@ class Registry:
             )
 
     # ------------------------------------------------------------------ read
-    def providers_for_task(self, task: str, ignore_keys: bool = False):
+    def providers_for_task(self, task: str, ignore_keys: bool = False,
+                           key_counts: dict = None):
+        """key_counts: provider name -> number of pooled keys; the effective
+        quota is base limit x key count (5 Tavily keys = 5000 credits)."""
+        key_counts = key_counts or {}
         rows = self.db.query(
             "SELECT * FROM providers WHERE task = ? ORDER BY priority ASC", (task,)
         )
@@ -84,15 +88,19 @@ class Registry:
             # key availability (None env_key => local; ignore_keys => dry-run fakes)
             load_env()
             has_key = ignore_keys or row["env_key"] is None or bool(_env(row["env_key"]))
-            row["_usable"] = has_key and row["status"] in (ACTIVE, COOLDOWN) and self._within_quota(row)
+            multiplier = max(1, key_counts.get(row["name"], 1))
+            row["quota_limit_effective"] = (
+                row["quota_limit"] * multiplier if row["quota_limit"] is not None else None)
+            row["_usable"] = (has_key and row["status"] in (ACTIVE, COOLDOWN)
+                              and self._within_quota(row, multiplier))
             out.append(row)
         return out
 
     @staticmethod
-    def _within_quota(row) -> bool:
+    def _within_quota(row, multiplier: int = 1) -> bool:
         if row["quota_limit"] is None:
             return True
-        return (row["quota_used"] or 0) < row["quota_limit"]
+        return (row["quota_used"] or 0) < row["quota_limit"] * max(1, multiplier)
 
     def status_table(self):
         return self.db.query(
@@ -115,7 +123,7 @@ class Registry:
             (utcnow(), provider, task, job_id, units, unit_kind, status, latency_ms),
         )
 
-    def add_quota_used(self, provider, task, units):
+    def add_quota_used(self, provider, task, units, multiplier: int = 1):
         self.db.execute(
             "UPDATE providers SET quota_used = COALESCE(quota_used, 0) + ? WHERE name=? AND task=?",
             (units, provider, task),
@@ -124,7 +132,8 @@ class Registry:
             "SELECT quota_limit, quota_used FROM providers WHERE name=? AND task=?",
             (provider, task),
         )
-        if row and row["quota_limit"] is not None and (row["quota_used"] or 0) >= row["quota_limit"]:
+        if row and row["quota_limit"] is not None and \
+                (row["quota_used"] or 0) >= row["quota_limit"] * max(1, multiplier):
             self.mark(provider, task, EXHAUSTED, "quota_limit reached")
 
     def mark(self, provider, task, status, reason=None, cooldown_seconds=None):

@@ -64,7 +64,7 @@ class HunterProvider(BaseProvider):
     def verify(self, email: str) -> dict:
         data = self._json(self._http(
             "GET", "https://api.hunter.io/v2/email-verifier",
-            params={"email": email, "api_key": self.api_key},
+            params={"email": email, "api_key": self.current_key()},
         )).get("data", {})
         result = data.get("result", "unknown")
         score = float(data.get("score", 0)) / 100.0
@@ -83,7 +83,7 @@ class HunterProvider(BaseProvider):
     def find(self, domain: str) -> dict:
         data = self._json(self._http(
             "GET", "https://api.hunter.io/v2/domain-search",
-            params={"domain": domain, "limit": 3, "api_key": self.api_key},
+            params={"domain": domain, "limit": 3, "api_key": self.current_key()},
         )).get("data", {})
         emails = [
             {"value": e.get("value"), "type": e.get("type"),
@@ -103,7 +103,7 @@ class AbstractProvider(BaseProvider):
     def request(self, task, payload):
         data = self._json(self._http(
             "GET", "https://emailvalidation.abstractapi.com/v1/",
-            params={"api_key": self.api_key, "email": payload["email"]},
+            params={"api_key": self.current_key(), "email": payload["email"]},
         ))
         if data.get("is_disposable_email"):
             status, conf = STATUS_INVALID, 0.85

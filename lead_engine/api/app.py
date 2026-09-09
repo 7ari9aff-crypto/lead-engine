@@ -416,6 +416,9 @@ def _mask(value: str, plain: bool) -> str:
         return ""
     if plain:
         return value
+    pool = [k for k in value.split(",") if k.strip()]
+    if len(pool) > 1:
+        return f"{len(pool)} مفاتيح — {pool[0][:8]}…{pool[-1][-3:]}"
     if len(value) <= 9:
         return "•••"
     return f"{value[:6]}…{value[-3:]}"
@@ -439,9 +442,18 @@ def api_keys_save(req: dict, db: Database = Depends(get_db)):
     for field in KEY_FIELDS:
         if field["name"] not in req:
             continue
-        value = str(req[field["name"]]).strip()
-        if "=" in value or "\n" in value:
-            raise HTTPException(status_code=422, detail=f"قيمة غير صالحة لـ {field['name']}")
+        raw = str(req[field["name"]]).strip()
+        if field.get("plain"):
+            value = raw
+        else:
+            # multi-key paste: newlines/spaces become the comma pool separator
+            value = ",".join(
+                seg.strip() for seg in raw.replace("\r", "").replace("\n", ",").split(",")
+                if seg.strip())
+            bad = [seg for seg in value.split(",") if "=" in seg]
+            if bad:
+                raise HTTPException(status_code=422,
+                                    detail=f"قيمة غير صالحة في {field['name']}: {bad[0][:30]}")
         updates[field["name"]] = value
     if not updates:
         raise HTTPException(status_code=422, detail="لا مفاتيح في الطلب")
