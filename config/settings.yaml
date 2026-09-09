@@ -32,7 +32,7 @@ scoring:
 llm:
   local_model: llama3.1:8b
   cloud_models:
-    gemini: gemini-2.0-flash
+    gemini: gemini-3.6-flash
     groq: llama-3.3-70b-versatile
     openrouter: meta-llama/llama-3.3-70b-instruct:free
 
