@@ -1,15 +1,32 @@
 """Configuration: YAML settings, ICP files, legal policies, .env secrets."""
 import os
+import tempfile
 from pathlib import Path
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_DIR = ROOT / "config"
-DATA_DIR = ROOT / "data"
-DB_PATH = DATA_DIR / "lead_engine.sqlite3"
 FIXTURES_DIR = ROOT / "fixtures"
-OUTPUTS_DIR = ROOT / "outputs"
+
+
+def _writable_dir(preferred: Path) -> Path:
+    """Serverless filesystems (Vercel) are read-only outside /tmp — fall back."""
+    try:
+        preferred.mkdir(parents=True, exist_ok=True)
+        probe = preferred / ".write_probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+        return preferred
+    except OSError:
+        alt = Path(tempfile.gettempdir()) / "lead_engine" / preferred.name
+        alt.mkdir(parents=True, exist_ok=True)
+        return alt
+
+
+DATA_DIR = _writable_dir(Path(os.environ.get("LEAD_ENGINE_DATA_DIR", ROOT / "data")))
+OUTPUTS_DIR = _writable_dir(Path(os.environ.get("LEAD_ENGINE_OUTPUTS_DIR", ROOT / "outputs")))
+DB_PATH = DATA_DIR / "lead_engine.sqlite3"
 
 
 def load_env(path: Path = ROOT / ".env") -> None:

@@ -20,7 +20,7 @@ const config = node({
       mode: 'manual',
       assignments: {
         assignments: [
-          { id: 'a1', name: 'engineBaseUrl', value: 'http://localhost:8000', type: 'string' },
+          { id: 'a1', name: 'engineBaseUrl', value: 'https://lead-engine-gamma-silk.vercel.app', type: 'string' },
           { id: 'a2', name: 'icpName', value: 'v0_saudi_dental', type: 'string' },
         ],
       },

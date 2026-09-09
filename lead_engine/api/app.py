@@ -26,7 +26,9 @@ from pydantic import BaseModel, Field
 
 from .. import __version__
 from ..benchmark.metrics import compute_metrics, render_report
-from ..config import CONFIG_DIR, DB_PATH, DATA_DIR, ROOT, load_env, load_settings
+from ..config import (
+    CONFIG_DIR, DB_PATH, DATA_DIR, OUTPUTS_DIR, ROOT, load_env, load_settings,
+)
 from ..db import Database
 from ..jobs import PAUSED, JobManager
 from ..providers.email import VerificationPipeline
@@ -327,9 +329,15 @@ def api_config_update(key: str, req: dict, db: Database = Depends(get_db)):
         yaml.safe_load(text)
     except yaml.YAMLError as exc:
         raise HTTPException(status_code=422, detail=f"YAML غير صالح: {exc}") from exc
-    backup = path.with_suffix(path.suffix + ".bak")
-    backup.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
-    path.write_text(text, encoding="utf-8")
+    try:
+        backup = path.with_suffix(path.suffix + ".bak")
+        backup.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+        path.write_text(text, encoding="utf-8")
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="الملفات للقراءة فقط في نشر السيرفرليس — عدّل الإعدادات محليًا أو من Vercel env",
+        ) from exc
     global settings
     settings = load_settings()
     return {"ok": True, "key": key, "backup": str(backup.relative_to(ROOT))}
@@ -373,7 +381,7 @@ def api_cache_purge(db: Database = Depends(get_db)):
 
 @app.get("/api/export/leads.csv", include_in_schema=False)
 def api_export_csv():
-    path = DATA_DIR.parent / "outputs" / "leads.csv"
+    path = OUTPUTS_DIR / "leads.csv"
     if not path.exists():
         raise HTTPException(status_code=404, detail="no leads.csv yet — run a benchmark first")
     return FileResponse(path, media_type="text/csv", filename="leads.csv")
@@ -452,7 +460,13 @@ def api_keys_save(req: dict, db: Database = Depends(get_db)):
     for key, value in remaining.items():
         if value:
             out.append(f"{key}={value}")
-    ENV_PATH.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
+    try:
+        ENV_PATH.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="مفيش .env قابل للكتابة في نشر السيرفرليس — حط المفاتيح في Vercel Project Settings → Environment Variables",
+        ) from exc
 
     for key, value in updates.items():
         if value:
