@@ -24,6 +24,7 @@
 
   <nav class="tabs" role="tablist" data-testid="tab-nav">
     <button class="tab active" data-tab="overview" role="tab">نظرة عامة</button>
+    <button class="tab" data-tab="keys" role="tab">المفاتيح</button>
     <button class="tab" data-tab="providers" role="tab">المزوّدون</button>
     <button class="tab" data-tab="jobs" role="tab">المهام</button>
     <button class="tab" data-tab="leads" role="tab">النتائج</button>
@@ -48,6 +49,23 @@
       <div class="card">
         <h3>معلومات النظام</h3>
         <div id="system-info" class="sysinfo"></div>
+        <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+          <button class="btn danger" id="btn-wipe" data-testid="button-wipe-data">مسح كل البيانات المحلية</button>
+          <span class="muted">يمسح المهام والـleads والكاش وسجل الاستهلاك — لا رجعة فيه.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== المفاتيح ===================== -->
+    <section id="tab-keys" class="panel">
+      <div class="section-head">
+        <h2>مفاتيح الـAPI</h2>
+        <p class="muted">بتتخزن محليًا في <code dir="ltr">.env</code> (خارج git) وبتشتغل فورًا بدون إعادة تشغيل. القيم المحفوظة <b>عمرها ما بترجع للمتصفح</b> — شكلها المقنّع بس.</p>
+      </div>
+      <div id="keys-groups" data-testid="keys-groups"></div>
+      <div style="display:flex;gap:12px;align-items:center">
+        <button class="btn primary" id="btn-keys-save" data-testid="button-keys-save">حفظ المفاتيح</button>
+        <span class="muted" id="keys-note">سيب الحقل فاضي لو مش عايز تغيّر مفتاح موجود.</span>
       </div>
     </section>
 
@@ -79,12 +97,12 @@
             <input id="run-icp" dir="ltr" value="v0_saudi_dental" spellcheck="false">
           </label>
           <label class="check">
-            <input type="checkbox" id="run-dry" checked>
-            تجربة (fixtures — بدون شبكة)
+            <input type="checkbox" id="run-dry">
+            وضع تجربة (بيانات وهمية fixtures)
           </label>
           <button class="btn primary" id="btn-run" data-testid="button-run">تشغيل الآن</button>
         </div>
-        <p class="muted">التشغيل بيتم في الخلفية، والحالة بتتحدث تحت تلقائيًا. أوقف علامة التجربة بس لو المفاتيح مضبوطة في <code dir="ltr">.env</code>.</p>
+        <p class="muted">الافتراضي تشغيل <b>حقيقي</b> على الـAPIs — محتاج مفاتيح في تبويب <b>المفاتيح</b>. لو مفيش مفتاح مناسب المهمة هتتوقف مؤقتًا برسالة واضحة، مش هتديك بيانات وهمية.</p>
       </div>
       <div class="card table-wrap" data-testid="jobs-table">
         <table id="jobs-table">
@@ -134,7 +152,7 @@
         <h3>فحص إيميل (5 حالات + catch-all)</h3>
         <div class="run-row">
           <input id="verify-email" dir="ltr" placeholder="name@clinic.com" spellcheck="false">
-          <label class="check"><input type="checkbox" id="verify-dry">تجربة</label>
+          <label class="check"><input type="checkbox" id="verify-dry">بيانات وهمية</label>
           <button class="btn primary" id="btn-verify" data-testid="button-verify">افحص</button>
         </div>
         <div id="verify-result"></div>

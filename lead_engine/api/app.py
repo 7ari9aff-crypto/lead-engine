@@ -379,6 +379,103 @@ def api_export_csv():
     return FileResponse(path, media_type="text/csv", filename="leads.csv")
 
 
+# ---------------------------------------------------------------------------
+# API keys — stored in .env (gitignored), applied to the running process
+# immediately. Secrets are never returned to the browser, only masked chips.
+# ---------------------------------------------------------------------------
+
+ENV_PATH = ROOT / ".env"
+KEY_FIELDS = [
+    {"name": "TAVILY_API_KEY", "group": "search"},
+    {"name": "BRAVE_SEARCH_API_KEY", "group": "search"},
+    {"name": "EXA_API_KEY", "group": "search"},
+    {"name": "GEMINI_API_KEY", "group": "llm"},
+    {"name": "GROQ_API_KEY", "group": "llm"},
+    {"name": "OPENROUTER_API_KEY", "group": "llm"},
+    {"name": "APOLLO_API_KEY", "group": "data"},
+    {"name": "HUNTER_API_KEY", "group": "email"},
+    {"name": "ABSTRACT_API_KEY", "group": "email"},
+    {"name": "SUPABASE_URL", "group": "storage", "plain": True},
+    {"name": "SUPABASE_SERVICE_KEY", "group": "storage"},
+    {"name": "OLLAMA_BASE_URL", "group": "local", "plain": True},
+]
+KEY_GROUPS = {"search": "البحث", "llm": "النماذج اللغوية", "data": "بيانات الأشخاص والشركات",
+              "email": "البريد", "storage": "التخزين (Supabase)", "local": "محلي (Ollama)"}
+
+
+def _mask(value: str, plain: bool) -> str:
+    if not value:
+        return ""
+    if plain:
+        return value
+    if len(value) <= 9:
+        return "•••"
+    return f"{value[:6]}…{value[-3:]}"
+
+
+@app.get("/api/keys")
+def api_keys_list():
+    out = []
+    for field in KEY_FIELDS:
+        value = os.environ.get(field["name"], "")
+        out.append({**field, "configured": bool(value),
+                    "masked": _mask(value, field.get("plain", False))})
+    return {"env_path": str(ENV_PATH), "groups": KEY_GROUPS, "keys": out}
+
+
+@app.post("/api/keys")
+def api_keys_save(req: dict, db: Database = Depends(get_db)):
+    """Save provided keys to .env + activate them in the running process.
+    Empty string clears a key. Response contains masked values only."""
+    updates = {}
+    for field in KEY_FIELDS:
+        if field["name"] not in req:
+            continue
+        value = str(req[field["name"]]).strip()
+        if "=" in value or "\n" in value:
+            raise HTTPException(status_code=422, detail=f"قيمة غير صالحة لـ {field['name']}")
+        updates[field["name"]] = value
+    if not updates:
+        raise HTTPException(status_code=422, detail="لا مفاتيح في الطلب")
+
+    lines = ENV_PATH.read_text(encoding="utf-8").splitlines() if ENV_PATH.exists() else []
+    remaining = dict(updates)
+    out = []
+    for line in lines:
+        key = line.split("=", 1)[0].strip() if "=" in line and not line.strip().startswith("#") else None
+        if key in remaining:
+            value = remaining.pop(key)
+            if value:                      # empty -> remove the line entirely
+                out.append(f"{key}={value}")
+        else:
+            out.append(line)
+    for key, value in remaining.items():
+        if value:
+            out.append(f"{key}={value}")
+    ENV_PATH.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
+
+    for key, value in updates.items():
+        if value:
+            os.environ[key] = value
+        else:
+            os.environ.pop(key, None)
+    load_env()
+
+    # keys changed -> re-evaluate availability right away
+    Registry(db).seed_if_empty()
+    return {"ok": True, "saved": sorted(updates.keys()),
+            "keys": api_keys_list()["keys"]}
+
+
+@app.post("/api/data/reset")
+def api_data_reset(db: Database = Depends(get_db)):
+    """Wipe all locally generated data (jobs, leads, evidence, cache, usage).
+    The provider registry is kept."""
+    for table in ("leads", "evidence", "cache", "usage_ledger", "job_events", "jobs"):
+        db.execute(f"DELETE FROM {table}")
+    return {"ok": True}
+
+
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 

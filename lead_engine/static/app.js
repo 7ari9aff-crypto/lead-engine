@@ -184,6 +184,55 @@ window.resetProvider = async (name, task) => {
   } catch (e) { toast(e.message, "err"); }
 };
 
+// ------------------------------------------------------------ keys
+async function renderKeys() {
+  const data = await api("/api/keys");
+  const byGroup = {};
+  for (const k of data.keys) (byGroup[k.group] = byGroup[k.group] || []).push(k);
+  $("#keys-groups").innerHTML = Object.entries(byGroup).map(([group, keys]) => `
+    <div class="card" data-testid="keys-group-${group}">
+      <h3>${esc(data.groups[group] || group)}</h3>
+      ${keys.map((k) => `
+        <div class="key-row">
+          <label class="key-label">
+            <span class="mono" dir="ltr">${esc(k.name)}</span>
+            ${k.configured
+              ? `<span class="badge b-green">مضبوط — <span class="mono" dir="ltr">${esc(k.masked)}</span></span>`
+              : `<span class="badge b-red">ناقص</span>`}
+          </label>
+          <input type="${k.plain ? "text" : "password"}" dir="ltr" autocomplete="off"
+            data-key="${esc(k.name)}"
+            placeholder="${k.configured ? "اتركه فارغًا للاحتفاظ بالحالي" : "الصق المفتاح هنا"}"
+            data-testid="key-input-${esc(k.name)}">
+        </div>`).join("")}
+    </div>`).join("");
+}
+
+$("#btn-keys-save").onclick = async () => {
+  const body = {};
+  document.querySelectorAll("#keys-groups input[data-key]").forEach((inp) => {
+    if (inp.value.trim() !== "") body[inp.dataset.key] = inp.value.trim();
+  });
+  if (!Object.keys(body).length) return toast("اكتب مفتاح واحد على الأقل", "err");
+  try {
+    await api("/api/keys", { method: "POST", body });
+    toast("تم الحفظ — المفاتيح شغالة فورًا");
+    document.querySelectorAll("#keys-groups input[data-key]").forEach((i) => (i.value = ""));
+    await renderKeys();
+  } catch (e) { toast(e.message, "err"); }
+};
+
+// ------------------------------------------------------------ wipe data
+$("#btn-wipe").onclick = async () => {
+  if (!confirm("هيتم مسح كل المهام والـleads والكاش وسجل الاستهلاك نهائيًا. متأكد؟")) return;
+  if (!confirm("تأكيد أخير: مسح كل البيانات المحلية؟")) return;
+  try {
+    await api("/api/data/reset", { method: "POST" });
+    toast("تم مسح كل البيانات المحلية");
+    loadTab("overview");
+  } catch (e) { toast(e.message, "err"); }
+};
+
 // ------------------------------------------------------------ jobs
 async function renderJobs(s) {
   const tbody = $("#jobs-table tbody");
@@ -240,7 +289,7 @@ window.openJob = async (jobId) => {
 
 window.resumeJob = async (jobId) => {
   try {
-    const res = await api(`/api/jobs/${jobId}/resume`, { method: "POST", body: { dry_run: true } });
+    const res = await api(`/api/jobs/${jobId}/resume`, { method: "POST", body: {} });
     toast(`تم الاستئناف — الحالة: ${res.state}`);
     $("#modal").classList.add("hidden");
     loadTab("jobs");
@@ -370,6 +419,7 @@ document.querySelectorAll(".tab").forEach((t) => t.onclick = () => switchTab(t.d
 
 async function loadTab(name, silent = false) {
   try {
+    if (name === "keys") { await renderKeys(); return; }
     const s = await api("/api/status");
     renderPill(s);
     if (name === "overview") renderOverview(s);
