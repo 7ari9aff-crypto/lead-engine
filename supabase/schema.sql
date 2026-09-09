@@ -1,0 +1,219 @@
+-- Lead Engine — Supabase schema reference
+-- Generated from the LIVE 'lead' project (ref abshiqxxsvdtbdngycpb) on 2026-09-09.
+-- هذا الملف توثيق للمخطط الموجود فعلًا؛ المزامنة منه عبر lead_engine/sync.py
+-- والفصل: n8n = orchestration، FastAPI = engine، Supabase = lead database.
+
+-- == campaigns ==
+-- create table campaigns (
+--   id uuid NOT NULL DEFAULT gen_random_uuid(),
+--   name text NOT NULL,
+--   icp_text text NOT NULL,
+--   status text NOT NULL DEFAULT 'DRAFT'::text,
+--   budgets jsonb NOT NULL DEFAULT '{}'::jsonb,
+--   created_at timestamp with time zone NOT NULL DEFAULT now(),
+--   CHECK: CHECK ((status = ANY (ARRAY['DRAFT'::text, 'ACTIVE'::text, 'PAUSED'::text, 'ARCHIVED'::text])))
+
+-- == companies ==
+-- create table companies (
+--   id uuid NOT NULL DEFAULT gen_random_uuid(),
+--   canonical_name text NOT NULL,
+--   dedup_name text,
+--   domain text,
+--   normalized_domain text,
+--   country text,
+--   city text,
+--   industry text,
+--   branches integer,
+--   data jsonb NOT NULL DEFAULT '{}'::jsonb,
+--   first_seen_at timestamp with time zone NOT NULL DEFAULT now(),
+--   updated_at timestamp with time zone NOT NULL DEFAULT now(),
+
+-- == company_claims ==
+-- create table company_claims (
+--   id uuid NOT NULL DEFAULT gen_random_uuid(),
+--   company_id uuid NOT NULL,
+--   kind text NOT NULL,
+--   value text NOT NULL,
+--   normalized_value text,
+--   source_url text,
+--   source_type text,
+--   extraction_method text,
+--   evidence_ref text,
+--   confidence numeric NOT NULL DEFAULT 0.500,
+--   status text NOT NULL DEFAULT 'ACTIVE'::text,
+--   observed_at timestamp with time zone NOT NULL DEFAULT now(),
+--   CHECK: CHECK ((kind = ANY (ARRAY['INDUSTRY'::text, 'LOCATION'::text, 'BRANCH_COUNT'::text, 'MARKETING_ACTIVITY'::text, 'CONTACT'::text, 'DECISION_MAKER'::text, 'TECH'::text, 'OTHER'::text])))
+
+-- == company_contacts ==
+-- create table company_contacts (
+--   id uuid NOT NULL DEFAULT gen_random_uuid(),
+--   company_id uuid NOT NULL,
+--   name text,
+--   title text,
+--   email text,
+--   phone text,
+--   linkedin_url text,
+--   is_decision_maker boolean NOT NULL DEFAULT false,
+--   created_at timestamp with time zone NOT NULL DEFAULT now(),
+--   updated_at timestamp with time zone NOT NULL DEFAULT now(),
+
+-- == company_observations ==
+-- create table company_observations (
+--   id uuid NOT NULL DEFAULT gen_random_uuid(),
+--   company_id uuid NOT NULL,
+--   source_url text,
+--   source_type text,
+--   extraction_method text,
+--   raw jsonb NOT NULL DEFAULT '{}'::jsonb,
+--   provider_id uuid,
+--   confidence numeric NOT NULL DEFAULT 0.500,
+--   observed_at timestamp with time zone NOT NULL DEFAULT now(),
+
+-- == contact_verifications ==
+-- create table contact_verifications (
+--   id uuid NOT NULL DEFAULT gen_random_uuid(),
+--   contact_id uuid NOT NULL,
+--   channel text NOT NULL,
+--   status text NOT NULL DEFAULT 'UNKNOWN'::text,
+--   provider_id uuid,
+--   detail jsonb NOT NULL DEFAULT '{}'::jsonb,
+--   checked_at timestamp with time zone NOT NULL DEFAULT now(),
+--   CHECK: CHECK ((status = ANY (ARRAY['UNKNOWN'::text, 'VALID'::text, 'INVALID'::text, 'RISKY'::text])))
+
+-- == icp_profiles ==
+-- create table icp_profiles (
+--   id uuid NOT NULL DEFAULT gen_random_uuid(),
+--   campaign_id uuid NOT NULL,
+--   raw_text text NOT NULL,
+--   constraints jsonb NOT NULL DEFAULT '{}'::jsonb,
+--   created_at timestamp with time zone NOT NULL DEFAULT now(),
+
+-- == job_events ==
+-- create table job_events (
+--   id uuid NOT NULL DEFAULT gen_random_uuid(),
+--   job_id uuid NOT NULL,
+--   level text NOT NULL DEFAULT 'INFO'::text,
+--   stage text,
+--   message text NOT NULL,
+--   data jsonb NOT NULL DEFAULT '{}'::jsonb,
+--   created_at timestamp with time zone NOT NULL DEFAULT now(),
+
+-- == job_resource_usage ==
+-- create table job_resource_usage (
+--   id uuid NOT NULL DEFAULT gen_random_uuid(),
+--   job_id uuid NOT NULL,
+--   provider_id uuid,
+--   task_kind text,
+--   units integer NOT NULL DEFAULT 1,
+--   cost_usd numeric NOT NULL DEFAULT 0,
+--   created_at timestamp with time zone NOT NULL DEFAULT now(),
+--   CHECK: CHECK ((task_kind = ANY (ARRAY['DISCOVERY'::text, 'ENRICH'::text, 'RESEARCH'::text, 'QUALIFY'::text, 'VERIFY'::text, 'SCORE'::text, 'EXPORT'::text])))
+
+-- == job_tasks ==
+-- create table job_tasks (
+--   id uuid NOT NULL DEFAULT gen_random_uuid(),
+--   job_id uuid NOT NULL,
+--   kind text NOT NULL,
+--   status text NOT NULL DEFAULT 'PENDING'::text,
+--   entity_id uuid,
+--   attempts integer NOT NULL DEFAULT 0,
+--   max_attempts integer NOT NULL DEFAULT 3,
+--   idempotency_key text,
+--   last_error text,
+--   created_at timestamp with time zone NOT NULL DEFAULT now(),
+--   updated_at timestamp with time zone NOT NULL DEFAULT now(),
+--   CHECK: CHECK ((status = ANY (ARRAY['PENDING'::text, 'RUNNING'::text, 'SUCCEEDED'::text, 'FAILED'::text, 'SKIPPED'::text])))
+
+-- == jobs ==
+-- create table jobs (
+--   id uuid NOT NULL DEFAULT gen_random_uuid(),
+--   campaign_id uuid NOT NULL,
+--   status text NOT NULL DEFAULT 'QUEUED'::text,
+--   target_count integer NOT NULL DEFAULT 0,
+--   discovered integer NOT NULL DEFAULT 0,
+--   qualified integer NOT NULL DEFAULT 0,
+--   rejected integer NOT NULL DEFAULT 0,
+--   degraded_reason text,
+--   error_detail text,
+--   created_at timestamp with time zone NOT NULL DEFAULT now(),
+--   updated_at timestamp with time zone NOT NULL DEFAULT now(),
+--   started_at timestamp with time zone,
+--   finished_at timestamp with time zone,
+--   CHECK: CHECK ((status = ANY (ARRAY['QUEUED'::text, 'RUNNING'::text, 'RETRYING'::text, 'DEGRADED'::text, 'PAUSED'::text, 'RESUMING'::text, 'COMPLETED'::text, 'PARTIAL_COMPLETED'::text, 'FAILED'::text, 'CANCELLED'::text])))
+
+-- == lead_exports ==
+-- create table lead_exports (
+--   id uuid NOT NULL DEFAULT gen_random_uuid(),
+--   campaign_id uuid NOT NULL,
+--   format text NOT NULL,
+--   destination text NOT NULL,
+--   row_count integer NOT NULL DEFAULT 0,
+--   payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+--   created_at timestamp with time zone NOT NULL DEFAULT now(),
+
+-- == leads ==
+-- create table leads (
+--   id uuid NOT NULL DEFAULT gen_random_uuid(),
+--   campaign_id uuid NOT NULL,
+--   company_id uuid,
+--   contact_id uuid,
+--   status text NOT NULL DEFAULT 'PENDING'::text,
+--   icp_score numeric,
+--   score_breakdown jsonb NOT NULL DEFAULT '{}'::jsonb,
+--   qualification jsonb NOT NULL DEFAULT '{}'::jsonb,
+--   personalization jsonb NOT NULL DEFAULT '{}'::jsonb,
+--   legal_status text NOT NULL DEFAULT 'REVIEW'::text,
+--   legal_reason text,
+--   evidence_count integer NOT NULL DEFAULT 0,
+--   created_at timestamp with time zone NOT NULL DEFAULT now(),
+--   updated_at timestamp with time zone NOT NULL DEFAULT now(),
+--   CHECK: CHECK ((status = ANY (ARRAY['PENDING'::text, 'QUALIFIED'::text, 'REJECTED'::text, 'REVIEW'::text, 'EXPORTED'::text])))
+
+-- == policies ==
+-- create table policies (
+--   id uuid NOT NULL DEFAULT gen_random_uuid(),
+--   jurisdiction text NOT NULL,
+--   allowed_purposes ARRAY NOT NULL DEFAULT '{}'::text[],
+--   allowed_channels ARRAY NOT NULL DEFAULT '{}'::text[],
+--   require_opt_out boolean NOT NULL DEFAULT true,
+--   notes text,
+--   updated_at timestamp with time zone NOT NULL DEFAULT now(),
+--   UNIQUE: jurisdiction
+
+-- == provider_health ==
+-- create table provider_health (
+--   id uuid NOT NULL DEFAULT gen_random_uuid(),
+--   provider_id uuid NOT NULL,
+--   status text NOT NULL,
+--   latency_ms integer,
+--   detail jsonb NOT NULL DEFAULT '{}'::jsonb,
+--   checked_at timestamp with time zone NOT NULL DEFAULT now(),
+--   CHECK: CHECK ((status = ANY (ARRAY['ACTIVE'::text, 'DEGRADED'::text, 'DISABLED'::text, 'COOLDOWN'::text])))
+
+-- == providers ==
+-- create table providers (
+--   id uuid NOT NULL DEFAULT gen_random_uuid(),
+--   name text NOT NULL,
+--   kind text NOT NULL,
+--   supported_tasks ARRAY NOT NULL DEFAULT '{}'::text[],
+--   priority integer NOT NULL DEFAULT 100,
+--   api_key_env text,
+--   base_url text,
+--   rpm integer,
+--   rpd integer,
+--   cost_per_call_usd numeric NOT NULL DEFAULT 0,
+--   quality_score numeric NOT NULL DEFAULT 0.50,
+--   enabled boolean NOT NULL DEFAULT true,
+--   status text NOT NULL DEFAULT 'ACTIVE'::text,
+--   cooldown_until timestamp with time zone,
+--   created_at timestamp with time zone NOT NULL DEFAULT now(),
+--   CHECK: CHECK ((status = ANY (ARRAY['ACTIVE'::text, 'DEGRADED'::text, 'DISABLED'::text, 'COOLDOWN'::text])))
+--   UNIQUE: name
+
+-- == request_cache ==
+-- create table request_cache (
+--   key text NOT NULL,
+--   kind text NOT NULL,
+--   payload jsonb NOT NULL,
+--   created_at timestamp with time zone NOT NULL DEFAULT now(),
+--   expires_at timestamp with time zone NOT NULL,

@@ -1,0 +1,122 @@
+"""Lead Engine CLI.
+
+  python -m lead_engine init
+  python -m lead_engine benchmark --dry-run
+  python -m lead_engine benchmark                 # live (needs API keys in .env)
+  python -m lead_engine providers
+  python -m lead_engine verify-email --email x@y.com --dry-run
+  python -m lead_engine resume --job JOB_ID
+  python -m lead_engine serve --port 8000
+"""
+import argparse
+import json
+import sys
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="lead_engine", description=__doc__)
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("init", help="create database and seed provider registry")
+    sub.add_parser("providers", help="show provider registry status + usage")
+
+    bench = sub.add_parser("benchmark", help="run the V0 benchmark pipeline")
+    bench.add_argument("--icp", default="v0_saudi_dental")
+    bench.add_argument("--dry-run", action="store_true", help="fixtures only, no network")
+    bench.add_argument("--seed", help="CSV path with manually collected clinics")
+    bench.add_argument("--no-report", action="store_true")
+
+    verify = sub.add_parser("verify-email", help="run the 5-state email verification pipeline")
+    verify.add_argument("--email", required=True)
+    verify.add_argument("--dry-run", action="store_true")
+
+    resume = sub.add_parser("resume", help="resume a PAUSED job")
+    resume.add_argument("--job", required=True)
+
+    serve = sub.add_parser("serve", help="run the FastAPI server")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8000)
+
+    args = parser.parse_args(argv)
+
+    from .config import DATA_DIR, DB_PATH, load_env, load_settings
+    from .db import Database
+
+    load_env()
+    settings = load_settings()
+
+    if args.cmd == "init":
+        DATA_DIR.mkdir(exist_ok=True)
+        db = Database(DB_PATH)
+        from .registry import Registry
+
+        Registry(db).seed_if_empty()
+        print(f"database ready at {DB_PATH}")
+        return 0
+
+    if args.cmd == "providers":
+        db = Database(DB_PATH)
+        from .registry import Registry
+
+        Registry(db).seed_if_empty()
+        rows = Registry(db).status_table()
+        for r in rows:
+            key_state = "local" if r["env_key"] is None else (
+                "key:set" if r.get("env_key") else "key:MISSING")
+            print(f"{r['task']:<14} #{r['priority']} {r['name']:<12} {r['status']:<10} "
+                  f"{key_state:<11} used={r['quota_used']}/{r['quota_limit']} {r['period'] or ''}")
+        return 0
+
+    if args.cmd == "benchmark":
+        from .benchmark.run import run_benchmark
+
+        summary, metrics, outputs = run_benchmark(
+            args.icp, dry_run=args.dry_run, seed_csv=args.seed, write=not args.no_report)
+        print(json.dumps(metrics, ensure_ascii=False, indent=2))
+        print(f"\nstate: {summary.get('state')}")
+        if outputs:
+            print(f"report: {outputs.get('report')}\ncsv: {outputs.get('csv')}")
+        return 0
+
+    if args.cmd == "verify-email":
+        db = Database(DB_PATH)
+        from .cache import CacheLayer
+        from .config import load_cache_policy
+        from .providers.email import VerificationPipeline
+        from .router import Router
+
+        router = Router(db, CacheLayer(db, load_cache_policy()), settings,
+                        dry_run=args.dry_run)
+        result = VerificationPipeline(router).verify(args.email)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.cmd == "resume":
+        db = Database(DB_PATH)
+        from .jobs import JobManager
+        from .pipeline.orchestrator import PipelineOrchestrator
+
+        jobs = JobManager(db)
+        jobs.resume(args.job)
+        row = db.one("SELECT icp_id FROM jobs WHERE job_id=?", (args.job,))
+        from .config import load_icp
+
+        orchestrator = PipelineOrchestrator(db, settings, dry_run=False)
+        summary = orchestrator.run_job(load_icp(row["icp_id"]), job_id=args.job)
+        print(json.dumps({k: v for k, v in summary.items() if k != "leads"},
+                         ensure_ascii=False, indent=2))
+        return 0
+
+    if args.cmd == "serve":
+        import uvicorn
+
+        from .api.app import app
+
+        uvicorn.run(app, host=args.host, port=args.port)
+        return 0
+
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

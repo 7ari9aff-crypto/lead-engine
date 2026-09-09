@@ -1,0 +1,16 @@
+{
+  "alzahradental.com": {"decision_maker": "Dr. Hassan Al-Zahra", "title": "Owner", "email": "h.alzahra@alzahradental.com", "phone": "+966551234567", "linkedin_url": "https://linkedin.com/in/hassan-alzahra"},
+  "drsmile.sa": {"decision_maker": "Dr. Faisal Al-Otaibi", "title": "Practice Owner", "email": "f.otaibi@drsmile.sa", "phone": "+966509876543", "linkedin_url": "https://linkedin.com/in/faisal-alotaibi"},
+  "jeddahdental.sa": {"decision_maker": "Reem Al-Harbi", "title": "Clinic Manager", "email": "info@jeddahdental.sa", "phone": null, "linkedin_url": ""},
+  "gulfdentalgroup.com": {"decision_maker": "Dr. Khalid Al-Malki", "title": "Dental Director", "email": "k.malki@gulfdentalgroup.com", "phone": "+966551110022", "linkedin_url": "https://linkedin.com/in/khalid-almalki"},
+  "smilehouse-jd.com": {"decision_maker": null, "title": null, "email": "info@smilehouse-jd.com", "phone": null, "linkedin_url": ""},
+  "perfectsmile-jed.com": {"decision_maker": null, "title": null, "email": "contact@perfectsmile-jed.com", "phone": null, "linkedin_url": ""},
+  "freshsmile-riyadh.com": {"decision_maker": null, "title": null, "email": "care@freshsmile-riyadh.com", "phone": null, "linkedin_url": ""},
+  "dentalcare-riyadh.com": {"decision_maker": null, "title": null, "email": "appointments@dentalcare-riyadh.com", "phone": null, "linkedin_url": ""},
+  "riyadhdentalstudio.com": {"decision_maker": "Sara Al-Qahtani", "title": "Owner", "email": "s.qahtani@riyadhdentalstudio.com", "phone": null, "linkedin_url": ""},
+  "elite-dental-jed.com": {"decision_maker": "Dr. Omar Bakr", "title": "Owner", "email": "o.bakr@elite-dental-jed.com", "phone": null, "linkedin_url": ""},
+  "executivedental.sa": {"decision_maker": "Dr. Laila Nasser", "title": "Owner", "email": "l.nasser@executivedental.sa", "phone": null, "linkedin_url": ""},
+  "alshifa-dental.com": {"decision_maker": null, "title": null, "email": "info@alshifa-dental.com", "phone": null, "linkedin_url": ""},
+  "rawabi-dental.com": {"decision_maker": null, "title": null, "email": null, "phone": null, "linkedin_url": ""},
+  "northjeddahdental.xyz": {"decision_maker": null, "title": null, "email": null, "phone": null, "linkedin_url": ""}
+}

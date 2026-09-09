@@ -1,0 +1,51 @@
+# ============================================================
+# V0 Benchmark ICP — عيادات أسنان في السعودية (جدة/الرياض)
+# الهدف: إثبات إن الـfree stack يعطي 20-30 lead حقيقيين بجودة عالية
+# قبل بناء الـengine كامل. ده benchmark مش production run.
+# ============================================================
+
+icp_id: v0_saudi_dental
+name: Saudi Dental Clinics V0
+country: SA
+legal_policy: sa
+
+cities:
+  - {name: Jeddah, ar: جدة}
+  - {name: Riyadh, ar: الرياض}
+
+industry: dental
+keywords_en: [dental clinic, dentist]
+keywords_ar: ["عيادة أسنان", "طبيب أسنان", "عيادات أسنان"]
+
+criteria:
+  min_branches: 3
+  marketing_signals: [active_ads, instagram_active, website_active]
+  decision_maker_roles:
+    - owner
+    - practice owner
+    - dental director
+    - practice manager
+    - clinic manager
+    - مالك
+    - مدير
+
+# حدود الـV0
+v0_limits:
+  search_results_per_query: 8
+  max_search_queries: 8
+  candidate_target: "50-100"
+  final_leads_target: "20-30"
+  # Apollo enrichment بياكل credits (1-9/شخص) — للتوب كانديدتس فقط
+  enrichment_budget_credits: 50
+  enrichment_max_people: 30
+
+# مقياس الـbenchmark المطلوب قياسه بعد التشغيل
+metrics:
+  - discovery_precision
+  - enrichment_success_rate
+  - contact_coverage
+  - email_validity
+  - duplicate_rate
+  - ai_qualification_accuracy
+  - quota_consumed_per_lead
+  - total_cost   # هدف V0: $0

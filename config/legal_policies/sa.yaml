@@ -1,0 +1,62 @@
+# Legal Gate policy — السعودية (السوق المستهدف في V0)
+# ده policy engine بيفرض سياسات محفوظة، مش محامي. القانون الحاكم
+# للأحوال الشخصية في السعودية هو نظام حماية البيانات الشخصية (PDPL)
+# وللسوق B2B البيانات المهنية أخف من البيانات الشخصية، لكن
+# التواصل (outreach) له قواعده. راجع مستشار قانوني قبل أي حملة فعلية.
+
+country: SA
+regulation: PDPL
+default_retention_days: 30
+
+source_types:
+  public_web:
+    allowed_for_collection: true
+    allowed_for_storage: true
+    allowed_for_reuse: true
+    approved: true
+  search_api:
+    allowed_for_collection: true
+    allowed_for_storage: true
+    allowed_for_reuse: true
+    approved: true
+  apollo_api:
+    allowed_for_collection: true
+    allowed_for_storage: true
+    allowed_for_reuse: true
+    approved: true
+  hunter_api:
+    allowed_for_collection: true
+    allowed_for_storage: true
+    allowed_for_reuse: true
+    approved: true
+  manual_seed:
+    allowed_for_collection: true
+    allowed_for_storage: true
+    allowed_for_reuse: true
+    approved: true
+  scraped_marketplace:
+    allowed_for_collection: false
+    approved: false   # خرق ToS — محتاج مراجعة صريحة قبل التفعيل
+
+data_types:
+  company_public_data:
+    storage_allowed: true
+    requires_review: false
+    retention_days: 30
+  professional_contact:
+    storage_allowed: true       # بيانات دور عمل B2B
+    requires_review: false
+    retention_days: 30
+  personal_contact:
+    storage_allowed: true
+    requires_review: true       # رقم/إيميل شخصي → مراجعة يدوية
+    retention_days: 14
+  sensitive_data:
+    storage_allowed: false      # صحية/دينية/مطالبات — ممنوع التخزين
+    requires_review: true
+    retention_days: 0
+
+purposes:
+  lead_generation: allowed
+  qualification: allowed
+  outreach: allowed_with_consent_basis

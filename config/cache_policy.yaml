@@ -1,0 +1,25 @@
+# TTL بالأيام لكل نوع بيانات — configurable هنا مش hard-coded في الكود
+# القيم دي قرار هندسي مبدئي، مش أرقام مفروضة من الـproviders
+ttl_days:
+  company_name: 30
+  company_domain: 30
+  industry: 30
+  location: 30
+  employee_estimate: 30
+  decision_maker: 14
+  email: 7
+  email_verification: 7
+  phone: 7
+  website_content: 7
+  social_activity: 3
+  news_events: 1
+  search_results: 2
+  apollo_people_search: 7
+  apollo_enrichment: 7
+  evidence: 30
+
+# مستويات الكاش
+levels:
+  1: request_cache   # نفس الـquery بالظبط
+  2: entity_cache    # بيانات الكيان الأساسية
+  3: evidence_cache  # كل claim مع مصدره وtimestamp

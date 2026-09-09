@@ -1,0 +1,61 @@
+# Legal Gate policy — default (غير محدد الدولة)
+# مهم: ده policy engine مش legal advice. السياسات الفعلية تعتمد
+# على الدولة والمصدر وطريقة الجمع وشروط الخدمة لكل provider.
+# الوضع الافتراضي: default-deny لأي حاجة مش معرّفة صراحةً.
+
+country: DEFAULT
+regulation: null
+default_retention_days: 30
+
+source_types:
+  public_web:
+    allowed_for_collection: true
+    allowed_for_storage: true
+    allowed_for_reuse: true
+    approved: true
+  search_api:
+    allowed_for_collection: true
+    allowed_for_storage: true
+    allowed_for_reuse: true
+    approved: true
+  apollo_api:
+    allowed_for_collection: true
+    allowed_for_storage: true
+    allowed_for_reuse: true
+    approved: true   # بشرط الالتزام بشروط Apollo ToS
+  hunter_api:
+    allowed_for_collection: true
+    allowed_for_storage: true
+    allowed_for_reuse: true
+    approved: true
+  manual_seed:
+    allowed_for_collection: true
+    allowed_for_storage: true
+    allowed_for_reuse: true
+    approved: true
+  scraped_marketplace:
+    allowed_for_collection: false
+    approved: false
+
+data_types:
+  company_public_data:
+    storage_allowed: true
+    requires_review: false
+    retention_days: 30
+  professional_contact:
+    storage_allowed: true
+    requires_review: false
+    retention_days: 30
+  personal_contact:
+    storage_allowed: true
+    requires_review: true
+    retention_days: 14
+  sensitive_data:
+    storage_allowed: false
+    requires_review: true
+    retention_days: 0
+
+purposes:
+  lead_generation: allowed
+  qualification: allowed
+  outreach: allowed_with_consent_basis

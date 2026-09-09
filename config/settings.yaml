@@ -1,0 +1,41 @@
+router:
+  timeout_seconds: 30
+  rate_window_seconds: 60
+  cooldown_default_seconds: 300
+  unavailable_cooldown_seconds: 60
+
+backoff:
+  base_seconds: 5
+  factor: 2
+  max_seconds: 3600
+
+job:
+  # لو مفيش provider متاح، الجوب بياخد pause مؤقت مش failure
+  pause_backoff_seconds: 1800
+
+dedup:
+  auto_merge_threshold: 0.95
+  review_threshold: 0.85
+
+verification:
+  smtp_timeout: 10
+  catch_all_probe: true
+  mail_from: lead-engine@localhost
+
+scoring:
+  weights:
+    qualification: 0.5
+    evidence: 0.2
+    contact: 0.2
+    verification: 0.1
+
+llm:
+  local_model: llama3.1:8b
+  cloud_models:
+    gemini: gemini-2.0-flash
+    groq: llama-3.3-70b-versatile
+    openrouter: meta-llama/llama-3.3-70b-instruct:free
+
+export:
+  csv_path: outputs/leads.csv
+  report_path: outputs/report.md

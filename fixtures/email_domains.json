@@ -1,0 +1,20 @@
+{
+  "alzahradental.com": ["CATCH_ALL", 0.3],
+  "drsmile.sa": ["DELIVERABLE", 0.9],
+  "jeddahdental.sa": ["DELIVERABLE", 0.8],
+  "gulfdentalgroup.com": ["DELIVERABLE", 0.85],
+  "smilehouse-jd.com": ["DELIVERABLE", 0.6],
+  "perfectsmile-jed.com": ["RISKY", 0.45],
+  "freshsmile-riyadh.com": ["DELIVERABLE", 0.55],
+  "dentalcare-riyadh.com": ["DELIVERABLE", 0.7],
+  "riyadhdentalstudio.com": ["DELIVERABLE", 0.8],
+  "elite-dental-jed.com": ["DELIVERABLE", 0.75],
+  "executivedental.sa": ["DELIVERABLE", 0.8],
+  "alshifa-dental.com": ["DELIVERABLE", 0.65],
+  "northjeddahdental.xyz": ["INVALID", 0.9],
+  "elite-dental-riyadh.com": ["DELIVERABLE", 0.7],
+  "smilecity-jd.com": ["DELIVERABLE", 0.6],
+  "orthoriyadh.com": ["DELIVERABLE", 0.6],
+  "example-dental.sa": ["DELIVERABLE", 0.6],
+  "example-clinic.com": ["DELIVERABLE", 0.6]
+}

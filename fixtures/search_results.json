@@ -1,0 +1,77 @@
+{
+  "queries": {
+    "dental clinic in Jeddah": [
+      {"title": "Al Zahra Dental Clinic", "url": "https://alzahradental.com", "snippet": "Al Zahra Dental Clinic - 3 branches across Jeddah. Cosmetic and orthodontic dental care with online booking."},
+      {"title": "Jeddah Dental Center", "url": "https://jeddahdental.sa", "snippet": "Jeddah Dental Center. Specialist dental clinic in Jeddah with 4 branches, active Google and Instagram marketing."},
+      {"title": "Smile House Dental", "url": "https://smilehouse-jd.com", "snippet": "Smile House Dental Clinic Jeddah. General and cosmetic dentistry, 1 branch in Al Zahra district."},
+      {"title": "Perfect Smile Dental Jeddah", "url": "https://perfectsmile-jed.com", "snippet": "Perfect Smile Dental - 2 branches in Jeddah. New marketing campaign 2026."},
+      {"title": "Jeddah Smiles (@jeddahsmiles) on Instagram", "url": "https://instagram.com/jeddahsmiles", "snippet": "Jeddah Smiles dental clinic on Instagram. Daily cases and offers, booking via WhatsApp."},
+      {"title": "Dr. Amal Dental Care", "url": "https://dramal-dental.com", "snippet": "Dr. Amal Dental Care. Dental clinic in Jeddah, Al Rawdah district, 1 branch."},
+      {"title": "Al Zahra Dental Center", "url": "https://alzahradental.com/about", "snippet": "About Al Zahra Dental Center - dental clinic group in Jeddah with 3 branches."},
+      {"title": "Best Dental Clinics in Jeddah 2026 | Health Directory", "url": "https://healthdirectory-sa.com/jeddah-dental", "snippet": "A directory listing of dental clinics in Jeddah with reviews and ratings."}
+    ],
+    "dentist in Jeddah": [
+      {"title": "Dr. Amal Dental Care", "url": "https://dramal-dental.com", "snippet": "Dr. Amal Dental Care. Dental clinic in Jeddah, Al Rawdah district."},
+      {"title": "عيادة الزهراء لطب الأسنان", "url": "https://alzahradental.com/ar", "snippet": "عيادة الزهراء لطب الأسنان - 3 فروع في جدة، تجميل وتقويم أسنان."},
+      {"title": "Elite Dental Clinic Jeddah", "url": "https://elite-dental-jed.com", "snippet": "Elite Dental Clinic. 3 branches in Jeddah, new marketing campaign 2026."},
+      {"title": "North Jeddah Dental", "url": "https://northjeddahdental.xyz", "snippet": "North Jeddah Dental Clinic. Family dentistry."},
+      {"title": "Smile House", "url": "https://smilehouse-jd.com", "snippet": "Smile House Dental Jeddah - book your dentist appointment online."},
+      {"title": "Jeddah dentist recommendations | Reddit", "url": "https://reddit.com/r/jeddah", "snippet": "Reddit thread asking for dentist recommendations in Jeddah."}
+    ],
+    "عيادة أسنان جدة": [
+      {"title": "عيادة الزهراء لطب الأسنان - جدة", "url": "https://alzahradental.com", "snippet": "عيادة الزهراء لطب الأسنان - 3 فروع في جدة، حجز أونلاين."},
+      {"title": "مركز جدة لطب الأسنان", "url": "https://jeddahdental.sa", "snippet": "مركز جدة لطب الأسنان - 4 فروع، تسويق نشط على جوجل وانستقرام."},
+      {"title": "عيادات سمايل هاوس", "url": "https://smilehouse-jd.com", "snippet": "عيادات سمايل هاوس لطب الأسنان في جدة."},
+      {"title": "عيادة النخبة لطب الأسنان", "url": "https://elite-dental-jed.com", "snippet": "عيادة النخبة لطب الأسنان - 3 فروع في جدة، حملة تسويق جديدة."},
+      {"title": "عيادة الابتسامة المثالية", "url": "https://perfectsmile-jed.com", "snippet": "عيادة الابتسامة المثالية - فرعين في جدة، حملة إعلانية جديدة."},
+      {"title": "افضل عيادات الاسنان في جدة", "url": "https://healthdirectory-sa.com/jeddah-dental", "snippet": "دليل عيادات الأسنان في جدة مع التقييمات."},
+      {"title": "عيادة سمايل سيتي", "url": "https://smilecity-jd.com", "snippet": "عيادة سمايل سيتي لطب الأسنان - فرعين في جدة."}
+    ],
+    "طبيب أسنان جدة": [
+      {"title": "د. حمد الزهراء - عيادة الزهراء", "url": "https://alzahradental.com/team", "snippet": "د. حمد الزهراء وطبيب فريق عيادة الزهراء لطب الأسنان بجدة."},
+      {"title": "North Jeddah Dental Clinic", "url": "https://northjeddahdental.xyz", "snippet": "North Jeddah Dental Clinic - طبيب أسنان في شمال جدة."},
+      {"title": "Gulf Dental Group Jeddah Branch", "url": "https://gulfdentalgroup.com", "snippet": "Gulf Dental Group. 12 branches across Riyadh and Jeddah, new marketing campaign 2026."},
+      {"title": "Al Zahra Dental Center (@alzahradental) - Instagram", "url": "https://instagram.com/alzahradental", "snippet": "Al Zahra Dental Center dental clinic on Instagram - عيادة الزهراء."},
+      {"title": "عيادة الشفاء لطب الأسنان", "url": "https://alshifa-dental.com", "snippet": "عيادة الشفاء لطب الأسنان بجدة - 1 فرع، حجز واتساب."}
+    ],
+    "عيادات أسنان جدة": [
+      {"title": "عيادة الروضة لطب الأسنان", "url": "https://rawabi-dental.com", "snippet": "عيادة الروضة لطب الأسنان - 3 فروع في حي الروضة بجدة، تسويق نشط."},
+      {"title": "عيادة الشفاء", "url": "https://alshifa-dental.com", "snippet": "عيادة الشفاء لطب الأسنان بجدة."},
+      {"title": "Dr. Amal Dental Care", "url": "https://dramal-dental.com", "snippet": "Dr. Amal Dental Care Jeddah - dentist and orthodontics."},
+      {"title": "عيادة سمايل سيتي لطب الأسنان", "url": "https://smilecity-jd.com", "snippet": "عيادة سمايل سيتي - فرعين في جدة."}
+    ],
+    "dental clinic in Riyadh": [
+      {"title": "Dr. Smile Dental Care", "url": "https://drsmile.sa", "snippet": "Dr. Smile Dental Care - 5 branches in Riyadh. Largest dental marketing campaigns in Saudi Arabia."},
+      {"title": "Riyadh Dental Studio", "url": "https://riyadhdentalstudio.com", "snippet": "Riyadh Dental Studio. Modern dental clinic with 2 branches."},
+      {"title": "Fresh Smile Dental Riyadh", "url": "https://freshsmile-riyadh.com", "snippet": "Fresh Smile Dental. 3 branches in north Riyadh, new Google Ads campaign."},
+      {"title": "Dental Care Center", "url": "https://dentalcare-riyadh.com", "snippet": "Dental Care Center Riyadh. 6 branches, orthodontics and implants."},
+      {"title": "Gulf Dental Group", "url": "https://gulfdentalgroup.com", "snippet": "Gulf Dental Group - 12 dental clinic branches across Riyadh and Jeddah, active marketing."},
+      {"title": "Riyadh dentist directory | Health Directory", "url": "https://healthdirectory-sa.com/riyadh-dental", "snippet": "Directory of dental clinics in Riyadh."},
+      {"title": "Ortho Riyadh Specialists", "url": "https://orthoriyadh.com", "snippet": "Ortho Riyadh. Orthodontic specialists clinic, 1 branch."}
+    ],
+    "dentist in Riyadh": [
+      {"title": "دكتور سمايل للأسنان", "url": "https://drsmile.sa/ar", "snippet": "دكتور سمايل للأسنان - 5 فروع في الرياض، أكبر حملات تسويق لعيادات الأسنان."},
+      {"title": "عيادة الابتسامة الطازجة", "url": "https://freshsmile-riyadh.com", "snippet": "عيادة الابتسامة الطازجة - 3 فروع شمال الرياض."},
+      {"title": "استوديو الرياض لطب الأسنان", "url": "https://riyadhdentalstudio.com", "snippet": "استوديو الرياض لطب الأسنان - فرعين."},
+      {"title": "مركز رعاية الأسنان", "url": "https://dentalcare-riyadh.com", "snippet": "مركز رعاية الأسنان بالرياض - 6 فروع، تقويم وزراعة."},
+      {"title": "Executive Dental Lounge", "url": "https://executivedental.sa", "snippet": "Executive Dental Lounge - premium dental lounge, 1 branch in Riyadh."}
+    ],
+    "عيادة أسنان الرياض": [
+      {"title": "عيادات دكتور سمايل", "url": "https://drsmile.sa", "snippet": "عيادات دكتور سمايل لطب الأسنان - 5 فروع في الرياض."},
+      {"title": "عيادة غلف دنتال", "url": "https://gulfdentalgroup.com/ar", "snippet": "عيادة غلف دنتال جروب - 12 فرع في الرياض وجدة، حملة تسويق نشطة."},
+      {"title": "Ortho Riyadh", "url": "https://orthoriyadh.com", "snippet": "Ortho Riyadh Specialists - تقويم أسنان، فرع واحد."},
+      {"title": "Elite Dental Riyadh", "url": "https://elite-dental-riyadh.com", "snippet": "Elite Dental Riyadh - dental clinic, 2 branches."},
+      {"title": "عيادة الواحة لطب الأسنان - واتساب", "url": "https://wa.me/966551234567", "snippet": "عيادة الواحة لطب الأسنان - حجز عبر واتساب فقط."}
+    ],
+    "طبيب أسنان الرياض": [
+      {"title": "دكتور سمايل للأسنان الرياض", "url": "https://drsmile.sa", "snippet": "دكتور سمايل للأسنان - 5 فروع في الرياض."},
+      {"title": "استوديو الرياض لطب الأسنان", "url": "https://riyadhdentalstudio.com", "snippet": "استوديو الرياض لطب الأسنان."},
+      {"title": "Executive Dental Lounge", "url": "https://executivedental.sa", "snippet": "Executive Dental Lounge Riyadh."},
+      {"title": "عيادة بدون موقع - واتساب فقط", "url": "https://wa.me/966559998888", "snippet": "عيادة أسنان - تواصل واتساب فقط."}
+    ]
+  },
+  "generic": [
+    {"title": "Dental clinic Saudi Arabia", "url": "https://example-dental.sa", "snippet": "Generic dental clinic result."},
+    {"title": "عيادة أسنان", "url": "https://example-clinic.com", "snippet": "Generic عيادة أسنان result."}
+  ]
+}
