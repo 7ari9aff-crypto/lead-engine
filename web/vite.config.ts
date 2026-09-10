@@ -5,7 +5,9 @@ import path from "node:path";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  const BACKEND = env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
+  // BACKEND_URL is server-side only (not exposed to the browser).
+  // VITE_BACKEND_URL is kept as a fallback for local dev workflows.
+  const BACKEND = env.BACKEND_URL || env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
 
   return {
     plugins: [react(), tailwindcss()],
