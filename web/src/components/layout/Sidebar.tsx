@@ -12,9 +12,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Zap,
+  X,
+  BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUI } from "@/hooks/useTheme";
+import { useEffect } from "react";
 
 const NAV = [
   { href: "/", label: "نظرة عامة", icon: LayoutDashboard },
@@ -30,31 +33,71 @@ const NAV = [
 const EXTERNAL = [
   { href: "/welcome", label: "صفحة الترحيب", icon: Sparkles },
   { href: "/pricing", label: "الأسعار", icon: KeyRound },
+  { href: "/docs", label: "التوثيق", icon: BookOpen },
 ];
 
 export function Sidebar() {
   const [location] = useLocation();
-  const { sidebar, toggleSidebar } = useUI();
+  const { sidebar, toggleSidebar, setSidebar } = useUI();
   const collapsed = sidebar === "collapsed";
 
+  // Close mobile sidebar on route change
+  useEffect(() => {
+    setSidebar("expanded");
+  }, [location, setSidebar]);
+
+  // Lock body scroll when mobile sidebar is open
+  useEffect(() => {
+    if (window.innerWidth < 1024 && sidebar === "collapsed") {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [sidebar]);
+
   return (
-    <aside
-      className={cn(
-        "glass border-l border-[var(--border)] transition-all duration-300 ease-out",
-        "flex flex-col h-screen sticky top-0 z-30",
-        collapsed ? "w-[68px]" : "w-[240px]"
+    <>
+      {/* Mobile backdrop */}
+      {sidebar === "collapsed" && (
+        <div
+          className="lg:hidden fixed inset-0 bg-black/50 z-30 backdrop-blur-sm"
+          onClick={() => setSidebar("expanded")}
+        />
       )}
-    >
+      <aside
+        className={cn(
+          "glass border-l border-[var(--border)] transition-all duration-300 ease-out",
+          "flex flex-col h-screen sticky top-0 z-30",
+          // Mobile: fixed, slide in/out
+          "fixed lg:sticky",
+          sidebar === "collapsed" ? "translate-x-0 lg:w-[68px] w-[280px]" : "translate-x-full lg:translate-x-0 lg:w-[240px]"
+        )}
+      >
       {/* Brand */}
-      <div className="flex items-center gap-3 px-4 h-16 border-b border-[var(--border-soft)]">
-        <div className="flex items-center justify-center h-9 w-9 rounded-lg bg-[image:var(--gradient)] shadow-md">
-          <Zap className="h-5 w-5 text-white" />
-        </div>
-        {!collapsed && (
-          <div className="flex flex-col">
-            <span className="font-semibold text-sm gradient-text">محرك الـLeads</span>
-            <span className="text-[10px] text-[var(--fg-soft)]">v1.0 — RTL</span>
+      <div className="flex items-center justify-between gap-3 px-4 h-16 border-b border-[var(--border-soft)]">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center justify-center h-9 w-9 rounded-lg bg-[image:var(--gradient)] shadow-md">
+            <Zap className="h-5 w-5 text-white" />
           </div>
+          {!collapsed && (
+            <div className="flex flex-col">
+              <span className="font-semibold text-sm gradient-text">محرك الـLeads</span>
+              <span className="text-[10px] text-[var(--fg-soft)]">v1.0 — RTL</span>
+            </div>
+          )}
+        </div>
+        {/* Mobile close button */}
+        {!collapsed && (
+          <button
+            onClick={() => setSidebar("collapsed")}
+            className="lg:hidden p-1.5 rounded-md text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)]"
+            aria-label="إغلاق القائمة"
+          >
+            <X className="h-5 w-5" />
+          </button>
         )}
       </div>
 
@@ -122,5 +165,6 @@ export function Sidebar() {
         </button>
       </div>
     </aside>
+    </>
   );
 }

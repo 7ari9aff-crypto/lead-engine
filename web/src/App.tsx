@@ -13,6 +13,7 @@ import { VerifyPage } from "@/pages/Verify";
 import { ConfigPage } from "@/pages/Config";
 import { WelcomePage } from "@/pages/Welcome";
 import { PricingPage } from "@/pages/Pricing";
+import { DocsPage } from "@/pages/Docs";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/Button";
 import { AlertTriangle, Home, RotateCcw } from "lucide-react";
@@ -31,6 +32,7 @@ export default function App() {
         {/* Public marketing pages — no sidebar */}
         <Route path="/welcome" component={WelcomePage} />
         <Route path="/pricing" component={PricingPage} />
+        <Route path="/docs" component={DocsPage} />
 
         {/* Dashboard layout with sidebar */}
         <Route>
@@ -44,9 +46,6 @@ export default function App() {
               <Route path="/leads" component={LeadsPage} />
               <Route path="/verify" component={VerifyPage} />
               <Route path="/config" component={ConfigPage} />
-              <Route path="/docs">
-                <NotFound />
-              </Route>
               <Route>
                 <NotFound />
               </Route>

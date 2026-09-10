@@ -21,6 +21,7 @@ import { Spinner, EmptyState } from "@/components/ui/EmptyState";
 import { apiGet, apiPost, type ProviderRow } from "@/lib/api";
 import { formatNumber, relativeTime, truncate } from "@/lib/utils";
 import { toast } from "sonner";
+import { PageSkeleton } from "@/components/ui/Skeleton";
 
 export function OverviewPage() {
   const { data, isLoading, refetch } = useQuery({
@@ -30,11 +31,7 @@ export function OverviewPage() {
   });
 
   if (isLoading && !data) {
-    return (
-      <div className="flex items-center justify-center h-[60vh]">
-        <Spinner className="h-8 w-8 text-[var(--accent)]" />
-      </div>
-    );
+    return <PageSkeleton />;
   }
 
   const providers = data?.providers ?? [];
