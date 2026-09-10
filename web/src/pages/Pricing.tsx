@@ -15,6 +15,7 @@ import { motion } from "framer-motion";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
 
 const PLANS = [
   {
@@ -147,6 +148,7 @@ export function PricingPage() {
               اللوحة
             </Link>
           </Button>
+          <ThemeToggle />
         </div>
       </header>
 

@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { useUI } from "@/hooks/useTheme";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
 
 const FEATURES = [
   {
@@ -129,6 +130,7 @@ export function WelcomePage() {
             </a>
           </nav>
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             <Button variant="ghost" size="sm" asChild>
               <Link href="/chat">
                 <Bot className="h-4 w-4" />

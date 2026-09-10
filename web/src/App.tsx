@@ -17,6 +17,8 @@ import { DocsPage } from "@/pages/Docs";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/Button";
 import { AlertTriangle, Home, RotateCcw } from "lucide-react";
+import { Footer } from "@/components/layout/Footer";
+import { BackToTop } from "@/components/layout/BackToTop";
 
 export default function App() {
   const { theme } = useUI();
@@ -66,6 +68,8 @@ function DashboardLayout({ children }: { children: ReactNode }) {
         <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6 max-w-[1600px] w-full mx-auto animate-fade-in">
           {children}
         </main>
+        <Footer />
+        <BackToTop />
       </div>
     </div>
   );

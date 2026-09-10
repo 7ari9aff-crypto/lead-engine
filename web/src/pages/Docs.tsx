@@ -22,6 +22,7 @@ import { motion } from "framer-motion";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
 
 const SECTIONS = [
   {
@@ -136,6 +137,7 @@ export function DocsPage() {
               اللوحة
             </Link>
           </Button>
+          <ThemeToggle />
         </div>
       </header>
 
