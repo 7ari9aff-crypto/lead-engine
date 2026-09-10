@@ -549,8 +549,37 @@ def api_data_reset(db: Database = Depends(get_db)):
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+# React build assets live under /assets/ (relative to root) for the modern
+# dashboard served from the same origin as the API.
+_ASSETS_DIR = ROOT / "lead_engine" / "static" / "assets"
+if _ASSETS_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=_ASSETS_DIR), name="assets")
+_FAVICON = ROOT / "lead_engine" / "static" / "favicon.svg"
+if _FAVICON.exists():
+    @app.get("/favicon.svg", include_in_schema=False)
+    def _favicon():
+        return FileResponse(_FAVICON)
 
 
 @app.get("/", include_in_schema=False)
 def dashboard():
     return FileResponse(STATIC_DIR / "index.html")
+
+
+# SPA fallback — any non-API path that didn't match above returns the SPA
+# index.html so the React Router (or any client router) can take over. This
+# makes the dashboard work at /chat, /keys, /leads, etc. without 404s.
+_API_PREFIXES = ("/api", "/mcp", "/static", "/jobs", "/leads", "/providers",
+                 "/benchmark", "/report", "/sync-supabase", "/verify-email",
+                 "/docs", "/openapi", "/redoc", "/health")
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+def spa_fallback(full_path: str):
+    if any(full_path == p.strip("/") or full_path.startswith(p.strip("/") + "/")
+           for p in _API_PREFIXES):
+        raise HTTPException(status_code=404, detail="Not Found")
+    index = STATIC_DIR / "index.html"
+    if not index.exists():
+        raise HTTPException(status_code=404, detail="dashboard not built")
+    return FileResponse(index)
