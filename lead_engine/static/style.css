@@ -214,3 +214,30 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 .key-row input { width: 100%; font-family: var(--mono); font-size: 13px; }
 .btn.danger { color: var(--red); border-color: rgba(248,113,113,.4); }
 .btn.danger:hover { background: rgba(248,113,113,.08); }
+
+/* ---------- chat ---------- */
+.chat-card { display: flex; flex-direction: column; }
+.chat-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.chat-log {
+  display: flex; flex-direction: column; gap: 10px;
+  background: var(--panel2); border: 1px solid var(--border); border-radius: 12px;
+  padding: 14px; min-height: 320px; max-height: 52vh; overflow-y: auto;
+}
+.msg { display: flex; }
+.msg.user { justify-content: flex-start; }
+.msg.assistant { justify-content: flex-end; }
+.bubble {
+  max-width: 78%; padding: 9px 14px; border-radius: 14px; font-size: 14px;
+  line-height: 1.65; white-space: pre-wrap; word-break: break-word;
+}
+.msg.user .bubble { background: var(--accent); color: #fff; border-start-end-radius: 4px; }
+.msg.assistant .bubble { background: var(--panel); border: 1px solid var(--border); border-start-start-radius: 4px; }
+.msg .bubble .mono { font-family: var(--mono); font-size: 12.5px; }
+.tool-chip {
+  display: inline-flex; align-items: center; gap: 6px; margin: 0 4px 4px 0;
+  background: rgba(167,139,250,.1); border: 1px solid rgba(167,139,250,.35);
+  color: var(--purple); border-radius: 999px; padding: 2px 10px; font-size: 11.5px;
+  font-family: var(--mono); direction: ltr;
+}
+.chat-row { display: flex; gap: 10px; margin-top: 12px; align-items: end; }
+.chat-row textarea { flex: 1; resize: vertical; min-height: 48px; }

@@ -39,18 +39,48 @@ class GeminiProvider(LLMBase):
     env_key = "GEMINI_API_KEY"
     URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
+    def request(self, task, payload):
+        # multi-turn agent path (chat): contents + optional function-calling tools
+        if "contents" in payload:
+            text, fcs, rate_info = self._generate(
+                payload["contents"],
+                system=payload.get("system_instruction"),
+                tools=payload.get("tools"))
+            return {"provider": self.name, "model": self.model_name, "text": text,
+                    "function_calls": fcs, "rate_info": rate_info, "units": 1}
+        return super().request(task, payload)
+
     def complete(self, prompt, json_mode):
-        model = self.model_name or "gemini-2.0-flash"
-        gen_cfg = {"temperature": 0.2}
+        text, _fcs, rate_info = self._generate(
+            [{"role": "user", "parts": [{"text": prompt}]}], json_mode=json_mode)
+        return text, rate_info
+
+    def _generate(self, contents, system=None, tools=None, json_mode=False):
+        gen_cfg = {"temperature": 0.4}
         if json_mode:
             gen_cfg["responseMimeType"] = "application/json"
+        body = {"contents": contents, "generationConfig": gen_cfg}
+        if system:
+            body["systemInstruction"] = {"parts": [{"text": system}]}
+        if tools:
+            body["tools"] = tools
         resp = self._http(
-            "POST", self.URL.format(model=model) + f"?key={self.current_key()}",
-            json={"contents": [{"parts": [{"text": prompt}]}], "generationConfig": gen_cfg},
+            "POST", self.URL.format(model=self.model_name or "gemini-3.6-flash")
+            + f"?key={self.current_key()}",
+            json=body,
         )
         data = self._json(resp)
-        parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
-        return "".join(p.get("text", "") for p in parts), self._rate_info(resp.headers)
+        parts = ((data.get("candidates") or [{}])[0].get("content", {}) or {}).get("parts", []) or []
+        text = "".join(p.get("text", "") for p in parts if "text" in p)
+        # keep the RAW functionCall parts (incl. thoughtSignature, required by
+        # gemini-3.x when echoing the model turn back) alongside parsed view
+        fcs = []
+        for p in parts:
+            if "functionCall" in p:
+                fcs.append({"name": p["functionCall"]["name"],
+                            "args": p["functionCall"].get("args") or {},
+                            "_raw": p})
+        return text, fcs, self._rate_info(resp.headers)
 
 
 class _OpenAICompat(LLMBase):

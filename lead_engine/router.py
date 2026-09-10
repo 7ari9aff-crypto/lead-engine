@@ -106,9 +106,13 @@ class Router:
 
             # key pool: on 429/quota rotate to the next key BEFORE giving up
             # on the provider — 5 Tavily keys = 5x monthly credits.
+            # Per the design: transient 5xx gets a SHORT RETRY on the same
+            # provider first; only a persistent failure switches provider.
             pool = max(1, len(getattr(adapter, "keys", []) or []))
             result = None
-            for _attempt in range(pool):
+            key_try = 0
+            retry_5xx = 0
+            while key_try < pool:
                 started = time.time()
                 try:
                     result = adapter.request(task, payload)
@@ -117,6 +121,7 @@ class Router:
                     self.registry.record_usage(name, task, job_id, 0, row["quota_kind"],
                                                "rate_limited", int((time.time() - started) * 1000))
                     if adapter.rotate_key():
+                        key_try += 1
                         tried.append(f"{name}:key{adapter._key_index}(429)")
                         continue
                     self.registry.mark(name, task, COOLDOWN, str(exc),
@@ -127,12 +132,18 @@ class Router:
                     self.registry.record_usage(name, task, job_id, 0, row["quota_kind"],
                                                "quota", int((time.time() - started) * 1000))
                     if adapter.rotate_key():
+                        key_try += 1
                         tried.append(f"{name}:key{adapter._key_index}(quota)")
                         continue
                     self.registry.mark(name, task, EXHAUSTED, str(exc))
                     tried.append(f"{name}:quota")
                     break
                 except ProviderUnavailable as exc:
+                    if retry_5xx < 2:
+                        retry_5xx += 1
+                        time.sleep(2 * retry_5xx)          # short retry: 2s, then 4s
+                        tried.append(f"{name}:retry5xx#{retry_5xx}")
+                        continue
                     self.registry.mark(name, task, COOLDOWN, str(exc),
                                        cooldown_seconds=unavailable_cooldown)
                     tried.append(f"{name}:unavailable")

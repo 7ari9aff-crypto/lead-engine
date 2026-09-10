@@ -1,6 +1,6 @@
 """Discovery: ICP queries -> search pool -> raw candidates."""
 from .icp import build_plan  # re-export for convenience
-from .normalize import clean_title, domain_from_url, is_social
+from .normalize import clean_title, domain_from_url, extract_contacts, is_social
 
 
 class Discovery:
@@ -26,6 +26,9 @@ class Discovery:
     def to_candidate(result: dict, entry: dict, icp: dict, provider: str) -> dict:
         domain = domain_from_url(result.get("url", ""))
         social = is_social(domain)
+        phones, email = extract_contacts(
+            f"{result.get('title', '')} {result.get('snippet', '')}",
+            icp.get("country") or "SA")
         return {
             "name": clean_title(result.get("title", "")),
             "domain": None if social else domain,
@@ -35,6 +38,9 @@ class Discovery:
             "city": entry["city"],
             "country": icp.get("country"),
             "industry": icp.get("industry"),
+            "phone": phones[0] if phones else None,
+            "email": email,
+            "contact_source": "snippet" if (phones or email) else None,
             "sources": ["search_api"],
             "source_queries": [entry["q"]],
             "source_urls": [result.get("url")],

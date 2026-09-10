@@ -29,6 +29,7 @@
     <button class="tab" data-tab="jobs" role="tab">المهام</button>
     <button class="tab" data-tab="leads" role="tab">النتائج</button>
     <button class="tab" data-tab="verify" role="tab">فحص إيميل</button>
+    <button class="tab" data-tab="chat" role="tab">المساعد</button>
     <button class="tab" data-tab="config" role="tab">الإعدادات</button>
   </nav>
 
@@ -156,6 +157,26 @@
           <button class="btn primary" id="btn-verify" data-testid="button-verify">افحص</button>
         </div>
         <div id="verify-result"></div>
+      </div>
+    </section>
+
+    <!-- ===================== المساعد (شات) ===================== -->
+    <section id="tab-chat" class="panel">
+      <div class="card chat-card" data-testid="chat-card">
+        <div class="chat-head">
+          <h3>مساعد المحرك</h3>
+          <span class="muted">بيقدر يشغّل التوليد ويعرض النتائج — مفاتيحك الحقيقية، بدون تجميل</span>
+        </div>
+        <div id="chat-log" class="chat-log" data-testid="chat-log">
+          <div class="msg assistant">
+            <div class="bubble">أهلاً 👋 أنا مساعد محرك الـLeads. اطلب مثلاً:<br>«اعمل ليد جينيراشن في منطقة الرياض — اجمع عيادات أسنان ويجيب أرقامهم وإيميلاتهم»</div>
+          </div>
+        </div>
+        <div class="chat-row">
+          <textarea id="chat-input" rows="2" dir="rtl" data-testid="chat-input"
+            placeholder="اكتب طلبك… (Enter للإرسال)"></textarea>
+          <button class="btn primary" id="btn-chat-send" data-testid="button-chat-send">إرسال</button>
+        </div>
       </div>
     </section>
 

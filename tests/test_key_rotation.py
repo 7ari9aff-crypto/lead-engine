@@ -72,3 +72,40 @@ def test_effective_quota_multiplies_by_pool_size(router):
     tavily = next(r for r in rows if r["name"] == "tavily")
     assert tavily["quota_limit"] == 1000
     assert tavily["quota_limit_effective"] == 5000
+
+
+def test_transient_5xx_gets_short_retry_same_provider(router, monkeypatch):
+    """Design rule: 503/unavailable -> short retry on the SAME provider
+    before switching. Gemini 'high demand' 503s must not kill the request."""
+    import lead_engine.router as router_mod
+
+    monkeypatch.setattr(router_mod.time, "sleep", lambda s: None)
+
+    class FlakyAdapter:
+        tasks = ("web_search",)
+        available = True
+        keys = ["k0"]
+
+        def __init__(self):
+            self.name = "tavily"
+            self.calls = 0
+
+        def current_key(self):
+            return "k0"
+
+        def rotate_key(self):
+            return False
+
+        def request(self, task, payload):
+            self.calls += 1
+            if self.calls <= 2:
+                from lead_engine.router import ProviderUnavailable
+
+                raise ProviderUnavailable("503 high demand")
+            return {"provider": "tavily", "results": [{"title": "ok"}], "units": 1}
+
+    adapter = FlakyAdapter()
+    router.adapters = {"tavily": adapter}
+    result, meta = router.route("web_search", {"query": "q"}, use_cache=False)
+    assert meta["provider"] == "tavily"      # survived both 503s
+    assert adapter.calls == 3

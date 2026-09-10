@@ -19,8 +19,8 @@ import sys
 import threading
 
 import yaml
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -226,6 +226,52 @@ def sync_supabase(req: SyncRequest, db: Database = Depends(get_db)):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"supabase sync failed: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Chat — conversational agent that drives the engine (function calling)
+# ---------------------------------------------------------------------------
+
+class ChatRequest(BaseModel):
+    messages: list  # [{role: user|assistant, content: str}]
+
+
+@app.post("/api/chat")
+def api_chat(req: ChatRequest, db: Database = Depends(get_db)):
+    from .chat import run_agent
+
+    if not req.messages:
+        raise HTTPException(status_code=422, detail="messages is required")
+    router = Router(db, _cache(db), settings)
+    return run_agent(router, db, req.messages)
+
+
+# ---------------------------------------------------------------------------
+# MCP server — stateless streamable-HTTP JSON-RPC at POST /mcp
+# ---------------------------------------------------------------------------
+
+@app.post("/mcp")
+async def mcp_endpoint(request: Request, db: Database = Depends(get_db)):
+    from .mcp import handle_jsonrpc
+
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"invalid JSON body: {exc}") from exc
+    payload, status = handle_jsonrpc(body, Router(db, _cache(db), settings), db)
+    if payload is None:
+        return Response(status_code=status)
+    return JSONResponse(payload, status_code=status)
+
+
+@app.get("/mcp")
+def mcp_hint():
+    return {
+        "server": "lead-engine MCP",
+        "transport": "streamable-http (stateless JSON-RPC 2.0)",
+        "usage": "POST /mcp with JSON-RPC: initialize, tools/list, tools/call",
+        "example": {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+    }
 
 
 # ---------------------------------------------------------------------------

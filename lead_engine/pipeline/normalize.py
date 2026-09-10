@@ -59,3 +59,35 @@ def normalize_phone(phone: str, country: str = "SA") -> str:
         if digits.startswith("0") and len(digits) == 10:
             return "+966" + digits[1:]
     return "+" + digits
+
+
+# ---------------------------------------------------------------- contacts
+EMAIL_TEXT_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+PHONE_PATTERNS = [
+    re.compile(r"(?:\+?966[\s\-]?|0)?5\d[\d\s\-]{7,11}"),       # KSA mobile
+    re.compile(r"\b9200\d{5}\b"),                                # unified numbers
+    re.compile(r"(?:\+?966[\s\-]?|0)1[2-4][\d\s\-]{7,10}"),     # KSA landlines
+]
+
+
+def extract_contacts(text: str, country: str = "SA"):
+    """Pull phone numbers / emails straight from search snippets.
+    Evidence-backed contacts (the snippet cites its source URL) — they make
+    the pipeline useful before Apollo/Hunter keys are configured."""
+    text = text or ""
+    phones = []
+    for pat in PHONE_PATTERNS:
+        for match in pat.findall(text):
+            norm = normalize_phone(match, country)
+            digits = re.sub(r"\D", "", norm)
+            if country == "SA":
+                is_mobile = digits.startswith("9665") and len(digits) == 12
+                is_landline = digits.startswith("9661") and len(digits) == 12
+                is_unified = digits.startswith("9200") and len(digits) == 9
+                if not (is_mobile or is_landline or is_unified):
+                    continue
+            if norm not in phones:
+                phones.append(norm)
+    email_match = EMAIL_TEXT_RE.search(text)
+    email = email_match.group(0).lower() if email_match else None
+    return phones[:3], email

@@ -113,7 +113,10 @@ CREATE TABLE IF NOT EXISTS cache (
 
 class Database:
     def __init__(self, path):
-        self.conn = sqlite3.connect(str(path), timeout=10)
+        # check_same_thread=False: FastAPI sync dependencies run in a worker
+        # thread while async endpoints run in the loop thread; connections are
+        # short-lived per request and WAL + busy_timeout handle the rest.
+        self.conn = sqlite3.connect(str(path), timeout=10, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         # dashboard requests + background engine runs share the file:
         # WAL + busy_timeout keep concurrent readers/writers from clashing

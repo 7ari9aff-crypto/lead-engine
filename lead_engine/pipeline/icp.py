@@ -1,6 +1,58 @@
 """ICP Planner: turns an ICP file into a concrete query plan."""
 from .normalize import normalize_text
 
+CITY_ALIASES = {
+    "الرياض": ("Riyadh", "الرياض"), "riyadh": ("Riyadh", "الرياض"),
+    "جدة": ("Jeddah", "جدة"), "jeddah": ("Jeddah", "جدة"),
+    "الدمام": ("Dammam", "الدمام"), "dammam": ("Dammam", "الدمام"),
+    "الخبر": ("Khobar", "الخبر"), "khobar": ("Khobar", "الخبر"),
+    "مكة": ("Makkah", "مكه"), "مكه": ("Makkah", "مكه"), "makkah": ("Makkah", "مكه"),
+    "المدينة": ("Madinah", "المدينه"), "medina": ("Madinah", "المدينه"),
+    "أبها": ("Abha", "ابها"), "abha": ("Abha", "ابها"),
+    "الطائف": ("Taif", "الطايف"), "taif": ("Taif", "الطايف"),
+}
+
+INDUSTRY_KEYWORDS = {
+    "dental": (["dental clinic", "dentist"], ["عيادة أسنان", "عيادات أسنان", "طبيب أسنان"]),
+}
+
+# cities where the pipeline has actually been exercised — unknown cities work
+# too (alias falls back to the raw name) but with lower extraction confidence.
+
+
+def build_adhoc_icp(cities: list, industry: str = "dental",
+                    max_queries: int = 6, max_results: int = 6) -> dict:
+    """Turn a chat/MCP request like 'الرياض + dental' into a full ICP dict."""
+    resolved = []
+    for city in cities:
+        key = str(city).strip().lower()
+        name, ar = CITY_ALIASES.get(key, (str(city).strip(), str(city).strip()))
+        if (name, ar) not in resolved:
+            resolved.append((name, ar))
+    kw_en, kw_ar = INDUSTRY_KEYWORDS.get(industry, ([industry], [industry]))
+    names = [n for n, _ in resolved]
+    return {
+        "icp_id": f"adhoc_{industry}_{'_'.join(names)[:40]}",
+        "name": f"Ad-hoc {industry} — {', '.join(names)}",
+        "country": "SA",
+        "legal_policy": "sa",
+        "cities": [{"name": n, "ar": a} for n, a in resolved],
+        "industry": industry,
+        "keywords_en": kw_en,
+        "keywords_ar": kw_ar,
+        "criteria": {
+            "min_branches": 0,
+            "marketing_signals": [],
+            "decision_maker_roles": ["owner", "practice manager", "مالك", "مدير"],
+        },
+        "v0_limits": {
+            "search_results_per_query": max_results,
+            "max_search_queries": max_queries,
+            "enrichment_budget_credits": 0,
+            "enrichment_max_people": 0,
+        },
+    }
+
 
 def build_plan(icp: dict) -> dict:
     queries = []

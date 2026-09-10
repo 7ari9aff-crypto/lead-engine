@@ -27,18 +27,19 @@ def load_seed_csv(path) -> list:
     return seeds
 
 
-def run_benchmark(icp_name: str = "v0_saudi_dental", dry_run: bool = True,
+def run_benchmark(icp="v0_saudi_dental", dry_run: bool = True,
                   job_id=None, seed_csv=None, write=True):
+    """icp: ICP name (loaded from config/icp/) or a full ICP dict (chat/MCP)."""
     import json
 
     load_env()
     DATA_DIR.mkdir(exist_ok=True)
     db = Database(DB_PATH)
     settings = load_settings()
-    icp = load_icp(icp_name)
+    icp_dict = icp if isinstance(icp, dict) else load_icp(icp)
     orchestrator = PipelineOrchestrator(db, settings, dry_run=dry_run)
     seed_leads = load_seed_csv(seed_csv) if seed_csv else None
-    summary = orchestrator.run_job(icp, job_id=job_id, seed_leads=seed_leads)
+    summary = orchestrator.run_job(icp_dict, job_id=job_id, seed_leads=seed_leads)
     leads = summary.get("leads", [])
     usage_rows = db.query("SELECT units FROM usage_ledger WHERE job_id=?", (summary["job_id"],))
     metrics = compute_metrics(summary, leads, usage_rows)

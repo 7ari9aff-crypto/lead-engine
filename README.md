@@ -62,10 +62,12 @@ python3 -m lead_engine serve --port 8000
 | التبويب | التحكم |
 |---|---|
 | نظرة عامة | حالة النظام حرفيًا: المزوّدون المتاحون، المهام، الـleads، الاستهلاك، الكاش، اتصال Supabase |
+| المفاتيح | لصق مفاتيح الـAPI (تدعم **أكتر من مفتاح في خانة واحدة** — تدوير تلقائي عند الحدود)، تشتغل فورًا |
 | المزوّدون | تعطيل/تفعيل أي provider، تصفير رصيده، ومشاهدة الحالة والاستهلاك من السجل الحي |
 | المهام | تشغيل الـpipeline (dry-run/live) من المتصفح، متابعة الحالة، استئناف الموقوف، مزامنة Supabase، عرض التقرير |
 | النتائج | فلترة الـleads بالمهمة/المرحلة، تنزيل CSV |
 | فحص إيميل | فحص فوري بالـ5 حالات (Deliverable/Risky/Catch-all/Invalid/Unknown) |
+| **المساعد** | **شات بالعربي بيشغّل النظام نفسه** — «اعمل ليد جينيراشن في الرياض» بينفذها فعليًا |
 | الإعدادات | تعديل ملفات YAML الأربعة مع تحقق + نسخة احتياطية تلقائية |
 
 الصفحة بتتحدث تلقائيًا كل 5 ثواني من `/api/status` — كل الأرقام من قاعدة البيانات الحقيقية مش hardcoded.
@@ -131,6 +133,27 @@ Run benchmark → IF COMPLETED → Sync to Supabase → Get Report.
 ```bash
 python3 -m pytest tests/ -q     # 31 test: dedup, verification, cache, router failover, state machine, legal gate
 ```
+
+## MCP والتكاملات
+
+المحرك نفسه **خادم MCP** (Model Context Protocol) على `POST /mcp` — نفس أدوات الشات
+متاحة لأي عميل MCP (n8n MCP Client، Claude، ZCode، Cursor...):
+
+```jsonc
+// n8n / أي MCP client (streamable HTTP, stateless JSON-RPC 2.0)
+{ "url": "https://lead-engine-gamma-silk.vercel.app/mcp" }
+```
+
+الأدوات: `run_lead_generation` (مدينة/مجال → خط كامل)، `list_leads`، `get_job_status`،
+`verify_email`، `system_status`. جرّبها:
+
+```bash
+curl -X POST https://<host>/mcp -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+نقاط دخول أخرى للتكامل: REST API كامل (شوف `/docs`)، وn8n scheduler workflow
+(`n8n/lead_engine_benchmark_scheduler.ts`).
 
 ## أمان
 

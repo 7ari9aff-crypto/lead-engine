@@ -233,6 +233,61 @@ $("#btn-wipe").onclick = async () => {
   } catch (e) { toast(e.message, "err"); }
 };
 
+// ------------------------------------------------------------ chat
+let chatHistory = [];
+
+function appendMsg(role, text) {
+  const log = $("#chat-log");
+  const div = document.createElement("div");
+  div.className = `msg ${role}`;
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.textContent = text;
+  div.appendChild(bubble);
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+  return bubble;
+}
+
+function appendToolTrace(tools) {
+  if (!tools || !tools.length) return;
+  const log = $("#chat-log");
+  const div = document.createElement("div");
+  div.className = "msg assistant";
+  div.innerHTML = tools.map((t) => {
+    const args = Object.entries(t.args || {}).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(" ");
+    const state = t.ok === false ? "⚠️" : "⚙️";
+    return `<span class="tool-chip" data-testid="tool-chip">${state} ${esc(t.name)}(${esc(args)})</span>`;
+  }).join("");
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function sendChat() {
+  const input = $("#chat-input");
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  appendMsg("user", text);
+  chatHistory.push({ role: "user", content: text });
+  const thinking = appendMsg("assistant", "…شغّال");
+  $("#btn-chat-send").disabled = true;
+  try {
+    const res = await api("/api/chat", { method: "POST", body: { messages: chatHistory.slice(-12) } });
+    thinking.remove();
+    appendToolTrace(res.tools);
+    appendMsg("assistant", res.reply || "(رد فاضي)");
+    chatHistory.push({ role: "assistant", content: res.reply || "" });
+  } catch (e) {
+    thinking.remove();
+    appendMsg("assistant", `حصل خطأ: ${e.message}`);
+  } finally { $("#btn-chat-send").disabled = false; }
+}
+$("#btn-chat-send").onclick = sendChat;
+$("#chat-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat(); }
+});
+
 // ------------------------------------------------------------ jobs
 async function renderJobs(s) {
   const tbody = $("#jobs-table tbody");
