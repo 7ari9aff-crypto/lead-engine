@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "pnpm install --frozen-lockfile && pnpm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "env": {
+    "VITE_BACKEND_URL": "https://lead-engine-gamma-silk.vercel.app"
+  }
+}
