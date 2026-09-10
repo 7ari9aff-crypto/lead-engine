@@ -51,10 +51,9 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         disabled={disabled || loading}
         {...props}
       >
-        {loading && (
+        {asChild ? children : <>{loading && (
           <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
-        )}
-        {children}
+        )}{children}</>}
       </Comp>
     );
   }
