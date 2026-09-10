@@ -32,6 +32,14 @@ Missing keys → the provider is filtered out and the router falls back to the n
 ## pnpm build scripts
 pnpm 12 blocks esbuild's build scripts by default (`ERR_PNPM_IGNORED_BUILDS`). The compose sets `PNPM_CONFIG_DANGEROUSLY_ALLOW_ALL_BUILDS=true` to bypass this. The `onlyBuiltDependencies` in `pnpm-workspace.yaml` is present but insufficient on its own with pnpm 12.3.4.
 
+## Design system (v1.1 modernization)
+- Modern indigo/violet palette replacing the old teal (see `globals.css`)
+- Sectioned Sidebar (الرئيسية / العمليات / الإدارة) with grouped nav
+- Topbar with quick search + animated connection status
+- Reusable `PageHeader` component (`web/src/components/layout/PageHeader.tsx`) used across all pages
+- Overview page redesigned: area chart (leads over time), bar chart (usage by provider), health donut, trend indicators
+- New backend endpoint `GET /api/analytics` — 30-day time-series (leads/jobs/usage per day)
+
 ## Verify the app works
 ```bash
 docker compose -f docker-compose.base44.yml up -d --build

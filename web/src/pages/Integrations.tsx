@@ -22,6 +22,7 @@ import { useLiveData } from "@/hooks/useLiveData";
 import { apiGet } from "@/lib/api";
 import { toast } from "sonner";
 import { cn, formatNumber } from "@/lib/utils";
+import { PageHeader } from "@/components/layout/PageHeader";
 
 const BACKEND_BASE = (import.meta.env.VITE_BACKEND_URL || window.location.origin).replace(/\/$/, "");
 const MCP_URL = `${BACKEND_BASE}/mcp`;
@@ -63,20 +64,16 @@ export function IntegrationsPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <div className="flex items-center gap-2 text-xs text-[var(--accent)] font-semibold mb-2">
-            <Plug className="h-4 w-4" /> مركز الاتصالات
-          </div>
-          <h1 className="text-2xl font-bold">التكاملات و MCP</h1>
-          <p className="text-sm text-[var(--fg-muted)] mt-1 max-w-2xl">
-            اربط محرك الـLeads بالأدوات الخارجية وتابع حالة كل قناة من مكان واحد.
-          </p>
-        </div>
-        <Button variant="outline" onClick={refresh} disabled={loading}>
-          <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /> تحديث الحالة
-        </Button>
-      </header>
+      <PageHeader
+        icon={<Plug className="h-4 w-4 text-[var(--accent)]" />}
+        title="التكاملات و MCP"
+        description="اربط محرك الـLeads بالأدوات الخارجية وتابع حالة كل قناة من مكان واحد."
+        action={
+          <Button variant="outline" onClick={refresh} disabled={loading}>
+            <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /> تحديث الحالة
+          </Button>
+        }
+      />
 
       <section className="grid grid-cols-2 xl:grid-cols-4 gap-3">
         <Metric icon={Plug} label="تكاملات جاهزة" value="1" detail="MCP متاح الآن" />

@@ -23,6 +23,7 @@ import { useLiveData } from "@/hooks/useLiveData";
 import { apiGet } from "@/lib/api";
 import { downloadFile, formatNumber, truncate, cn } from "@/lib/utils";
 import { Spinner, EmptyState } from "@/components/ui/EmptyState";
+import { PageHeader } from "@/components/layout/PageHeader";
 
 export function LeadsPage() {
   const { data, loading } = useLiveData(() => apiGet.leads({ limit: 500 }), 5000);
@@ -74,22 +75,17 @@ export function LeadsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Database className="h-5 w-5 text-[var(--accent)]" />
-            الـLeads
-          </h1>
-          <p className="text-sm text-[var(--fg-muted)] mt-1">
-            {formatNumber(stats.total)} إجمالي · {formatNumber(stats.accepted)} مقبولة ·{" "}
-            {formatNumber(stats.review)} مراجعة · {formatNumber(stats.rejected)} مرفوضة
-          </p>
-        </div>
-        <Button variant="primary" onClick={exportCSV} disabled={filtered.length === 0}>
-          <Download className="h-4 w-4" />
-          تنزيل CSV ({filtered.length})
-        </Button>
-      </div>
+      <PageHeader
+        icon={<Database className="h-4 w-4 text-[var(--accent)]" />}
+        title="الـLeads"
+        description={`${formatNumber(stats.total)} إجمالي · ${formatNumber(stats.accepted)} مقبولة · ${formatNumber(stats.review)} مراجعة · ${formatNumber(stats.rejected)} مرفوضة`}
+        action={
+          <Button variant="primary" onClick={exportCSV} disabled={filtered.length === 0}>
+            <Download className="h-4 w-4" />
+            تنزيل CSV ({filtered.length})
+          </Button>
+        }
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

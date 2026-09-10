@@ -181,6 +181,11 @@ export const apiGet = {
   report: (id: string) => api.get<{ job_id: string; metrics: any; report_markdown: string }>(`/report/${encodeURIComponent(id)}`),
   health: () => api.get<any>("/health"),
   openapi: () => api.get<any>("/openapi.json"),
+  analytics: () => api.get<{
+    leads_over_time: { date: string; count: number }[];
+    jobs_over_time: { date: string; total: number; completed: number; paused: number; failed: number }[];
+    usage_over_time: { date: string; units: number; calls: number }[];
+  }>("/api/analytics"),
 };
 
 export const apiPost = {

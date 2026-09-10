@@ -17,6 +17,7 @@ import { apiGet, apiPost } from "@/lib/api";
 import { toast } from "sonner";
 import { formatDate, truncate } from "@/lib/utils";
 import { Spinner, EmptyState } from "@/components/ui/EmptyState";
+import { PageHeader } from "@/components/layout/PageHeader";
 
 export function JobsPage() {
   const { data, loading, refresh } = useLiveData(() => apiGet.jobs(), 5000);
@@ -82,15 +83,11 @@ export function JobsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Briefcase className="h-5 w-5 text-[var(--accent)]" />
-          المهام
-        </h1>
-        <p className="text-sm text-[var(--fg-muted)] mt-1">
-          شغّل الـpipeline، تابع المهام، استأنف الموقوفة، وزامن مع Supabase.
-        </p>
-      </div>
+      <PageHeader
+        icon={<Briefcase className="h-4 w-4 text-[var(--accent)]" />}
+        title="المهام"
+        description="شغّل الـpipeline، تابع المهام، استأنف الموقوفة، وزامن مع Supabase."
+      />
 
       {/* Run form */}
       <Card>

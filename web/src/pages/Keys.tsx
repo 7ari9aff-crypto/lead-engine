@@ -25,6 +25,7 @@ import { useLiveData } from "@/hooks/useLiveData";
 import { apiGet, apiPost, type ProviderRow } from "@/lib/api";
 import { toast } from "sonner";
 import { cn, formatNumber } from "@/lib/utils";
+import { PageHeader } from "@/components/layout/PageHeader";
 
 const KEY_GROUPS: { id: string; label: string; description: string; keys: { env: string; label: string; placeholder?: string; multiline?: boolean }[] }[] = [
   {
@@ -120,26 +121,22 @@ export function KeysPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Key className="h-5 w-5 text-[var(--accent)]" />
-            مفاتيح API
-          </h1>
-          <p className="text-sm text-[var(--fg-muted)] mt-1">
-            تحكم في مفاتيح المزودين واستهلاكهم من مكان واحد. القيم السرية لا تعود إلى المتصفح.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="accent" className="text-[10px]">
-            <ShieldCheck className="h-3 w-3" /> مُشفّر على السيرفر
-          </Badge>
-          <Button variant="primary" onClick={saveAll} loading={saving} disabled={Object.keys(values).filter(k => values[k]?.trim()).length === 0}>
-            <Save className="h-4 w-4" />
-            حفظ المفاتيح
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        icon={<Key className="h-4 w-4 text-[var(--accent)]" />}
+        title="مفاتيح API"
+        description="تحكم في مفاتيح المزودين واستهلاكهم من مكان واحد. القيم السرية لا تعود إلى المتصفح."
+        action={
+          <div className="flex items-center gap-2">
+            <Badge variant="accent" className="text-[10px]">
+              <ShieldCheck className="h-3 w-3" /> مُشفّر على السيرفر
+            </Badge>
+            <Button variant="primary" onClick={saveAll} loading={saving} disabled={Object.keys(values).filter(k => values[k]?.trim()).length === 0}>
+              <Save className="h-4 w-4" />
+              حفظ المفاتيح
+            </Button>
+          </div>
+        }
+      />
 
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
         <KeyMetric label="المفاتيح المحفوظة" value={configuredKeys} detail={`من ${providers.length} مزوّد`} icon={KeyRound} />

@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { cn, formatNumber, relativeTime } from "@/lib/utils";
 import { Spinner, EmptyState } from "@/components/ui/EmptyState";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/Dialog";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { Label } from "@/components/ui/Input";
 
 const STATUSES = ["ALL", "active", "degraded", "exhausted", "cooldown", "disabled"] as const;
@@ -87,15 +88,11 @@ export function ProvidersPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Boxes className="h-5 w-5 text-[var(--accent)]" />
-          المزوّدون
-        </h1>
-        <p className="text-sm text-[var(--fg-muted)] mt-1">
-          الحالة هنا مقروءة مباشرة من قاعدة البيانات — نفس اللي بياخدها الـRouter قراره.
-        </p>
-      </div>
+      <PageHeader
+        icon={<Boxes className="h-4 w-4 text-[var(--accent)]" />}
+        title="المزوّدون"
+        description="الحالة هنا مقروءة مباشرة من قاعدة البيانات — نفس اللي بياخدها الـRouter قراره."
+      />
 
       {/* Filters */}
       <Card>
