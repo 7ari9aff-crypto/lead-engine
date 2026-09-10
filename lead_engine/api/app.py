@@ -563,7 +563,12 @@ if _FAVICON.exists():
 
 @app.get("/", include_in_schema=False)
 def dashboard():
-    return FileResponse(STATIC_DIR / "index.html")
+    resp = FileResponse(STATIC_DIR / "index.html")
+    # Prevent aggressive caching of HTML so users always get the latest JS hash
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
 
 
 # SPA fallback — any non-API path that didn't match above returns the SPA
@@ -582,4 +587,9 @@ def spa_fallback(full_path: str):
     index = STATIC_DIR / "index.html"
     if not index.exists():
         raise HTTPException(status_code=404, detail="dashboard not built")
-    return FileResponse(index)
+    resp = FileResponse(index)
+    # Same no-cache for SPA routes so cached HTML never references dead JS
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
