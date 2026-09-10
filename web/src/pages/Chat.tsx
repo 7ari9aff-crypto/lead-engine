@@ -167,7 +167,7 @@ async function sendChat(messages: { role: string; content: string }[]): Promise<
   provider?: string;
   tools?: ToolCall[];
 }> {
-  const res = await fetch("/chat", {
+  const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ messages }),

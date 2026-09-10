@@ -18,7 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge, StatusDot } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Spinner, EmptyState } from "@/components/ui/EmptyState";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, type ProviderRow } from "@/lib/api";
 import { formatNumber, relativeTime, truncate } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -95,6 +95,12 @@ export function OverviewPage() {
           value={formatNumber(totalCost)}
           color="accent"
         />
+      </div>
+
+      {/* Real charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <ProviderStatusChart providers={providers} />
+        <LeadsDistributionChart leadsByStage={leadsByStage} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -360,3 +366,145 @@ function Field({ label, value, mono, ok }: { label: string; value: any; mono?: b
 
 // cn helper
 import { cn } from "@/lib/utils";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
+
+function ProviderStatusChart({ providers }: { providers: ProviderRow[] }) {
+  const data = [
+    { name: "صحّي", value: providers.filter((p) => p.status === "active").length, color: "#10b981" },
+    { name: "منخفض", value: providers.filter((p) => ["degraded", "exhausted", "cooldown"].includes(p.status)).length, color: "#f59e0b" },
+    { name: "معطّل", value: providers.filter((p) => p.status === "disabled").length, color: "#6c7080" },
+  ].filter((d) => d.value > 0);
+
+  if (providers.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            <Activity className="h-4 w-4 text-[var(--accent)]" />
+            توزيع المزوّدين
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <EmptyState icon={<Layers className="h-8 w-8" />} title="لا يوجد مزوّدون" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          <Activity className="h-4 w-4 text-[var(--accent)]" />
+          توزيع المزوّدين حسب الحالة
+        </CardTitle>
+        <CardDescription>{providers.length} مزوّد إجمالي</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="h-[220px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie
+                data={data}
+                innerRadius={50}
+                outerRadius={85}
+                paddingAngle={2}
+                dataKey="value"
+                nameKey="name"
+                stroke="none"
+              >
+                {data.map((entry, i) => (
+                  <Cell key={i} fill={entry.color} />
+                ))}
+              </Pie>
+              <Tooltip
+                contentStyle={{
+                  background: "var(--bg-elev)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  fontSize: 12,
+                }}
+              />
+              <Legend
+                iconType="circle"
+                wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function LeadsDistributionChart({ leadsByStage }: { leadsByStage: Record<string, number> }) {
+  const data = [
+    { name: "مقبولة", value: leadsByStage.ACCEPTED || 0, color: "#10b981" },
+    { name: "مراجعة", value: leadsByStage.REVIEW || 0, color: "#f59e0b" },
+    { name: "مرفوضة", value: leadsByStage.REJECTED || 0, color: "#ef4444" },
+  ].filter((d) => d.value > 0);
+
+  const total = data.reduce((s, d) => s + d.value, 0);
+
+  if (total === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            <Database className="h-4 w-4 text-[var(--accent)]" />
+            توزيع الـleads
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <EmptyState icon={<Database className="h-8 w-8" />} title="لا توجد leads بعد" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          <Database className="h-4 w-4 text-[var(--accent)]" />
+          توزيع الـleads
+        </CardTitle>
+        <CardDescription>{formatNumber(total)} lead إجمالي</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="h-[220px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie
+                data={data}
+                innerRadius={50}
+                outerRadius={85}
+                paddingAngle={2}
+                dataKey="value"
+                nameKey="name"
+                stroke="none"
+              >
+                {data.map((entry, i) => (
+                  <Cell key={i} fill={entry.color} />
+                ))}
+              </Pie>
+              <Tooltip
+                contentStyle={{
+                  background: "var(--bg-elev)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  fontSize: 12,
+                }}
+                formatter={(value: any, name: any) => [
+                  `${formatNumber(value as number)} (${(((value as number) / total) * 100).toFixed(1)}%)`,
+                  name,
+                ]}
+              />
+              <Legend iconType="circle" wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

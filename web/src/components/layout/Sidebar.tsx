@@ -27,6 +27,11 @@ const NAV = [
   { href: "/config", label: "الإعدادات", icon: Settings },
 ];
 
+const EXTERNAL = [
+  { href: "/welcome", label: "صفحة الترحيب", icon: Sparkles },
+  { href: "/pricing", label: "الأسعار", icon: KeyRound },
+];
+
 export function Sidebar() {
   const [location] = useLocation();
   const { sidebar, toggleSidebar } = useUI();
@@ -86,9 +91,22 @@ export function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="border-t border-[var(--border-soft)] p-3">
+      <div className="border-t border-[var(--border-soft)] p-3 space-y-1">
+        {!collapsed && EXTERNAL.map((e) => {
+          const Icon = e.icon;
+          return (
+            <Link
+              key={e.href}
+              href={e.href}
+              className="w-full flex items-center gap-2.5 rounded-md h-8 px-2.5 text-xs text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)] transition-colors"
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {e.label}
+            </Link>
+          );
+        })}
         {!collapsed && (
-          <div className="mb-2 rounded-lg p-3 bg-[var(--bg-soft)] border border-[var(--border-soft)]">
+          <div className="my-2 rounded-lg p-2.5 bg-[var(--bg-soft)] border border-[var(--border-soft)]">
             <div className="flex items-center gap-2 text-xs text-[var(--fg-muted)]">
               <Sparkles className="h-3.5 w-3.5 text-[var(--accent)]" />
               <span>نظام ذكي واعي بالحصص</span>

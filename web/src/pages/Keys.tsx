@@ -13,6 +13,8 @@ import {
   AlertTriangle,
   Sparkles,
   Trash2,
+  Activity,
+  KeyRound,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -20,9 +22,9 @@ import { Badge, StatusDot } from "@/components/ui/Badge";
 import { Input, Label, Textarea } from "@/components/ui/Input";
 import { Spinner, EmptyState } from "@/components/ui/EmptyState";
 import { useLiveData } from "@/hooks/useLiveData";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, type ProviderRow } from "@/lib/api";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { cn, formatNumber } from "@/lib/utils";
 
 const KEY_GROUPS: { id: string; label: string; description: string; keys: { env: string; label: string; placeholder?: string; multiline?: boolean }[] }[] = [
   {
@@ -145,6 +147,9 @@ export function KeysPage() {
         </div>
       </div>
 
+      {/* Quota Overview — clean, simple per-provider status */}
+      {providers.length > 0 && <QuotaOverview providers={providers} />}
+
       {/* Provider status summary */}
       {providers.length > 0 && (
         <Card>
@@ -255,5 +260,139 @@ export function KeysPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// ============= Quota Overview — clean, simple per-provider status =============
+function QuotaOverview({ providers }: { providers: ProviderRow[] }) {
+  // Sort: missing first (needs attention), then by remaining
+  const sorted = [...providers].sort((a, b) => {
+    if (a.key_state === "missing" && b.key_state !== "missing") return -1;
+    if (b.key_state === "missing" && a.key_state !== "missing") return 1;
+    const aRem = a.quota_limit ? (a.quota_limit - (a.quota_used || 0)) : Infinity;
+    const bRem = b.quota_limit ? (b.quota_limit - (b.quota_used || 0)) : Infinity;
+    return aRem - bRem;
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          <Activity className="h-4 w-4 text-[var(--accent)]" />
+          حالة الكوتا
+        </CardTitle>
+        <CardDescription>
+          كل مزوّد · الـunits المستهلكة والـالمتبقية
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-2">
+          {sorted.map((p, i) => {
+            const used = p.quota_used || 0;
+            const limit = p.quota_limit;
+            const remaining = limit != null ? Math.max(0, limit - used) : null;
+            const pct = limit ? (used / limit) * 100 : 0;
+            const state = p.status?.toLowerCase() || "unknown";
+            const noKey = p.key_state === "missing";
+            const exhausted = state === "exhausted" || (limit != null && remaining === 0);
+            const low = limit != null && pct >= 80 && !exhausted;
+
+            return (
+              <div
+                key={i}
+                className={cn(
+                  "rounded-lg p-3 border transition-colors",
+                  noKey
+                    ? "border-dashed border-[var(--warn)]/40 bg-[var(--warn)]/5"
+                    : exhausted
+                    ? "border-[var(--danger)]/40 bg-[var(--danger)]/5"
+                    : low
+                    ? "border-[var(--warn)]/40 bg-[var(--warn)]/5"
+                    : "border-[var(--border-soft)] bg-[var(--bg-soft)]"
+                )}
+              >
+                <div className="flex items-center justify-between gap-3 mb-1.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <StatusDot status={noKey ? "DISABLED" : state} />
+                    <span className="font-medium text-sm truncate">{p.name}</span>
+                    <Badge variant="outline" className="text-[10px] shrink-0">
+                      {p.task}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {noKey ? (
+                      <Badge variant="warn" className="text-[10px]">
+                        <KeyRound className="h-3 w-3" />
+                        بدون مفتاح
+                      </Badge>
+                    ) : exhausted ? (
+                      <Badge variant="danger" className="text-[10px]">
+                        خلصت الرصيد
+                      </Badge>
+                    ) : low ? (
+                      <Badge variant="warn" className="text-[10px]">
+                        <AlertTriangle className="h-3 w-3" />
+                        قاربت تخلص
+                      </Badge>
+                    ) : (
+                      <Badge variant="success" className="text-[10px]">
+                        شغّال
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+
+                {noKey ? (
+                  <p className="text-xs text-[var(--fg-muted)]">
+                    أضف مفتاح من الخانة أدناه لتفعيل هذا المزوّد.
+                  </p>
+                ) : (
+                  <>
+                    {/* Progress bar */}
+                    <div className="h-1.5 w-full rounded-full bg-[var(--bg)] overflow-hidden">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all",
+                          exhausted
+                            ? "bg-[var(--danger)]"
+                            : low
+                            ? "bg-[var(--warn)]"
+                            : "bg-[var(--success)]"
+                        )}
+                        style={{
+                          width: limit ? `${Math.min(100, pct)}%` : "0%",
+                        }}
+                      />
+                    </div>
+
+                    {/* Numbers row */}
+                    <div className="flex items-center justify-between mt-1.5 text-xs text-[var(--fg-muted)] tabular-nums" dir="ltr">
+                      <span>
+                        <span className="text-[var(--fg)] font-medium">
+                          {formatNumber(used)}
+                        </span>{" "}
+                        مستخدم
+                      </span>
+                      <span>
+                        {limit != null ? (
+                          <>
+                            <span className="text-[var(--fg)] font-medium">
+                              {formatNumber(remaining)}
+                            </span>{" "}
+                            متبقي من {formatNumber(limit)}
+                          </>
+                        ) : (
+                          <span className="text-[var(--fg-soft)]">بلا حد أقصى</span>
+                        )}
+                      </span>
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
