@@ -1,0 +1,74 @@
+{
+  "previewPort": 3000,
+  "healthPath": "/",
+  "startCommand": "docker compose -f docker-compose.base44.yml up -d",
+  "secrets": [
+    {
+      "name": "LEAD_ENGINE_ADMIN_PASSWORD",
+      "description": "Admin password for the dashboard login gate. Set this to control who can access the command center.",
+      "requiredAtBoot": true,
+      "generatedForDevelopment": true
+    },
+    {
+      "name": "LEAD_ENGINE_AUTH_SECRET",
+      "description": "HMAC secret used to sign session cookies. Generate a random string.",
+      "requiredAtBoot": true,
+      "generatedForDevelopment": true
+    },
+    {
+      "name": "TAVILY_API_KEY",
+      "description": "Tavily search API key (search provider pool). Optional — provider is filtered out if missing.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "BRAVE_SEARCH_API_KEY",
+      "description": "Brave search API key (search provider pool). Optional.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "EXA_API_KEY",
+      "description": "Exa search API key (search provider pool). Optional.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "GEMINI_API_KEY",
+      "description": "Google Gemini API key (LLM provider pool, highest priority). Optional.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "GROQ_API_KEY",
+      "description": "Groq API key (LLM provider pool). Optional.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "OPENROUTER_API_KEY",
+      "description": "OpenRouter API key (LLM provider pool). Optional.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "APOLLO_API_KEY",
+      "description": "Apollo.io API key for people/company data enrichment. Optional.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "HUNTER_API_KEY",
+      "description": "Hunter.io API key for email finding/verification. Optional.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "ABSTRACT_API_KEY",
+      "description": "Abstract API key for email verification. Optional.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "SUPABASE_URL",
+      "description": "Supabase project URL for lead database sync. Optional — sync is skipped if missing.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "SUPABASE_SERVICE_KEY",
+      "description": "Supabase service role key for lead database sync. Optional.",
+      "requiredAtBoot": false
+    }
+  ]
+}

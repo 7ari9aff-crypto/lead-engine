@@ -1,0 +1,50 @@
+# Base44 development environment for Lead Engine.
+# Backend = FastAPI/uvicorn (live reload), Frontend = Vite dev server (HMR).
+# All external API keys are optional — providers auto-filter out when missing.
+services:
+  backend:
+    image: python:3.12-slim
+    working_dir: /app
+    volumes:
+      - ./:/app
+      - pip-cache:/root/.cache/pip
+    environment:
+      - PYTHONPATH=/app
+      - LEAD_ENGINE_DATA_DIR=/app/data
+      - LEAD_ENGINE_OUTPUTS_DIR=/app/outputs
+      - LEAD_ENGINE_COOKIE_SECURE=0
+    env_file:
+      - ./.env.base44-defaults
+      - /run/base44/app.env
+    command: sh -c "pip install -r requirements.txt && python -m lead_engine init && uvicorn lead_engine.api.app:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/lead_engine"
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 40s
+
+  web:
+    image: node:22
+    working_dir: /app/web
+    volumes:
+      - ./:/app
+      - pnpm-store:/root/.local/share/pnpm/store
+      - web_node_modules:/app/web/node_modules
+    environment:
+      - VITE_BACKEND_URL=http://backend:8000
+      - __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS
+      - PNPM_CONFIG_DANGEROUSLY_ALLOW_ALL_BUILDS=true
+    command: sh -c "corepack enable pnpm && pnpm install && pnpm dev --host 0.0.0.0 --port 5173"
+    ports:
+      - "3000:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  pip-cache:
+  pnpm-store:
+  web_node_modules:
