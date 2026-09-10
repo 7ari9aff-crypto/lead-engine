@@ -372,6 +372,49 @@ pre code {
   text-underline-offset: 2px;
 }
 
+/* Professional table */
+.pro-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.pro-table thead th {
+  padding: 10px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-soft);
+  background: var(--bg-soft);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  text-align: start;
+}
+.pro-table tbody td {
+  padding: 12px 16px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: middle;
+}
+.pro-table tbody tr {
+  transition: background-color 0.15s ease;
+}
+.pro-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.pro-table tbody tr:hover {
+  background-color: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+/* Card hover depth */
+.card-hover {
+  transition: all 0.2s ease;
+}
+.card-hover:hover {
+  box-shadow: var(--shadow-lg);
+  border-color: color-mix(in srgb, var(--accent) 25%, var(--border));
+}
+
 /* Smooth focus ring */
 :where(button, a, input, textarea, select, [tabindex]):focus-visible {
   outline: 2px solid var(--ring);

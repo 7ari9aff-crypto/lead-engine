@@ -129,25 +129,25 @@ export function JobsPage() {
             />
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="pro-table">
                 <thead>
-                  <tr className="border-b border-[var(--border)] bg-[var(--bg-soft)]">
-                    <th className="text-right p-3 font-semibold">المهمة</th>
-                    <th className="text-right p-3 font-semibold">ICP</th>
-                    <th className="text-right p-3 font-semibold">الحالة</th>
-                    <th className="text-right p-3 font-semibold">سبب الإيقاف</th>
-                    <th className="text-right p-3 font-semibold">بدأت</th>
-                    <th className="text-right p-3 font-semibold">إجراءات</th>
+                  <tr>
+                    <th>المهمة</th>
+                    <th>ICP</th>
+                    <th>الحالة</th>
+                    <th>سبب الإيقاف</th>
+                    <th>بدأت</th>
+                    <th>إجراءات</th>
                   </tr>
                 </thead>
                 <tbody>
                   {jobs.map((j) => (
-                    <tr key={j.job_id} className="border-b border-[var(--border-soft)] hover:bg-[var(--bg-hover)] transition-colors">
-                      <td className="p-3 font-mono text-xs" dir="ltr">{truncate(j.job_id, 24)}</td>
-                      <td className="p-3">
+                    <tr key={j.job_id}>
+                      <td className="font-mono text-xs" dir="ltr">{truncate(j.job_id, 24)}</td>
+                      <td>
                         <Badge variant="outline" className="text-[10px]">{j.icp_id}</Badge>
                       </td>
-                      <td className="p-3">
+                      <td>
                         <Badge
                           variant={
                             j.state === "COMPLETED" ? "success" :
@@ -160,13 +160,13 @@ export function JobsPage() {
                           {j.state}
                         </Badge>
                       </td>
-                      <td className="p-3 text-xs text-[var(--fg-muted)] max-w-xs truncate" title={j.pause_reason || ""}>
+                      <td className="text-xs text-[var(--fg-muted)] max-w-xs truncate" title={j.pause_reason || ""}>
                         {j.pause_reason || "—"}
                       </td>
-                      <td className="p-3 text-xs text-[var(--fg-muted)]">
+                      <td className="text-xs text-[var(--fg-muted)]">
                         {j.created_at ? formatDate(j.created_at, false) : "—"}
                       </td>
-                      <td className="p-3">
+                      <td>
                         <div className="flex gap-1">
                           {j.state === "PAUSED" && (
                             <Button

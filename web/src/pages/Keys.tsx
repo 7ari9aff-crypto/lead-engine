@@ -26,6 +26,7 @@ import { apiGet, apiPost, type ProviderRow } from "@/lib/api";
 import { toast } from "sonner";
 import { cn, formatNumber } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { StatCard } from "@/components/ui/FilterPills";
 
 const KEY_GROUPS: { id: string; label: string; description: string; keys: { env: string; label: string; placeholder?: string; multiline?: boolean }[] }[] = [
   {
@@ -139,10 +140,10 @@ export function KeysPage() {
       />
 
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-        <KeyMetric label="المفاتيح المحفوظة" value={configuredKeys} detail={`من ${providers.length} مزوّد`} icon={KeyRound} />
-        <KeyMetric label="المزوّدون النشطون" value={activeProviders} detail="جاهزون للاستخدام" icon={Activity} tone="success" />
-        <KeyMetric label="الوحدات المستهلكة" value={formatNumber(consumedUnits)} detail="حسب سجل الاستخدام" icon={Activity} />
-        <KeyMetric label="يحتاج متابعة" value={exhaustedProviders} detail="بدون مفتاح أو مستنفد" icon={AlertTriangle} tone="warn" />
+        <StatCard icon={KeyRound} label="المفاتيح المحفوظة" value={configuredKeys} detail={`من ${providers.length} مزوّد`} />
+        <StatCard icon={Activity} label="المزوّدون النشطون" value={activeProviders} detail="جاهزون للاستخدام" tone="success" />
+        <StatCard icon={Activity} label="الوحدات المستهلكة" value={formatNumber(consumedUnits)} detail="حسب سجل الاستخدام" />
+        <StatCard icon={AlertTriangle} label="يحتاج متابعة" value={exhaustedProviders} detail="بدون مفتاح أو مستنفد" tone="warn" />
       </div>
 
       {/* Info banner */}
@@ -271,20 +272,7 @@ export function KeysPage() {
   );
 }
 
-function KeyMetric({ label, value, detail, icon: Icon, tone = "accent" }: { label: string; value: string | number; detail: string; icon: typeof Activity; tone?: "accent" | "success" | "warn" }) {
-  return (
-    <Card className="shadow-none">
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <span className="text-xs text-[var(--fg-muted)]">{label}</span>
-          <Icon className={cn("h-4 w-4", tone === "success" ? "text-[var(--success)]" : tone === "warn" ? "text-[var(--warn)]" : "text-[var(--accent)]")} />
-        </div>
-        <div className="text-xl font-bold tabular-nums">{value}</div>
-        <div className="text-[11px] text-[var(--fg-soft)] mt-1">{detail}</div>
-      </CardContent>
-    </Card>
-  );
-}
+
 
 // ============= Quota Overview — clean, simple per-provider status =============
 function QuotaOverview({ providers }: { providers: ProviderRow[] }) {
