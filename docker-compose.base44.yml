@@ -34,7 +34,7 @@ services:
       - pnpm-store:/root/.local/share/pnpm/store
       - web_node_modules:/app/web/node_modules
     environment:
-      - VITE_BACKEND_URL=http://backend:8000
+      - BACKEND_URL=http://backend:8000
       - __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS
       - PNPM_CONFIG_DANGEROUSLY_ALLOW_ALL_BUILDS=true
     command: sh -c "corepack enable pnpm && pnpm install && pnpm dev --host 0.0.0.0 --port 5173"

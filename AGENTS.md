@@ -29,6 +29,9 @@ Missing keys → the provider is filtered out and the router falls back to the n
 - `web/src/lib/api.ts` — frontend API client (relative URLs through Vite proxy)
 - `web/src/pages/` — dashboard pages (Overview, Keys, Providers, Jobs, Leads, Chat, etc.)
 
+## pnpm build scripts
+pnpm 12 blocks esbuild's build scripts by default (`ERR_PNPM_IGNORED_BUILDS`). The compose sets `PNPM_CONFIG_DANGEROUSLY_ALLOW_ALL_BUILDS=true` to bypass this. The `onlyBuiltDependencies` in `pnpm-workspace.yaml` is present but insufficient on its own with pnpm 12.3.4.
+
 ## Verify the app works
 ```bash
 docker compose -f docker-compose.base44.yml up -d --build
