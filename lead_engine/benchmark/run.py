@@ -28,7 +28,7 @@ def load_seed_csv(path) -> list:
 
 
 def run_benchmark(icp="v0_saudi_dental", dry_run: bool = True,
-                  job_id=None, seed_csv=None, write=True):
+                  job_id=None, seed_csv=None, write=True, agent_run_id=None):
     """icp: ICP name (loaded from config/icp/) or a full ICP dict (chat/MCP)."""
     import json
 
@@ -37,7 +37,7 @@ def run_benchmark(icp="v0_saudi_dental", dry_run: bool = True,
     db = Database(DB_PATH)
     settings = load_settings()
     icp_dict = icp if isinstance(icp, dict) else load_icp(icp)
-    orchestrator = PipelineOrchestrator(db, settings, dry_run=dry_run)
+    orchestrator = PipelineOrchestrator(db, settings, dry_run=dry_run, agent_run_id=agent_run_id)
     seed_leads = load_seed_csv(seed_csv) if seed_csv else None
     summary = orchestrator.run_job(icp_dict, job_id=job_id, seed_leads=seed_leads)
     leads = summary.get("leads", [])

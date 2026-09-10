@@ -43,7 +43,7 @@ const KEY_GROUPS: { id: string; label: string; description: string; keys: { env:
     description: "لاكتشاف الشركات. ترتيب البحث: Tavily → Brave → Exa.",
     keys: [
       { env: "TAVILY_API_KEY", label: "Tavily", placeholder: "tvly-…" },
-      { env: "BRAVE_API_KEY", label: "Brave Search", placeholder: "BSA…" },
+      { env: "BRAVE_SEARCH_API_KEY", label: "Brave Search", placeholder: "BSA…" },
       { env: "EXA_API_KEY", label: "Exa", placeholder: "exa-…" },
     ],
   },
@@ -113,6 +113,10 @@ export function KeysPage() {
   }
 
   const providers = data?.providers ?? [];
+  const configuredKeys = providers.filter((p) => p.key_state === "set").length;
+  const consumedUnits = providers.reduce((sum, p) => sum + (p.units || p.quota_used || 0), 0);
+  const activeProviders = providers.filter((p) => p.status === "active").length;
+  const exhaustedProviders = providers.filter((p) => p.status === "exhausted" || p.key_state === "missing").length;
 
   return (
     <div className="space-y-6">
@@ -123,7 +127,7 @@ export function KeysPage() {
             مفاتيح API
           </h1>
           <p className="text-sm text-[var(--fg-muted)] mt-1">
-            تتخزن في <code dir="ltr">.env</code> (خارج git) وتدخل حيّز التنفيذ فورًا بدون إعادة تشغيل.
+            تحكم في مفاتيح المزودين واستهلاكهم من مكان واحد. القيم السرية لا تعود إلى المتصفح.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -135,6 +139,13 @@ export function KeysPage() {
             حفظ المفاتيح
           </Button>
         </div>
+      </div>
+
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+        <KeyMetric label="المفاتيح المحفوظة" value={configuredKeys} detail={`من ${providers.length} مزوّد`} icon={KeyRound} />
+        <KeyMetric label="المزوّدون النشطون" value={activeProviders} detail="جاهزون للاستخدام" icon={Activity} tone="success" />
+        <KeyMetric label="الوحدات المستهلكة" value={formatNumber(consumedUnits)} detail="حسب سجل الاستخدام" icon={Activity} />
+        <KeyMetric label="يحتاج متابعة" value={exhaustedProviders} detail="بدون مفتاح أو مستنفد" icon={AlertTriangle} tone="warn" />
       </div>
 
       {/* Info banner */}
@@ -260,6 +271,21 @@ export function KeysPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+function KeyMetric({ label, value, detail, icon: Icon, tone = "accent" }: { label: string; value: string | number; detail: string; icon: typeof Activity; tone?: "accent" | "success" | "warn" }) {
+  return (
+    <Card className="shadow-none">
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <span className="text-xs text-[var(--fg-muted)]">{label}</span>
+          <Icon className={cn("h-4 w-4", tone === "success" ? "text-[var(--success)]" : tone === "warn" ? "text-[var(--warn)]" : "text-[var(--accent)]")} />
+        </div>
+        <div className="text-xl font-bold tabular-nums">{value}</div>
+        <div className="text-[11px] text-[var(--fg-soft)] mt-1">{detail}</div>
+      </CardContent>
+    </Card>
   );
 }
 

@@ -6,8 +6,9 @@ import {
   PlayCircle,
   Database,
   MailCheck,
-  Bot,
   Settings,
+  Bot,
+  Plug,
   Sparkles,
   ChevronLeft,
   ChevronRight,
@@ -28,6 +29,8 @@ const NAV = [
   { href: "/leads", label: "النتائج", icon: Database },
   { href: "/verify", label: "فحص إيميل", icon: MailCheck },
   { href: "/config", label: "الإعدادات", icon: Settings },
+  { href: "/integrations", label: "التكاملات و MCP", icon: Plug },
+  { href: "/agents", label: "الوكلاء", icon: Bot },
 ];
 
 const EXTERNAL = [
@@ -69,11 +72,12 @@ export function Sidebar() {
       )}
       <aside
         className={cn(
-          "glass border-l border-[var(--border)] transition-all duration-300 ease-out",
+          "glass border-r border-[var(--border)] transition-all duration-300 ease-out",
           "flex flex-col h-screen sticky top-0 z-30",
-          // Mobile: fixed, slide in/out
-          "fixed lg:sticky",
-          sidebar === "collapsed" ? "translate-x-0 lg:w-[68px] w-[280px]" : "translate-x-full lg:translate-x-0 lg:w-[240px]"
+          "fixed left-0 lg:sticky",
+          sidebar === "collapsed"
+            ? "translate-x-0 lg:w-[68px] w-[280px]"
+            : "-translate-x-full lg:translate-x-0 lg:w-[240px]"
         )}
       >
       {/* Brand */}
@@ -119,7 +123,7 @@ export function Sidebar() {
               )}
             >
               {active && (
-                <span className="absolute right-0 top-1.5 bottom-1.5 w-[3px] rounded-l-full bg-[var(--accent)]" />
+                <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-[var(--accent)]" />
               )}
               <Icon className="h-4 w-4 shrink-0" />
               {!collapsed && <span className="truncate">{item.label}</span>}

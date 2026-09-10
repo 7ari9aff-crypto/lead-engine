@@ -41,6 +41,7 @@ TOOLS_DECL = [{
                                  "enum": ["dental"]},
                     "dry_run": {"type": "BOOLEAN",
                                 "description": "تشغيل تجربة على بيانات وهمية — افتراضيًا false (تشغيل حقيقي)"},
+                    "approval_id": {"type": "STRING", "description": "معرف الموافقة بعد اعتماد التشغيل الحي"},
                 },
                 "required": ["city"],
             },
@@ -97,6 +98,15 @@ def execute_tool(name: str, args: dict, router, db) -> dict:
     args = args or {}
     try:
         if name == "run_lead_generation":
+            if not bool(args.get("dry_run", False)) and hasattr(db, "execute"):
+                from ..agent_registry import AgentRegistry
+                approval_id = args.get("approval_id")
+                approval = AgentRegistry(db).approval(approval_id) if approval_id else None
+                if not approval or approval["status"] != "APPROVED":
+                    run_id = f"approval-request:{args.get('city', 'unknown')}"
+                    requested = AgentRegistry(db).request_approval(run_id, "run_lead_generation", args)
+                    return {"status": "approval_required", "approval_id": requested,
+                            "message": "التشغيل الحي يحتاج موافقة من لوحة الوكلاء قبل استهلاك الحصص."}
             icp = build_adhoc_icp([args.get("city", "الرياض")],
                                   args.get("industry", "dental"))
             summary, metrics, _outputs = run_benchmark(

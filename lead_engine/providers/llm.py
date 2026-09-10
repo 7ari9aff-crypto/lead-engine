@@ -30,7 +30,7 @@ class LLMBase(BaseProvider):
 
     @property
     def model_name(self):
-        return (self.settings.get("llm", {}).get("cloud_models", {}) or {}).get(self.name, "")
+        return self.configured_model_name or (self.settings.get("llm", {}).get("cloud_models", {}) or {}).get(self.name, "")
 
 
 class GeminiProvider(LLMBase):
@@ -64,8 +64,10 @@ class GeminiProvider(LLMBase):
             body["systemInstruction"] = {"parts": [{"text": system}]}
         if tools:
             body["tools"] = tools
+        endpoint = self.endpoint_url or self.URL
+        endpoint = endpoint.format(model=self.model_name or "gemini-3.6-flash")
         resp = self._http(
-            "POST", self.URL.format(model=self.model_name or "gemini-3.6-flash")
+            "POST", endpoint
             + f"?key={self.current_key()}",
             json=body,
         )
@@ -94,7 +96,7 @@ class _OpenAICompat(LLMBase):
         }
         if json_mode:
             body["response_format"] = {"type": "json_object"}
-        resp = self._http("POST", self.URL, json=body, headers=self._headers())
+        resp = self._http("POST", self.endpoint_url or self.URL, json=body, headers=self._headers())
         data = self._json(resp)
         text = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
         return text, self._rate_info(resp.headers)
@@ -128,10 +130,10 @@ class OllamaProvider(LLMBase):
 
     @property
     def model_name(self):
-        return (self.settings.get("llm", {}) or {}).get("local_model", "llama3.1:8b")
+        return self.configured_model_name or (self.settings.get("llm", {}) or {}).get("local_model", "llama3.1:8b")
 
     def complete(self, prompt, json_mode):
-        base = (self.settings.get("llm", {}) or {}).get(
+        base = self.endpoint_url or (self.settings.get("llm", {}) or {}).get(
             "ollama_base_url", __import__("os").environ.get("OLLAMA_BASE_URL", "http://localhost:11434"))
         body = {"model": self.model_name, "messages": [{"role": "user", "content": prompt}],
                 "stream": False}

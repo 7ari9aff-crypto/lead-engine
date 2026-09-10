@@ -21,6 +21,7 @@ MCP_TOOLS = [
                 "city": {"type": "string", "description": "المدينة مثل: الرياض، جدة"},
                 "industry": {"type": "string", "enum": ["dental"], "description": "افتراضي dental"},
                 "dry_run": {"type": "boolean", "description": "تشغيل تجربة — افتراضي false"},
+                    "approval_id": {"type": "string", "description": "معرف موافقة التشغيل الحي"},
             },
             "required": ["city"],
         },
@@ -84,6 +85,19 @@ def handle_jsonrpc(body: dict, router, db):
             "instructions": "أدوات تشغيل توليد leads حقيقية: run_lead_generation لتشغيل "
                             "الخط لمدينة سعودية، list_leads للنتائج، verify_email للفحص، "
                             "system_status للحالة.",
+        }), 200
+
+    if method == "server/discover":
+        return _result(rid, {
+            "resultType": "complete",
+            "supportedVersions": [PROTOCOL_VERSION],
+            "capabilities": {"tools": {"listChanged": False}},
+            "serverInfo": {
+                "name": "lead-engine",
+                "version": __import__("lead_engine", fromlist=["__version__"]).__version__,
+            },
+            "ttlMs": 300000,
+            "cacheScope": "public",
         }), 200
 
     if method == "notifications/initialized":

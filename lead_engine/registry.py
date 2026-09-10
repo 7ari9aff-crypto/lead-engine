@@ -103,11 +103,14 @@ class Registry:
         return (row["quota_used"] or 0) < row["quota_limit"] * max(1, multiplier)
 
     def status_table(self):
-        return self.db.query(
+        rows = self.db.query(
             "SELECT name, task, type, priority, quota_kind, quota_limit, quota_used,"
-            " period, rpm_limit, status, status_reason, cooldown_until, env_key FROM providers"
+            " period, rpm_limit, status, status_reason, cooldown_until, env_key, base_url, model_name FROM providers"
             " ORDER BY task, priority"
         )
+        for row in rows:
+            row["has_key"] = row["env_key"] is None or bool(_env(row["env_key"]))
+        return rows
 
     def usage_summary(self):
         return self.db.query(
@@ -142,10 +145,11 @@ class Registry:
             until = (datetime.now(timezone.utc) + timedelta(seconds=cooldown_seconds)).strftime(
                 "%Y-%m-%dT%H:%M:%SZ"
             )
-        self.db.execute(
+        cur = self.db.execute(
             "UPDATE providers SET status=?, status_reason=?, cooldown_until=? WHERE name=? AND task=?",
             (status, reason, until, provider, task),
         )
+        return cur.rowcount > 0
 
     def count_recent_requests(self, provider, window_seconds=60):
         since = (datetime.now(timezone.utc) - timedelta(seconds=window_seconds)).strftime(

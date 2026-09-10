@@ -25,7 +25,8 @@ ACCEPT_THRESHOLD = 60.0
 
 
 class PipelineOrchestrator:
-    def __init__(self, db, settings: dict, dry_run: bool = False, legal_country: str = None):
+    def __init__(self, db, settings: dict, dry_run: bool = False, legal_country: str = None,
+                 agent_run_id: str | None = None):
         self.db = db
         self.settings = settings
         self.legal_country = legal_country
@@ -33,6 +34,15 @@ class PipelineOrchestrator:
         self.router = Router(db, self.cache, settings, dry_run=dry_run)
         self.jobs = JobManager(db)
         self.dry_run = dry_run
+        self.agent_run_id = agent_run_id
+
+    def _record_stage(self, name: str, output: dict):
+        if not self.agent_run_id:
+            return
+        from ..agent_registry import AgentRegistry
+        registry = AgentRegistry(self.db)
+        step_id = registry.start_step(self.agent_run_id, name, input_data={})
+        registry.finish_step(step_id, "COMPLETED", output=output)
 
     def run_job(self, icp: dict, job_id=None, seed_leads=None) -> dict:
         if not job_id:
@@ -50,6 +60,7 @@ class PipelineOrchestrator:
             if seed_leads:
                 candidates.extend(seed_leads)
             summary["stages"]["discovery"] = {"raw_candidates": len(candidates)}
+            self._record_stage("discovery", summary["stages"]["discovery"])
 
             # 2) normalize defaults
             for c in candidates:
@@ -59,6 +70,7 @@ class PipelineOrchestrator:
             # 3) dedup (multi-stage)
             leads, dedup_stats = DedupEngine(self.settings).run(candidates)
             summary["stages"]["dedup"] = dedup_stats.__dict__
+            self._record_stage("dedup", summary["stages"]["dedup"])
 
             # 4) hard filter
             hard = HardFilter(icp)
@@ -72,6 +84,7 @@ class PipelineOrchestrator:
                     lead["filter_reason"] = reason
                     dropped += 1
             summary["stages"]["hard_filter"] = {"kept": len(kept), "dropped": dropped}
+            self._record_stage("hard_filter", summary["stages"]["hard_filter"])
 
             # 5) AI qualification
             qualifier = Qualifier(self.router)
@@ -92,11 +105,13 @@ class PipelineOrchestrator:
                     lead["requires_review"] = True
                 scored += 1
             summary["stages"]["qualification"] = {"scored": scored, "skipped": skipped}
+            self._record_stage("qualification", summary["stages"]["qualification"])
 
             # 6) selective enrichment (budgeted)
             ordered = sorted(kept, key=lambda l: -(l.get("qualification_score") or 0))
             estats = Enrichment(self.router).run(ordered, plan, job_id)
             summary["stages"]["enrichment"] = estats
+            self._record_stage("enrichment", estats)
 
             # 7) email verification (5-state, catch-all aware)
             from ..providers.email import VerificationPipeline
@@ -110,6 +125,7 @@ class PipelineOrchestrator:
                     lead["email_confidence"] = verdict.get("confidence")
                     verified += 1
             summary["stages"]["verification"] = {"verified": verified}
+            self._record_stage("verification", summary["stages"]["verification"])
 
             # 8) scoring + legal gate + store
             gate = LegalGate(load_legal_policy(self.legal_country or icp.get("legal_policy") or "default"))
@@ -139,6 +155,7 @@ class PipelineOrchestrator:
                 "review": sum(1 for l in kept if l.get("stage") == "REVIEW"),
                 "rejected": sum(1 for l in kept if l.get("stage") == "REJECTED"),
             }
+            self._record_stage("legal_gate", summary["stages"]["legal_gate"])
             summary["leads"] = kept
             summary["final_leads"] = len(kept)
 

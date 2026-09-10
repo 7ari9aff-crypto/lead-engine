@@ -104,6 +104,10 @@ class Router:
                 tried.append(f"{name}:rpm")
                 continue
 
+            configure = getattr(adapter, "configure", None)
+            if configure:
+                configure(row)
+
             # key pool: on 429/quota rotate to the next key BEFORE giving up
             # on the provider — 5 Tavily keys = 5x monthly credits.
             # Per the design: transient 5xx gets a SHORT RETRY on the same

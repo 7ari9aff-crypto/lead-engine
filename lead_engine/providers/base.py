@@ -35,6 +35,13 @@ class BaseProvider:
         self.timeout = (self.settings.get("router", {}) or {}).get("timeout_seconds", 30)
         self.api_key = os.environ.get(self.env_key) if self.env_key else None
         self._key_index = 0
+        self.endpoint_url = None
+        self.configured_model_name = None
+
+    def configure(self, provider_row: dict):
+        """Apply non-secret settings from the provider registry for this call."""
+        self.endpoint_url = provider_row.get("base_url") or None
+        self.configured_model_name = provider_row.get("model_name") or None
 
     # ------------------------------------------------------------ key pool
     @property

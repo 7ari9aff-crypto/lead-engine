@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS providers (
   status_reason TEXT,
   cooldown_until TEXT,
   env_key TEXT,
+    base_url TEXT,
+    model_name TEXT,
   notes TEXT,
   PRIMARY KEY (name, task)
 );
@@ -108,6 +110,85 @@ CREATE TABLE IF NOT EXISTS cache (
   expires_at TEXT,
   PRIMARY KEY (level, cache_key)
 );
+CREATE TABLE IF NOT EXISTS agents (
+    agent_id TEXT PRIMARY KEY,
+    slug TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    description TEXT,
+    status TEXT NOT NULL DEFAULT 'draft',
+    current_version TEXT,
+    created_at TEXT,
+    updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS agent_versions (
+    agent_id TEXT NOT NULL,
+    version TEXT NOT NULL,
+    instructions TEXT,
+    model_policy TEXT,
+    tool_policy TEXT,
+    output_schema TEXT,
+    status TEXT NOT NULL DEFAULT 'draft',
+    created_at TEXT,
+    PRIMARY KEY (agent_id, version)
+);
+CREATE TABLE IF NOT EXISTS agent_runs (
+    run_id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    version TEXT NOT NULL,
+    status TEXT NOT NULL,
+    input_json TEXT,
+    output_json TEXT,
+    error TEXT,
+    cost_usd REAL DEFAULT 0,
+    prompt_tokens INTEGER DEFAULT 0,
+    completion_tokens INTEGER DEFAULT 0,
+    created_at TEXT,
+    updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS agent_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL,
+    step_name TEXT NOT NULL,
+    step_type TEXT,
+    status TEXT NOT NULL,
+    input_json TEXT,
+    output_json TEXT,
+    provider TEXT,
+    latency_ms INTEGER,
+    error TEXT,
+    started_at TEXT,
+    finished_at TEXT
+);
+CREATE TABLE IF NOT EXISTS tools (
+    name TEXT PRIMARY KEY,
+    description TEXT,
+    input_schema TEXT,
+    output_schema TEXT,
+    scopes TEXT,
+    requires_approval INTEGER DEFAULT 0,
+    enabled INTEGER DEFAULT 1,
+    created_at TEXT
+);
+CREATE TABLE IF NOT EXISTS connections (
+    connection_id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    base_url TEXT,
+    status TEXT NOT NULL DEFAULT 'unknown',
+    last_checked_at TEXT,
+    metadata_json TEXT,
+    created_at TEXT
+);
+CREATE TABLE IF NOT EXISTS approvals (
+    approval_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    step_id INTEGER,
+    action TEXT NOT NULL,
+    payload_json TEXT,
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    requested_at TEXT,
+    resolved_at TEXT
+);
 """
 
 
@@ -123,7 +204,14 @@ class Database:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA busy_timeout=5000")
         self.conn.executescript(SCHEMA)
+        self._migrate_provider_columns()
         self.conn.commit()
+
+    def _migrate_provider_columns(self):
+        existing = {row["name"] for row in self.conn.execute("PRAGMA table_info(providers)")}
+        for name, definition in (("base_url", "TEXT"), ("model_name", "TEXT")):
+            if name not in existing:
+                self.conn.execute(f"ALTER TABLE providers ADD COLUMN {name} {definition}")
 
     def execute(self, sql, params=()):
         cur = self.conn.execute(sql, params)

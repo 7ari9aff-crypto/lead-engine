@@ -14,9 +14,11 @@ Admin endpoints live under /api/*: system status, provider toggle/reset,
 YAML config editing, background job start, cache purge, CSV export.
 """
 import json
+import ipaddress
 import os
 import sys
 import threading
+from urllib.parse import urlparse
 
 import yaml
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request
@@ -30,6 +32,7 @@ from ..config import (
     CONFIG_DIR, DB_PATH, DATA_DIR, OUTPUTS_DIR, ROOT, load_env, load_settings,
 )
 from ..db import Database
+from ..agent_registry import AgentRegistry
 from ..jobs import PAUSED, JobManager
 from ..providers.email import VerificationPipeline
 from ..registry import Registry
@@ -53,6 +56,21 @@ app = FastAPI(
     description="Quota-aware multi-provider lead generation engine "
                 "(n8n = orchestration, FastAPI = brain, Supabase = storage)",
 )
+
+PROTECTED_PATHS = ("/api/", "/mcp", "/leads", "/jobs", "/providers", "/benchmark/",
+                   "/sync-supabase", "/verify-email", "/report/", "/export/")
+
+
+@app.middleware("http")
+async def admin_session_guard(request: Request, call_next):
+    from .auth import COOKIE_NAME, valid_session
+
+    path = request.url.path
+    public = path in {"/health", "/api/auth/login", "/api/auth/session", "/api/auth/logout"}
+    protected = path.startswith(PROTECTED_PATHS)
+    if protected and not public and not valid_session(request.cookies.get(COOKIE_NAME)):
+        return JSONResponse({"detail": "authentication required"}, status_code=401)
+    return await call_next(request)
 
 
 def get_db():
@@ -83,6 +101,49 @@ class SyncRequest(BaseModel):
     stage: str = "ACCEPTED"
 
 
+class AgentRunRequest(BaseModel):
+    agent: str = "lead-generation"
+    input: dict = Field(default_factory=dict)
+    version: str | None = None
+
+
+class ApprovalResolution(BaseModel):
+    status: str
+
+
+class LoginRequest(BaseModel):
+    password: str
+
+
+@app.post("/api/auth/login")
+def auth_login(req: LoginRequest):
+    from .auth import COOKIE_NAME, issue_session, password_matches
+
+    if not password_matches(req.password):
+        raise HTTPException(status_code=401, detail="invalid credentials")
+    response = JSONResponse({"authenticated": True})
+    response.set_cookie(COOKIE_NAME, issue_session(), httponly=True, samesite="lax",
+                        secure=bool(os.environ.get("LEAD_ENGINE_COOKIE_SECURE")),
+                        max_age=60 * 60 * 12)
+    return response
+
+
+@app.get("/api/auth/session")
+def auth_session(request: Request):
+    from .auth import COOKIE_NAME, enabled, valid_session
+
+    return {"authenticated": not enabled() or valid_session(request.cookies.get(COOKIE_NAME))}
+
+
+@app.post("/api/auth/logout")
+def auth_logout():
+    from .auth import COOKIE_NAME
+
+    response = JSONResponse({"authenticated": False})
+    response.delete_cookie(COOKIE_NAME)
+    return response
+
+
 @app.get("/health")
 def health(db: Database = Depends(get_db)):
     router = Router(db, _cache(db), settings, dry_run=True)
@@ -92,6 +153,71 @@ def health(db: Database = Depends(get_db)):
         "providers_configured": sorted({r["name"] for r in providers}),
         "note": "dry_run adapter set is always available; live pool depends on .env keys",
     }
+
+
+@app.get("/api/agents")
+def api_agents(db: Database = Depends(get_db)):
+    return {"agents": AgentRegistry(db).agents()}
+
+
+@app.get("/api/agents/{slug}/versions")
+def api_agent_versions(slug: str, db: Database = Depends(get_db)):
+    return {"versions": AgentRegistry(db).versions(slug)}
+
+
+@app.post("/api/agent-runs")
+def api_agent_run_create(req: AgentRunRequest, db: Database = Depends(get_db)):
+    try:
+        run_id = AgentRegistry(db).create_run(req.agent, req.input, req.version)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"run_id": run_id, "status": "RUNNING", "agent": req.agent}
+
+
+@app.get("/api/agent-runs")
+def api_agent_runs(limit: int = Query(default=50, ge=1, le=200), db: Database = Depends(get_db)):
+    return {"runs": AgentRegistry(db).runs(limit)}
+
+
+@app.get("/api/agent-runs/{run_id}")
+def api_agent_run(run_id: str, db: Database = Depends(get_db)):
+    row = AgentRegistry(db).run(run_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="agent run not found")
+    return row
+
+
+@app.get("/api/tools")
+def api_tools(db: Database = Depends(get_db)):
+    return {"tools": AgentRegistry(db).tools()}
+
+
+@app.get("/api/connections")
+def api_connections(db: Database = Depends(get_db)):
+    return {"connections": AgentRegistry(db).connections()}
+
+
+@app.post("/api/connections/{provider}/check")
+def api_connection_check(provider: str, db: Database = Depends(get_db)):
+    result = AgentRegistry(db).check_connection(provider)
+    if not result:
+        raise HTTPException(status_code=404, detail="provider connection not found")
+    return result
+
+
+@app.get("/api/approvals")
+def api_approvals(status: str = "PENDING", db: Database = Depends(get_db)):
+    return {"approvals": AgentRegistry(db).approvals(status)}
+
+
+@app.post("/api/approvals/{approval_id}/resolve")
+def api_approval_resolve(approval_id: str, req: ApprovalResolution,
+                         db: Database = Depends(get_db)):
+    if req.status not in ("APPROVED", "REJECTED"):
+        raise HTTPException(status_code=422, detail="status must be APPROVED or REJECTED")
+    if not AgentRegistry(db).resolve_approval(approval_id, req.status):
+        raise HTTPException(status_code=404, detail="pending approval not found")
+    return {"ok": True, "approval_id": approval_id, "status": req.status}
 
 
 def _cache(db):
@@ -108,19 +234,36 @@ def providers(db: Database = Depends(get_db)):
 
 
 @app.post("/benchmark/run")
-def run_benchmark_endpoint(req: RunRequest, background: BackgroundTasks):
+def run_benchmark_endpoint(req: RunRequest, background: BackgroundTasks,
+                           db: Database = Depends(get_db)):
     """Synchronous on purpose for V0: dry-run takes seconds; a live run takes
     minutes but the job row is updated continuously, so n8n can poll
     /jobs/{id} from a second workflow if needed."""
     from ..benchmark.run import run_benchmark
 
+    registry = AgentRegistry(db)
+    run_id = registry.create_run("lead-generation", {
+        "icp": req.icp, "dry_run": req.dry_run, "seed_csv": req.seed_csv,
+    })
+    step_id = registry.start_step(run_id, "pipeline", input_data={"icp": req.icp})
     try:
         summary, metrics, outputs = run_benchmark(
-            req.icp, dry_run=req.dry_run, seed_csv=req.seed_csv)
+            req.icp, dry_run=req.dry_run, seed_csv=req.seed_csv, agent_run_id=run_id)
     except Exception as exc:  # surface config errors to the caller
+        registry.finish_step(step_id, "FAILED", error=f"{type(exc).__name__}: {exc}")
+        registry.finish_run(run_id, "FAILED", error=f"{type(exc).__name__}: {exc}")
         raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc
+    registry.finish_run(run_id, summary.get("state") or "COMPLETED", {
+        "job_id": summary.get("job_id"), "metrics": metrics, "outputs": outputs,
+    }, usage={
+        "cost_usd": metrics.get("total_cost_usd", 0) if isinstance(metrics, dict) else 0,
+        "prompt_tokens": metrics.get("prompt_tokens", 0) if isinstance(metrics, dict) else 0,
+        "completion_tokens": metrics.get("completion_tokens", 0) if isinstance(metrics, dict) else 0,
+    })
+    registry.finish_step(step_id, "COMPLETED", output={"job_id": summary.get("job_id"), "state": summary.get("state")})
     return {
         "job_id": summary.get("job_id"),
+        "agent_run_id": run_id,
         "state": summary.get("state"),
         "pause_reason": summary.get("pause_reason"),
         "metrics": metrics,
@@ -172,6 +315,8 @@ def resume_job(job_id: str, req: ResumeRequest, background: BackgroundTasks,
 
 @app.get("/leads")
 def leads(job_id: str | None = Query(default=None), stage: str | None = Query(default=None),
+          limit: int = Query(default=100, ge=1, le=1000),
+          offset: int = Query(default=0, ge=0),
           db: Database = Depends(get_db)):
     sql = "SELECT * FROM leads WHERE 1=1"
     params: list = []
@@ -181,7 +326,9 @@ def leads(job_id: str | None = Query(default=None), stage: str | None = Query(de
     if stage:
         sql += " AND stage=?"
         params.append(stage)
-    return db.query(sql + " ORDER BY score DESC", params)
+    sql += " ORDER BY score DESC LIMIT ? OFFSET ?"
+    params.extend((limit, offset))
+    return db.query(sql, params)
 
 
 @app.post("/verify-email")
@@ -302,6 +449,7 @@ def api_status(db: Database = Depends(get_db)):
             "quota_kind": row["quota_kind"], "quota_limit": row["quota_limit"],
             "quota_used": row["quota_used"] or 0, "period": row["period"],
             "rpm_limit": row["rpm_limit"],
+            "base_url": row.get("base_url"), "model_name": row.get("model_name"),
             "calls": usage["calls"], "units": usage["units"], "last_used": usage["last_used"],
         })
     return {
@@ -334,12 +482,52 @@ class ProviderStatusRequest(BaseModel):
     status: str  # active | disabled
 
 
+class ProviderConfigRequest(BaseModel):
+    base_url: str | None = None
+    model_name: str | None = None
+
+
+def _validate_provider_url(name: str, value: str | None) -> str | None:
+    if not value:
+        return None
+    parsed = urlparse(value)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme not in ("http", "https") or not host or parsed.username or parsed.password:
+        raise HTTPException(status_code=422, detail="base_url must be a valid http(s) URL without credentials")
+    try:
+        is_private_ip = ipaddress.ip_address(host).is_private
+    except ValueError:
+        is_private_ip = False
+    local_allowed = name == "ollama" and host in {"localhost", "127.0.0.1", "::1"}
+    if not local_allowed and (parsed.scheme != "https" or is_private_ip or host == "localhost"):
+        raise HTTPException(status_code=422, detail="custom provider URLs must use public HTTPS endpoints")
+    return value.rstrip("/")
+
+
+@app.put("/api/providers/{name}/{task}/config")
+def api_provider_config(name: str, task: str, req: ProviderConfigRequest,
+                        db: Database = Depends(get_db)):
+    """Persist non-secret provider settings used by the dashboard and adapters."""
+    base_url = _validate_provider_url(name, (req.base_url or "").strip() or None)
+    model_name = (req.model_name or "").strip() or None
+    if base_url and not (base_url.startswith("https://") or base_url.startswith("http://")):
+        raise HTTPException(status_code=422, detail="base_url must start with http:// or https://")
+    cur = db.execute(
+        "UPDATE providers SET base_url=?, model_name=? WHERE name=? AND task=?",
+        (base_url, model_name, name, task),
+    )
+    if cur.rowcount == 0:
+        raise HTTPException(status_code=404, detail="provider/task pair not found")
+    return {"ok": True, "name": name, "task": task, "base_url": base_url, "model_name": model_name}
+
+
 @app.post("/api/providers/{name}/{task}/status")
 def api_provider_status(name: str, task: str, req: ProviderStatusRequest,
                         db: Database = Depends(get_db)):
     if req.status not in ("active", "disabled"):
         raise HTTPException(status_code=422, detail="status must be active or disabled")
-    Registry(db).mark(name, task, req.status, "manual control from dashboard")
+    if not Registry(db).mark(name, task, req.status, "manual control from dashboard"):
+        raise HTTPException(status_code=404, detail="provider/task pair not found")
     return {"ok": True, "name": name, "task": task, "status": req.status}
 
 

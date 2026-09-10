@@ -21,7 +21,7 @@ class TavilyProvider(BaseProvider):
             "max_results": payload.get("max_results", 8),
             "exclude_domains": payload.get("exclude_domains", SOCIAL_EXCLUDE),
         }
-        data = self._json(self._http("POST", self.URL, json=body))
+        data = self._json(self._http("POST", self.endpoint_url or self.URL, json=body))
         results = [
             {"title": r.get("title", ""), "url": r.get("url", ""),
              "snippet": r.get("content", "")}
@@ -39,7 +39,7 @@ class BraveProvider(BaseProvider):
 
     def request(self, task, payload):
         data = self._json(self._http(
-            "GET", self.URL,
+            "GET", self.endpoint_url or self.URL,
             params={"q": payload["query"], "count": payload.get("max_results", 8)},
             headers={"X-Subscription-Token": self.current_key(), "Accept": "application/json"},
         ))
@@ -60,7 +60,7 @@ class ExaProvider(BaseProvider):
 
     def request(self, task, payload):
         data = self._json(self._http(
-            "POST", self.URL,
+            "POST", self.endpoint_url or self.URL,
             json={"query": payload["query"], "numResults": payload.get("max_results", 8),
                   "type": "auto", "contents": {"text": {"maxCharacters": 400}}},
             headers={"x-api-key": self.current_key()},

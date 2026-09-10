@@ -6,16 +6,19 @@ import {
   RotateCcw,
   Activity,
   Search,
+  Settings2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge, StatusDot } from "@/components/ui/Badge";
 import { Input } from "@/components/ui/Input";
 import { useLiveData } from "@/hooks/useLiveData";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, type ProviderRow } from "@/lib/api";
 import { toast } from "sonner";
 import { cn, formatNumber, relativeTime } from "@/lib/utils";
 import { Spinner, EmptyState } from "@/components/ui/EmptyState";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/Dialog";
+import { Label } from "@/components/ui/Input";
 
 const STATUSES = ["ALL", "active", "degraded", "exhausted", "cooldown", "disabled"] as const;
 const TASKS = ["ALL", "search", "reasoning", "enrichment", "verification", "embedding"] as const;
@@ -26,6 +29,10 @@ export function ProvidersPage() {
   const [taskFilter, setTaskFilter] = useState<"ALL" | string>("ALL");
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [editing, setEditing] = useState<ProviderRow | null>(null);
+  const [baseUrl, setBaseUrl] = useState("");
+  const [modelName, setModelName] = useState("");
+  const [savingConfig, setSavingConfig] = useState(false);
 
   async function act(name: string, task: string, action: "enable" | "disable" | "reset") {
     setBusy(`${name}:${task}:${action}`);
@@ -45,6 +52,27 @@ export function ProvidersPage() {
       toast.error("فشل: " + e.message);
     } finally {
       setBusy(null);
+    }
+  }
+
+  function openConfig(provider: ProviderRow) {
+    setEditing(provider);
+    setBaseUrl(provider.base_url || "");
+    setModelName(provider.model_name || "");
+  }
+
+  async function saveConfig() {
+    if (!editing) return;
+    setSavingConfig(true);
+    try {
+      await apiPost.providerConfig(editing.name, editing.task, { base_url: baseUrl, model_name: modelName });
+      toast.success(`تم حفظ إعدادات ${editing.name}`);
+      setEditing(null);
+      refresh();
+    } catch (e: any) {
+      toast.error("فشل حفظ الإعدادات: " + e.message);
+    } finally {
+      setSavingConfig(false);
     }
   }
 
@@ -233,6 +261,15 @@ export function ProvidersPage() {
                             >
                               <RotateCcw className="h-3.5 w-3.5" />
                             </Button>
+                            <Button
+                              size="icon-sm"
+                              variant="ghost"
+                              disabled={isBusy}
+                              onClick={() => openConfig(p)}
+                              title="إعدادات المزود"
+                            >
+                              <Settings2 className="h-3.5 w-3.5" />
+                            </Button>
                           </div>
                         </td>
                       </tr>
@@ -244,6 +281,31 @@ export function ProvidersPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={Boolean(editing)} onOpenChange={(open) => !open && setEditing(null)}>
+        <DialogContent dir="rtl">
+          <DialogHeader>
+            <DialogTitle>إعدادات {editing?.name}</DialogTitle>
+            <DialogDescription>
+              إعدادات غير سرية للمزود. المفتاح نفسه يُدار من صفحة مفاتيح API.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="provider-base-url">رابط المزود</Label>
+              <Input id="provider-base-url" dir="ltr" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.provider.com" />
+            </div>
+            <div>
+              <Label htmlFor="provider-model">اسم النموذج</Label>
+              <Input id="provider-model" dir="ltr" value={modelName} onChange={(event) => setModelName(event.target.value)} placeholder="gemini-2.5-flash" />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="ghost" onClick={() => setEditing(null)}>إلغاء</Button>
+              <Button variant="primary" onClick={saveConfig} loading={savingConfig}>حفظ الإعدادات</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

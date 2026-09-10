@@ -1,7 +1,7 @@
 // API client for the Lead Engine backend.
-// All requests go through Vite proxy in dev and same-origin in prod.
+// All requests go through Vite proxy in dev and the configured backend in prod.
 
-const BASE = ""; // empty → same origin (Vite proxy in dev, Vercel in prod)
+const BASE = (import.meta.env.VITE_BACKEND_URL || "").replace(/\/$/, "");
 
 export class ApiError extends Error {
   status: number;
@@ -19,6 +19,7 @@ async function request<T = any>(
 ): Promise<T> {
   const url = `${BASE}${path}`;
   const res = await fetch(url, {
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...(init.headers || {}),
@@ -69,6 +70,8 @@ export type ProviderRow = {
   quota_used?: number;
   period?: string | null;
   rpm_limit?: number | null;
+  base_url?: string | null;
+  model_name?: string | null;
   calls?: number;
   units?: number;
   last_used?: string | null;
@@ -139,6 +142,11 @@ function normalizeProvider(p: any): ProviderRow {
 }
 
 export const apiGet = {
+  authSession: () => api.get<{ authenticated: boolean }>("/api/auth/session"),
+  agents: () => api.get<{ agents: any[] }>("/api/agents"),
+  agentRuns: () => api.get<{ runs: any[] }>("/api/agent-runs"),
+  tools: () => api.get<{ tools: any[] }>("/api/tools"),
+  approvals: () => api.get<{ approvals: any[] }>("/api/approvals"),
   status: async (): Promise<StatusResponse> => {
     const r = await api.get<any>("/api/status");
     return {
@@ -176,6 +184,8 @@ export const apiGet = {
 };
 
 export const apiPost = {
+  login: (password: string) => api.post<{ authenticated: boolean }>("/api/auth/login", { password }),
+  logout: () => api.post<{ authenticated: boolean }>("/api/auth/logout"),
   runBenchmark: (body: { icp?: string; dry_run?: boolean; seed_csv?: string }) =>
     api.post<{ job_id: string; state: string; pause_reason?: string; metrics?: any }>(
       "/benchmark/run",
@@ -196,6 +206,8 @@ export const apiPost = {
     api.post<{ ok: boolean }>(`/api/providers/${encodeURIComponent(name)}/${encodeURIComponent(task)}/status`, { status }),
   providerReset: (name: string, task: string) =>
     api.post<{ ok: boolean }>(`/api/providers/${encodeURIComponent(name)}/${encodeURIComponent(task)}/reset`),
+  providerConfig: (name: string, task: string, config: { base_url?: string; model_name?: string }) =>
+    api.put<{ ok: boolean }>(`/api/providers/${encodeURIComponent(name)}/${encodeURIComponent(task)}/config`, config),
   wipeData: () => api.post<{ ok: boolean }>(`/api/data/reset`),
   purgeCache: () => api.post<{ ok: boolean }>(`/api/cache/purge`),
 };
