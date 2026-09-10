@@ -77,7 +77,7 @@ const QUICKSTART = [
   {
     step: 3,
     title: "راجع النتائج",
-    desc: "النتائج تظهر في تبويب النتائج — صدّرها CSV أو زامن مع Supabase.",
+    desc: "النتائج تتزامن تلقائيًا مع Supabase وتظهر في تبويب النتائج — وصدّرها CSV في أي وقت.",
   },
 ];
 
@@ -93,7 +93,7 @@ curl -X POST https://lead-engine-gamma-silk.vercel.app/api/chat \\
 # Run a benchmark
 curl -X POST https://lead-engine-gamma-silk.vercel.app/benchmark/run \\
   -H "Content-Type: application/json" \\
-  -d '{"icp": "v0_saudi_dental", "dry_run": true}'
+  -d '{"icp": "v0_saudi_dental"}'
 
 # Get leads
 curl https://lead-engine-gamma-silk.vercel.app/leads?limit=50
@@ -239,7 +239,7 @@ export function DocsPage() {
                   <ExampleCmd cmd="افحص الإيميل: info@clinic.sa" desc="يرجع DELIVERABLE/RISKY/CATCH_ALL/INVALID" />
                   <ExampleCmd cmd="اعرض آخر 10 leads" desc="يجيب البيانات من Supabase" />
                   <ExampleCmd cmd="إيش حالة النظام؟" desc="يلخّص الـproviders والـjobs" />
-                  <ExampleCmd cmd="شغّل pipeline بالـdry-run" desc="يختبر بدون ما يكلّف رصيد" />
+                  <ExampleCmd cmd="إيش حالة النظام؟" desc="يلخّص الـproviders والـjobs والاستهلاك" />
                 </ul>
               </CardContent>
             </Card>

@@ -51,11 +51,11 @@ export function AgentsPage() {
 
   useEffect(() => { load(); }, []);
 
-  async function runDryTest() {
+  async function runAgentTest() {
     setRunning(true);
     try {
-      await apiPost.runBenchmark({ icp: "v0_saudi_dental", dry_run: true });
-      toast.success("تم تشغيل اختبار الوكيل");
+      await apiPost.runBenchmark({ icp: "v0_saudi_dental" });
+      toast.success("تم تشغيل مهمة الوكيل");
       await load();
     } catch (error: any) {
       toast.error(error.message || "فشل تشغيل الوكيل");
@@ -76,7 +76,7 @@ export function AgentsPage() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={load} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /> تحديث</Button>
-          <Button variant="primary" onClick={runDryTest} loading={running}><Play className="h-4 w-4" /> اختبار Dry Run</Button>
+          <Button variant="primary" onClick={runAgentTest} loading={running}><Play className="h-4 w-4" /> تشغيل مهمة حقيقية</Button>
         </div>
       </header>
 

@@ -25,15 +25,14 @@ ACCEPT_THRESHOLD = 60.0
 
 
 class PipelineOrchestrator:
-    def __init__(self, db, settings: dict, dry_run: bool = False, legal_country: str = None,
+    def __init__(self, db, settings: dict, legal_country: str = None,
                  agent_run_id: str | None = None):
         self.db = db
         self.settings = settings
         self.legal_country = legal_country
         self.cache = CacheLayer(db, load_cache_policy())
-        self.router = Router(db, self.cache, settings, dry_run=dry_run)
+        self.router = Router(db, self.cache, settings)
         self.jobs = JobManager(db)
-        self.dry_run = dry_run
         self.agent_run_id = agent_run_id
 
     def _record_stage(self, name: str, output: dict):
@@ -50,7 +49,7 @@ class PipelineOrchestrator:
         if self.jobs.current(job_id) not in (RUNNING, DEGRADED):
             self.jobs.transition(job_id, RUNNING)
 
-        summary = {"job_id": job_id, "icp": icp["icp_id"], "stages": {}, "dry_run": self.dry_run}
+        summary = {"job_id": job_id, "icp": icp["icp_id"], "stages": {}}
         used_local_llm = False
 
         try:
@@ -164,6 +163,7 @@ class PipelineOrchestrator:
             self.jobs.transition(job_id, COMPLETED)
             summary["state"] = COMPLETED
             self._store_summary(job_id, summary)
+            self._sync_to_supabase(job_id, summary)
             return summary
 
         except NoProviderAvailable as exc:
@@ -183,6 +183,22 @@ class PipelineOrchestrator:
         slim = {k: v for k, v in summary.items() if k != "leads"}
         self.db.execute("UPDATE jobs SET result=?, updated_at=? WHERE job_id=?",
                         (json.dumps(slim, ensure_ascii=False, default=str), utcnow(), job_id))
+
+    def _sync_to_supabase(self, job_id: str, summary: dict):
+        """Production path: every completed job is pushed to Supabase.
+        A sync failure is logged on the job but never fails the run —
+        the dashboard keeps the manual sync button as a retry."""
+        import os
+
+        if not (os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_SERVICE_KEY")):
+            summary["supabase_sync"] = "skipped: SUPABASE_URL / SUPABASE_SERVICE_KEY missing"
+            return
+        try:
+            from ..sync import sync_job_to_supabase
+
+            summary["supabase_sync"] = sync_job_to_supabase(self.db, job_id)
+        except Exception as exc:  # never fail a completed job over sync
+            summary["supabase_sync"] = f"failed: {type(exc).__name__}: {exc}"
 
 
 def build_plan_from_icp(icp: dict) -> dict:

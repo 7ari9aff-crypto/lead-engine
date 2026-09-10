@@ -20,7 +20,7 @@ class StubAdapter:
 def make_router(tmp_path, response):
     db = Database(tmp_path / "t.sqlite3")
     cache = CacheLayer(db, load_cache_policy())
-    router = Router(db, cache, {}, dry_run=True)
+    router = Router(db, cache, {})
     router.adapters = {"local_smtp": StubAdapter(response)}
     return VerificationPipeline(router)
 
@@ -58,7 +58,7 @@ def test_catch_all_result_is_preserved(tmp_path):
 def test_no_provider_leaves_unknown_not_crash(tmp_path):
     db = Database(tmp_path / "t2.sqlite3")
     cache = CacheLayer(db, load_cache_policy())
-    router = Router(db, cache, {}, dry_run=True)
+    router = Router(db, cache, {})
     router.adapters = {}  # nothing available at all
     result = VerificationPipeline(router).verify("a@b.com")
     assert result["status"] == "UNKNOWN"

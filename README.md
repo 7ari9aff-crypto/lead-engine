@@ -6,6 +6,10 @@
 - **FastAPI** = الـengine نفسه (الـrouter، الـproviders، الـpipeline)
 - **Supabase** = قاعدة بيانات الـleads (companies / contacts / claims / leads)
 
+كل تشغيل حقيقي على الـAPIs — لا يوجد وضع تجريبي ولا بيانات وهمية.
+أي مفتاح ناقص = الـprovider يتصفّي تلقائيًا، ولو كل المزودين غير متاحين
+المهمة تتوقف `PAUSED` بسببه و`resume_at`، مش `FAILED`.
+
 ```
 n8n (Schedule 06:00)
    │  POST /benchmark/run
@@ -21,13 +25,17 @@ FastAPI — Lead Engine
    │             → qualification → enrichment → verification
    │             → scoring → legal gate
    │
-   └── POST /sync-supabase ──► Supabase lead database
+   ├── POST /sync-supabase ──► Supabase lead database
+   └── مزامنة تلقائية لـSupabase بعد كل تشغيل COMPLETED
 ```
 
 ## المبادئ المصممة في الكود
 
 | القرار | التنفيذ |
 |---|---|
+| الإنتاج فقط | كل التشغيلات حقيقية — لا fixtures ولا dry-run في الكود أصلًا |
+| مزامنة Supabase تلقائية | كل مهمة مكتملة تتزامن فورًا، والفشل يتسجل على المهمة بدون ما يفشلها |
+| Sync idempotent | الـclaims بتتفحص (company, kind, value) قبل الإدراج — التكرار مستحيل |
 | Quota exhaustion ≠ failure | الجوب بيتحوّل `PAUSED` بـ`pause_reason` و`resume_at`، مش `FAILED` |
 | Job state machine | QUEUED → RUNNING → (DEGRADED) → COMPLETED / PAUSED → RESUMING |
 | Provider Registry | جدول في قاعدة البيانات بأولويات وquotas — مش if/else |
@@ -46,7 +54,6 @@ pip install -r requirements.txt
 cp .env.example .env          # حتّ المفاتيح (أي مفتاح ناقص = الـprovider يتصفّي تلقائيًا)
 
 python3 -m lead_engine init
-python3 -m lead_engine benchmark --dry-run    # end-to-end على fixtures بدون شبكة
 python3 -m lead_engine providers              # حالة الـregistry والاستهلاك
 python3 -m lead_engine benchmark              # تشغيل حقيقي (محتاج مفاتيح في .env)
 ```
@@ -64,24 +71,24 @@ python3 -m lead_engine serve --port 8000
 | نظرة عامة | حالة النظام حرفيًا: المزوّدون المتاحون، المهام، الـleads، الاستهلاك، الكاش، اتصال Supabase |
 | المفاتيح | لصق مفاتيح الـAPI (تدعم **أكتر من مفتاح في خانة واحدة** — تدوير تلقائي عند الحدود)، تشتغل فورًا |
 | المزوّدون | تعطيل/تفعيل أي provider، تصفير رصيده، ومشاهدة الحالة والاستهلاك من السجل الحي |
-| المهام | تشغيل الـpipeline (dry-run/live) من المتصفح، متابعة الحالة، استئناف الموقوف، مزامنة Supabase، عرض التقرير |
+| المهام | تشغيل الـpipeline (حقيقي) من المتصفح، متابعة الحالة، استئناف الموقوف، مزامنة Supabase، عرض التقرير |
 | النتائج | فلترة الـleads بالمهمة/المرحلة، تنزيل CSV |
 | فحص إيميل | فحص فوري بالـ5 حالات (Deliverable/Risky/Catch-all/Invalid/Unknown) |
-| **المساعد** | **شات بالعربي بيشغّل النظام نفسه** — «اعمل ليد جينيراشن في الرياض» بينفذها فعليًا |
+| **المساعد** | **شات بالعربي بيشغّل النظام نفسه** — «اعمل ليد جينيراشن في الرياض» بينفذها فعليًا (بموافقة من لوحة الوكلاء) |
 | الإعدادات | تعديل ملفات YAML الأربعة مع تحقق + نسخة احتياطية تلقائية |
 
 الصفحة بتتحدث تلقائيًا كل 5 ثواني من `/api/status` — كل الأرقام من قاعدة البيانات الحقيقية مش hardcoded.
 
 | Endpoint | الوظيفة |
 |---|---|
-| `GET /health` | فحص سريع |
+| `GET /health` | فحص سريع + المزوّدون اللي عندهم مفاتيح فعليًا |
 | `GET /providers` | حالة الـregistry + الاستهلاك |
-| `POST /benchmark/run` `{icp, dry_run}` | تشغيل الـV0 pipeline كامل |
+| `POST /benchmark/run` `{icp}` | تشغيل الـpipeline الحقيقي كامل |
 | `GET /jobs/{id}` / `POST /jobs/{id}/resume` | حالة الجوب / استئناف PAUSED |
 | `GET /leads?job_id=&stage=ACCEPTED` | الـleads النهائية |
 | `POST /verify-email` `{email}` | التحقق 5-حالات |
-| `GET /report/{job_id}` | تقرير الـbenchmark |
-| `POST /sync-supabase` `{job_id}` | دفع الـleads لقاعدة Supabase |
+| `GET /report/{job_id}` | تقرير التشغيل |
+| `POST /sync-supabase` `{job_id}` | إعادة مزامنة يدوية (المزامنة التلقائية بتحصل بعد كل تشغيل) |
 
 ## الـV0 Benchmark
 
@@ -116,12 +123,14 @@ python3 -m lead_engine benchmark --seed my_seed_list.csv
 | stage / legal | `leads.status` / `leads.legal_status` |
 
 المطلوب في `.env`: `SUPABASE_URL` + `SUPABASE_SERVICE_KEY` (service role).
+المزامنة بتحصل تلقائيًا بعد كل تشغيل ناجح، وزر المزامنة اليدوي في لوحة
+المهام بيرجّع نفس النتيجة بدون تكرار بيانات.
 
 ## n8n
 
 الـworkflow: `n8n/lead_engine_benchmark_scheduler.ts` (ومنشور فعلًا على
 الإنستنس: workflow `eqW6MZWrnZ9K2H84`) — يوميًا 06:00:
-Run benchmark → IF COMPLETED → Sync to Supabase → Get Report.
+Run benchmark → IF COMPLETED → Get Report (المزامنة بتتم تلقائيًا من الـengine نفسه).
 
 خطوات التفعيل:
 1. انشر الـFastAPI على URL عام (مثلًا Railway) — n8n السحابي مش بشوف `localhost`.
@@ -131,7 +140,7 @@ Run benchmark → IF COMPLETED → Sync to Supabase → Get Report.
 ## Tests
 
 ```bash
-python3 -m pytest tests/ -q     # 31 test: dedup, verification, cache, router failover, state machine, legal gate
+python3 -m pytest tests/ -q     # 50 test: dedup, verification, cache, router failover, state machine, legal gate, MCP
 ```
 
 ## MCP والتكاملات

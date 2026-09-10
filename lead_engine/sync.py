@@ -333,6 +333,8 @@ def _sync_lead(rest: Rest, campaign_id, company_id, contact_id, lead: dict):
 
 
 def _sync_claims(rest: Rest, company_id: str, lead: dict):
+    """Idempotent: a (company, kind, value) claim is inserted once.
+    Re-syncing the same job no longer inflates company_claims."""
     claims = []
     if lead.get("industry"):
         claims.append({"kind": "INDUSTRY", "value": lead["industry"]})
@@ -340,11 +342,20 @@ def _sync_claims(rest: Rest, company_id: str, lead: dict):
         claims.append({"kind": "LOCATION", "value": lead["city"]})
     if lead.get("branches"):
         claims.append({"kind": "BRANCH_COUNT", "value": str(lead["branches"])})
-    for claim in claims:
-        rest.insert("company_claims", [{
-            "company_id": company_id,
-            "kind": claim["kind"], "value": claim["value"],
-            "source_url": (lead.get("source_urls") or [None])[0],
-            "source_type": "search_api",
-            "extraction_method": "web_search",
-        }])
+    if not claims:
+        return
+    existing = {
+        (row.get("kind"), str(row.get("value") or ""))
+        for row in rest.select("company_claims", {
+            "company_id": eq(company_id), "select": "kind,value"})
+    }
+    missing = [c for c in claims if (c["kind"], str(c["value"])) not in existing]
+    if not missing:
+        return
+    rest.insert("company_claims", [{
+        "company_id": company_id,
+        "kind": claim["kind"], "value": claim["value"],
+        "source_url": (lead.get("source_urls") or [None])[0],
+        "source_type": "search_api",
+        "extraction_method": "web_search",
+    } for claim in missing])

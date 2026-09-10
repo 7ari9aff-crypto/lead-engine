@@ -25,7 +25,6 @@ def compute_metrics(summary: dict, leads: list, usage_rows: list) -> dict:
 
     return {
         "job_id": summary.get("job_id"),
-        "dry_run": summary.get("dry_run", False),
         "discovery_raw_candidates": stages.get("discovery", {}).get("raw_candidates"),
         "unique_after_dedup": dedup.get("output_count"),
         "duplicate_rate": dedup.get("duplicate_rate"),
@@ -72,7 +71,7 @@ def render_report(metrics: dict, summary: dict, leads: list) -> str:
     lines = [
         "# V0 Benchmark Report", "",
         f"- job_id: `{metrics['job_id']}`",
-        f"- mode: {'DRY-RUN (fixtures, no network)' if metrics['dry_run'] else 'LIVE'}",
+        f"- mode: LIVE",
         f"- discovery raw candidates: {metrics['discovery_raw_candidates']}",
         f"- unique after dedup: {metrics['unique_after_dedup']} "
         f"(duplicate rate {metrics['duplicate_rate']})",

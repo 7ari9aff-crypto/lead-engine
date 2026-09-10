@@ -39,7 +39,7 @@ const run = node({
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
-      jsonBody: '={ "icp": "{{ $json.icpName }}", "dry_run": true }',
+      jsonBody: '={ "icp": "{{ $json.icpName }}" }',
       options: { timeout: 600000 },
     },
   },

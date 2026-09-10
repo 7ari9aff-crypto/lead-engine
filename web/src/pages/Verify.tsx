@@ -13,7 +13,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/Button";
 import { Badge, StatusDot } from "@/components/ui/Badge";
 import { Input, Label } from "@/components/ui/Input";
-import { Switch } from "@/components/ui/Switch";
 import { apiPost } from "@/lib/api";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -55,7 +54,6 @@ const STATUS_META: Record<Status, { label: string; color: string; description: s
 
 export function VerifyPage() {
   const [email, setEmail] = useState("");
-  const [dryRun, setDryRun] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
 
@@ -67,7 +65,7 @@ export function VerifyPage() {
     setLoading(true);
     setResult(null);
     try {
-      const r = await apiPost.verifyEmail(email.trim(), dryRun);
+      const r = await apiPost.verifyEmail(email.trim());
       setResult(r);
     } catch (e: any) {
       toast.error("فشل الفحص: " + e.message);
@@ -112,10 +110,6 @@ export function VerifyPage() {
                   onKeyDown={(e) => e.key === "Enter" && check()}
                 />
               </div>
-            </div>
-            <div className="flex items-center gap-2 h-10 px-3 rounded-lg border border-[var(--border)] bg-[var(--bg-soft)]">
-              <Switch id="dry" checked={dryRun} onCheckedChange={setDryRun} />
-              <Label htmlFor="dry" className="mb-0 cursor-pointer">وضع تجريبي</Label>
             </div>
             <Button variant="primary" onClick={check} loading={loading}>
               <MailCheck className="h-4 w-4" />

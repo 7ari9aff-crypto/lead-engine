@@ -186,17 +186,17 @@ export const apiGet = {
 export const apiPost = {
   login: (password: string) => api.post<{ authenticated: boolean }>("/api/auth/login", { password }),
   logout: () => api.post<{ authenticated: boolean }>("/api/auth/logout"),
-  runBenchmark: (body: { icp?: string; dry_run?: boolean; seed_csv?: string }) =>
+  runBenchmark: (body: { icp?: string; seed_csv?: string }) =>
     api.post<{ job_id: string; state: string; pause_reason?: string; metrics?: any }>(
       "/benchmark/run",
       body
     ),
-  resumeJob: (id: string, dry_run = false) =>
-    api.post<{ ok: boolean; state: string; metrics?: any }>(`/jobs/${encodeURIComponent(id)}/resume`, { dry_run }),
+  resumeJob: (id: string) =>
+    api.post<{ ok: boolean; state: string; metrics?: any }>(`/jobs/${encodeURIComponent(id)}/resume`, {}),
   syncSupabase: (id: string, stage = "ACCEPTED") =>
     api.post<any>(`/sync-supabase`, { job_id: id, stage }),
-  verifyEmail: (email: string, dry_run = false) =>
-    api.post<any>(`/verify-email`, { email, dry_run }),
+  verifyEmail: (email: string) =>
+    api.post<any>(`/verify-email`, { email }),
   chat: (messages: { role: string; content: string }[]) =>
     api.post<any>(`/api/chat`, { messages }),
   saveKeys: (keys: Record<string, string>) => api.post<{ ok: boolean; saved: string[] }>(`/api/keys`, keys),

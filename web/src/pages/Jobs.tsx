@@ -4,7 +4,6 @@ import {
   RotateCcw,
   Database,
   FileText,
-  Beaker,
   Briefcase,
   Loader2,
 } from "lucide-react";
@@ -12,7 +11,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/Button";
 import { Badge, StatusDot } from "@/components/ui/Badge";
 import { Input, Label } from "@/components/ui/Input";
-import { Switch } from "@/components/ui/Switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/Dialog";
 import { useLiveData } from "@/hooks/useLiveData";
 import { apiGet, apiPost } from "@/lib/api";
@@ -23,7 +21,6 @@ import { Spinner, EmptyState } from "@/components/ui/EmptyState";
 export function JobsPage() {
   const { data, loading, refresh } = useLiveData(() => apiGet.jobs(), 5000);
   const [icp, setIcp] = useState("v0_saudi_dental");
-  const [dryRun, setDryRun] = useState(false);
   const [running, setRunning] = useState(false);
   const [report, setReport] = useState<any>(null);
   const [reportOpen, setReportOpen] = useState(false);
@@ -32,7 +29,7 @@ export function JobsPage() {
   async function run() {
     setRunning(true);
     try {
-      const res = await apiPost.runBenchmark({ icp, dry_run: dryRun });
+      const res = await apiPost.runBenchmark({ icp });
       toast.success(`بدأت المهمة: ${res.job_id}${res.pause_reason ? ` — ${res.pause_reason}` : ""}`);
       refresh();
     } catch (e: any) {
@@ -103,21 +100,14 @@ export function JobsPage() {
             تشغيل الـPipeline
           </CardTitle>
           <CardDescription>
-            الافتراضي تشغيل <b>حقيقي</b> على الـAPIs. لو مفيش مفتاح مناسب، المهمة هتتوقف برسالة واضحة.
+            تشغيل <b>حقيقي</b> على الـAPIs. لو مفيش مفتاح مناسب، المهمة هتتوقف برسالة واضحة.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-3 items-end">
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end">
             <div>
               <Label>ملف الـICP</Label>
               <Input value={icp} onChange={(e) => setIcp(e.target.value)} dir="ltr" placeholder="v0_saudi_dental" />
-            </div>
-            <div className="flex items-center gap-2 h-10 px-3 rounded-lg border border-[var(--border)] bg-[var(--bg-soft)]">
-              <Switch id="dry" checked={dryRun} onCheckedChange={setDryRun} />
-              <Label htmlFor="dry" className="mb-0 flex items-center gap-1.5 cursor-pointer">
-                <Beaker className="h-3.5 w-3.5" />
-                وضع تجريبي
-              </Label>
             </div>
             <Button variant="primary" onClick={run} loading={running}>
               <PlayCircle className="h-4 w-4" />

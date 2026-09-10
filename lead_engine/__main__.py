@@ -1,10 +1,9 @@
 """Lead Engine CLI.
 
   python -m lead_engine init
-  python -m lead_engine benchmark --dry-run
-  python -m lead_engine benchmark                 # live (needs API keys in .env)
+  python -m lead_engine benchmark                 # live run (needs API keys in .env)
   python -m lead_engine providers
-  python -m lead_engine verify-email --email x@y.com --dry-run
+  python -m lead_engine verify-email --email x@y.com
   python -m lead_engine resume --job JOB_ID
   python -m lead_engine serve --port 8000
 """
@@ -20,15 +19,13 @@ def main(argv=None):
     sub.add_parser("init", help="create database and seed provider registry")
     sub.add_parser("providers", help="show provider registry status + usage")
 
-    bench = sub.add_parser("benchmark", help="run the V0 benchmark pipeline")
+    bench = sub.add_parser("benchmark", help="run the live lead generation pipeline")
     bench.add_argument("--icp", default="v0_saudi_dental")
-    bench.add_argument("--dry-run", action="store_true", help="fixtures only, no network")
     bench.add_argument("--seed", help="CSV path with manually collected clinics")
     bench.add_argument("--no-report", action="store_true")
 
     verify = sub.add_parser("verify-email", help="run the 5-state email verification pipeline")
     verify.add_argument("--email", required=True)
-    verify.add_argument("--dry-run", action="store_true")
 
     resume = sub.add_parser("resume", help="resume a PAUSED job")
     resume.add_argument("--job", required=True)
@@ -71,7 +68,7 @@ def main(argv=None):
         from .benchmark.run import run_benchmark
 
         summary, metrics, outputs = run_benchmark(
-            args.icp, dry_run=args.dry_run, seed_csv=args.seed, write=not args.no_report)
+            args.icp, seed_csv=args.seed, write=not args.no_report)
         print(json.dumps(metrics, ensure_ascii=False, indent=2))
         print(f"\nstate: {summary.get('state')}")
         if outputs:
@@ -85,8 +82,7 @@ def main(argv=None):
         from .providers.email import VerificationPipeline
         from .router import Router
 
-        router = Router(db, CacheLayer(db, load_cache_policy()), settings,
-                        dry_run=args.dry_run)
+        router = Router(db, CacheLayer(db, load_cache_policy()), settings)
         result = VerificationPipeline(router).verify(args.email)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
@@ -101,7 +97,7 @@ def main(argv=None):
         row = db.one("SELECT icp_id FROM jobs WHERE job_id=?", (args.job,))
         from .config import load_icp
 
-        orchestrator = PipelineOrchestrator(db, settings, dry_run=False)
+        orchestrator = PipelineOrchestrator(db, settings)
         summary = orchestrator.run_job(load_icp(row["icp_id"]), job_id=args.job)
         print(json.dumps({k: v for k, v in summary.items() if k != "leads"},
                          ensure_ascii=False, indent=2))

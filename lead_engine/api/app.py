@@ -1,7 +1,7 @@
 """FastAPI layer — the engine as an HTTP service.
 
 This is the piece n8n talks to:
-  POST /benchmark/run      run the V0 pipeline (dry-run or live)
+  POST /benchmark/run      run the live pipeline
   GET  /jobs/{job_id}      job state + stage summary (COMPLETED / PAUSED / ...)
   POST /jobs/{id}/resume   resume a PAUSED job
   GET  /leads              exported leads (filter by job/stage)
@@ -83,17 +83,15 @@ def get_db():
 
 class RunRequest(BaseModel):
     icp: str = "v0_saudi_dental"
-    dry_run: bool = Field(default=True, description="true = fixtures, no network")
     seed_csv: str | None = None
 
 
 class ResumeRequest(BaseModel):
-    dry_run: bool = False
+    pass
 
 
 class VerifyRequest(BaseModel):
     email: str
-    dry_run: bool = False
 
 
 class SyncRequest(BaseModel):
@@ -146,12 +144,13 @@ def auth_logout():
 
 @app.get("/health")
 def health(db: Database = Depends(get_db)):
-    router = Router(db, _cache(db), settings, dry_run=True)
+    router = Router(db, _cache(db), settings)
     providers = router.status_report()
+    live = sorted({r["name"] for r in providers if r.get("has_key")})
     return {
         "status": "ok",
-        "providers_configured": sorted({r["name"] for r in providers}),
-        "note": "dry_run adapter set is always available; live pool depends on .env keys",
+        "providers_configured": live,
+        "note": "live provider pool depends on .env keys; missing keys are unavailable",
     }
 
 
@@ -229,26 +228,26 @@ def _cache(db):
 
 @app.get("/providers")
 def providers(db: Database = Depends(get_db)):
-    router = Router(db, _cache(db), settings, dry_run=True)
+    router = Router(db, _cache(db), settings)
     return {"status": router.status_report(), "usage": router.usage_report()}
 
 
 @app.post("/benchmark/run")
 def run_benchmark_endpoint(req: RunRequest, background: BackgroundTasks,
                            db: Database = Depends(get_db)):
-    """Synchronous on purpose for V0: dry-run takes seconds; a live run takes
-    minutes but the job row is updated continuously, so n8n can poll
-    /jobs/{id} from a second workflow if needed."""
+    """Synchronous on purpose for V0: a live run takes minutes but the job row
+    is updated continuously, so n8n can poll /jobs/{id} from a second workflow
+    if needed."""
     from ..benchmark.run import run_benchmark
 
     registry = AgentRegistry(db)
     run_id = registry.create_run("lead-generation", {
-        "icp": req.icp, "dry_run": req.dry_run, "seed_csv": req.seed_csv,
+        "icp": req.icp, "seed_csv": req.seed_csv,
     })
     step_id = registry.start_step(run_id, "pipeline", input_data={"icp": req.icp})
     try:
         summary, metrics, outputs = run_benchmark(
-            req.icp, dry_run=req.dry_run, seed_csv=req.seed_csv, agent_run_id=run_id)
+            req.icp, seed_csv=req.seed_csv, agent_run_id=run_id)
     except Exception as exc:  # surface config errors to the caller
         registry.finish_step(step_id, "FAILED", error=f"{type(exc).__name__}: {exc}")
         registry.finish_run(run_id, "FAILED", error=f"{type(exc).__name__}: {exc}")
@@ -300,16 +299,7 @@ def resume_job(job_id: str, req: ResumeRequest, background: BackgroundTasks,
     jobs.resume(job_id)
     from ..config import load_icp
 
-    # resume in the mode the job originally ran (dry-run flag is persisted)
-    dry_run = req.dry_run
-    try:
-        stored = json.loads(job["params"] or "{}")
-        if "dry_run" in stored:
-            dry_run = bool(stored["dry_run"])
-    except json.JSONDecodeError:
-        pass
-    summary, metrics, outputs = _run(load_icp(job["icp_id"]), dry_run=dry_run,
-                                     job_id=job_id)
+    summary, metrics, outputs = _run(load_icp(job["icp_id"]), job_id=job_id)
     return {"state": summary.get("state"), "metrics": metrics}
 
 
@@ -333,7 +323,7 @@ def leads(job_id: str | None = Query(default=None), stage: str | None = Query(de
 
 @app.post("/verify-email")
 def verify_email(req: VerifyRequest, db: Database = Depends(get_db)):
-    router = Router(db, _cache(db), settings, dry_run=req.dry_run)
+    router = Router(db, _cache(db), settings)
     return VerificationPipeline(router).verify(req.email)
 
 
@@ -351,7 +341,7 @@ def report(job_id: str, db: Database = Depends(get_db)):
             pass
     if metrics is None:
         usage = db.query("SELECT units FROM usage_ledger WHERE job_id=?", (job_id,))
-        summary = {"job_id": job_id, "stages": {}, "dry_run": False}
+        summary = {"job_id": job_id, "stages": {}}
         metrics = compute_metrics(summary, leads, usage)
     return {"job_id": job_id, "metrics": metrics,
             "report_markdown": render_report(metrics, {"stages": {}}, leads)}
@@ -588,16 +578,16 @@ def api_jobs_start(req: RunRequest, background: BackgroundTasks,
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"ICP غير موجود: {req.icp}")
     with RUN_LOCK:  # one engine run at a time (sqlite + provider sanity)
-        job_id = JobManager(db).create_job(req.icp, {"dry_run": req.dry_run})
-    background.add_task(_run_background_job, req.icp, req.dry_run, job_id, req.seed_csv)
+        job_id = JobManager(db).create_job(req.icp)
+    background.add_task(_run_background_job, req.icp, job_id, req.seed_csv)
     return {"job_id": job_id, "state": "QUEUED"}
 
 
-def _run_background_job(icp_name: str, dry_run: bool, job_id: str, seed_csv: str | None):
+def _run_background_job(icp_name: str, job_id: str, seed_csv: str | None):
     from ..benchmark.run import run_benchmark
 
     try:
-        run_benchmark(icp_name, dry_run=dry_run, job_id=job_id, seed_csv=seed_csv)
+        run_benchmark(icp_name, job_id=job_id, seed_csv=seed_csv)
     except Exception as exc:  # config/startup errors: mark FAILED, never hang
         db = Database(DB_PATH)
         JobManager(db).mark_failed(job_id, f"{type(exc).__name__}: {exc}")

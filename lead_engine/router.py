@@ -40,12 +40,8 @@ class NoProviderAvailable(Exception):
         super().__init__(f"no available provider for task '{task}' (tried: {self.tried})")
 
 
-def build_adapters(settings: dict, dry_run: bool = False) -> dict:
-    """Instantiate all provider adapters. dry_run swaps in offline fakes."""
-    if dry_run:
-        from .providers.dryrun import build_dry_run_adapters
-
-        return build_dry_run_adapters(settings)
+def build_adapters(settings: dict) -> dict:
+    """Instantiate the real provider adapters from the configured pool."""
     from .providers.email import AbstractProvider, HunterProvider, LocalSMTPVerifier
     from .providers.data import ApolloProvider
     from .providers.llm import GeminiProvider, GroqProvider, OllamaProvider, OpenRouterProvider
@@ -63,14 +59,13 @@ def build_adapters(settings: dict, dry_run: bool = False) -> dict:
 
 
 class Router:
-    def __init__(self, db, cache: CacheLayer, settings: dict, dry_run: bool = False):
+    def __init__(self, db, cache: CacheLayer, settings: dict):
         self.db = db
         self.cache = cache
         self.settings = settings or {}
-        self.dry_run = dry_run
         self.registry = Registry(db)
         self.registry.seed_if_empty()
-        self.adapters = build_adapters(self.settings, dry_run=dry_run)
+        self.adapters = build_adapters(self.settings)
 
     # ---------------------------------------------------------------- public
     def route(self, task: str, payload: dict, job_id=None,
@@ -89,8 +84,7 @@ class Router:
         tried = []
         key_counts = {name: max(1, len(getattr(a, "keys", []) or []))
                       for name, a in self.adapters.items()}
-        for row in self.registry.providers_for_task(task, ignore_keys=self.dry_run,
-                                                    key_counts=key_counts):
+        for row in self.registry.providers_for_task(task, key_counts=key_counts):
             name = row["name"]
             adapter = self.adapters.get(name)
             if adapter is None or not getattr(adapter, "available", False):

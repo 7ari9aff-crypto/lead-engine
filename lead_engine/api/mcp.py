@@ -20,7 +20,6 @@ MCP_TOOLS = [
             "properties": {
                 "city": {"type": "string", "description": "المدينة مثل: الرياض، جدة"},
                 "industry": {"type": "string", "enum": ["dental"], "description": "افتراضي dental"},
-                "dry_run": {"type": "boolean", "description": "تشغيل تجربة — افتراضي false"},
                     "approval_id": {"type": "string", "description": "معرف موافقة التشغيل الحي"},
             },
             "required": ["city"],

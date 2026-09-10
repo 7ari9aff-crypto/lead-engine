@@ -56,8 +56,7 @@ class Registry:
             )
 
     # ------------------------------------------------------------------ read
-    def providers_for_task(self, task: str, ignore_keys: bool = False,
-                           key_counts: dict = None):
+    def providers_for_task(self, task: str, key_counts: dict = None):
         """key_counts: provider name -> number of pooled keys; the effective
         quota is base limit x key count (5 Tavily keys = 5000 credits)."""
         key_counts = key_counts or {}
@@ -85,9 +84,9 @@ class Registry:
                     (row["name"], row["task"]),
                 )
                 row["status"] = ACTIVE
-            # key availability (None env_key => local; ignore_keys => dry-run fakes)
+            # key availability (None env_key => local provider)
             load_env()
-            has_key = ignore_keys or row["env_key"] is None or bool(_env(row["env_key"]))
+            has_key = row["env_key"] is None or bool(_env(row["env_key"]))
             multiplier = max(1, key_counts.get(row["name"], 1))
             row["quota_limit_effective"] = (
                 row["quota_limit"] * multiplier if row["quota_limit"] is not None else None)
