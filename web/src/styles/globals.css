@@ -2,73 +2,82 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* ===== Theme tokens — Dark (default) & Light ===== */
+/* ===== Theme tokens — Modern Indigo/Violet ===== */
 :root {
-  --bg: #edf2f5;
+  --bg: #f6f8fc;
   --bg-elev: #ffffff;
-  --bg-soft: #f4f7f8;
-  --bg-hover: #e8eef0;
-  --border: #d8e1e5;
-  --border-soft: #e7edef;
-  --fg: #19303a;
-  --fg-muted: #61757d;
-  --fg-soft: #8a9ba1;
-  --accent: #3f7180;
-  --accent-hover: #315d6a;
-  --accent-soft: rgba(63, 113, 128, 0.11);
-  --success: #3f8068;
-  --warn: #ad7a3b;
-  --danger: #b65f5f;
-  --info: #4e7892;
-  --ring: rgba(63, 113, 128, 0.28);
-  --shadow: 0 8px 28px rgba(38, 64, 73, 0.07);
-  --gradient: linear-gradient(135deg, #527f8b 0%, #72939b 100%);
+  --bg-soft: #f1f4fa;
+  --bg-hover: #e9eef6;
+  --border: #e0e7ef;
+  --border-soft: #eef2f7;
+  --fg: #0f172a;
+  --fg-muted: #5b6577;
+  --fg-soft: #9aa3b2;
+  --accent: #6366f1;
+  --accent-hover: #4f46e5;
+  --accent-soft: rgba(99, 102, 241, 0.1);
+  --accent-glow: rgba(99, 102, 241, 0.25);
+  --success: #10b981;
+  --warn: #f59e0b;
+  --danger: #ef4444;
+  --info: #3b82f6;
+  --ring: rgba(99, 102, 241, 0.3);
+  --shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 4px 16px rgba(15, 23, 42, 0.06);
+  --shadow-lg: 0 4px 24px rgba(15, 23, 42, 0.08), 0 12px 48px rgba(15, 23, 42, 0.06);
+  --gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+  --gradient-subtle: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(168, 85, 247, 0.05) 100%);
   color-scheme: light;
 }
 
 .dark {
-  --bg: #17252b;
-  --bg-elev: #1d3037;
-  --bg-soft: #223940;
-  --bg-hover: #2a454d;
-  --border: #35535c;
-  --border-soft: #2b454d;
-  --fg: #e8f0f1;
-  --fg-muted: #a8bec2;
-  --fg-soft: #78949a;
-  --accent: #7faeb6;
-  --accent-hover: #9cc4ca;
-  --accent-soft: rgba(127, 174, 182, 0.16);
-  --success: #73b59b;
-  --warn: #d2a466;
-  --danger: #d88383;
-  --info: #82aec5;
-  --ring: rgba(127, 174, 182, 0.35);
-  --shadow: 0 8px 28px rgba(4, 15, 19, 0.25);
-  --gradient: linear-gradient(135deg, #6f9da6 0%, #92b5ba 100%);
+  --bg: #0a0f1e;
+  --bg-elev: #131c2f;
+  --bg-soft: #1a2540;
+  --bg-hover: #233152;
+  --border: #2a3a5e;
+  --border-soft: #1f2d4a;
+  --fg: #e8edf5;
+  --fg-muted: #8b96a8;
+  --fg-soft: #5b6577;
+  --accent: #818cf8;
+  --accent-hover: #a5b4fc;
+  --accent-soft: rgba(129, 140, 248, 0.15);
+  --accent-glow: rgba(129, 140, 248, 0.3);
+  --success: #34d399;
+  --warn: #fbbf24;
+  --danger: #f87171;
+  --info: #60a5fa;
+  --ring: rgba(129, 140, 248, 0.35);
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.2), 0 4px 16px rgba(0, 0, 0, 0.15);
+  --shadow-lg: 0 4px 24px rgba(0, 0, 0, 0.25), 0 12px 48px rgba(0, 0, 0, 0.2);
+  --gradient: linear-gradient(135deg, #818cf8 0%, #c084fc 100%);
+  --gradient-subtle: linear-gradient(135deg, rgba(129, 140, 248, 0.1) 0%, rgba(192, 132, 252, 0.06) 100%);
   color-scheme: dark;
 }
 
 .light {
-  --bg: #edf2f5;
+  --bg: #f6f8fc;
   --bg-elev: #ffffff;
-  --bg-soft: #f4f7f8;
-  --bg-hover: #e8eef0;
-  --border: #d8e1e5;
-  --border-soft: #e7edef;
-  --fg: #19303a;
-  --fg-muted: #61757d;
-  --fg-soft: #8a9ba1;
-  --accent: #3f7180;
-  --accent-hover: #315d6a;
-  --accent-soft: rgba(63, 113, 128, 0.11);
-  --success: #3f8068;
-  --warn: #ad7a3b;
-  --danger: #b65f5f;
-  --info: #4e7892;
-  --ring: rgba(63, 113, 128, 0.28);
-  --shadow: 0 8px 28px rgba(38, 64, 73, 0.07);
-  --gradient: linear-gradient(135deg, #527f8b 0%, #72939b 100%);
+  --bg-soft: #f1f4fa;
+  --bg-hover: #e9eef6;
+  --border: #e0e7ef;
+  --border-soft: #eef2f7;
+  --fg: #0f172a;
+  --fg-muted: #5b6577;
+  --fg-soft: #9aa3b2;
+  --accent: #6366f1;
+  --accent-hover: #4f46e5;
+  --accent-soft: rgba(99, 102, 241, 0.1);
+  --accent-glow: rgba(99, 102, 241, 0.25);
+  --success: #10b981;
+  --warn: #f59e0b;
+  --danger: #ef4444;
+  --info: #3b82f6;
+  --ring: rgba(99, 102, 241, 0.3);
+  --shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 4px 16px rgba(15, 23, 42, 0.06);
+  --shadow-lg: 0 4px 24px rgba(15, 23, 42, 0.08), 0 12px 48px rgba(15, 23, 42, 0.06);
+  --gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+  --gradient-subtle: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(168, 85, 247, 0.05) 100%);
   color-scheme: light;
 }
 
@@ -111,18 +120,15 @@ body,
 
 body {
   margin: 0;
-  background-image: radial-gradient(
-      ellipse 80% 50% at 50% -20%,
-      var(--accent-soft),
-      transparent
-    ),
-    radial-gradient(ellipse 60% 40% at 80% 100%, var(--accent-soft), transparent);
+  background-image:
+    radial-gradient(ellipse 70% 50% at 50% -10%, var(--accent-soft), transparent),
+    radial-gradient(ellipse 50% 35% at 90% 100%, var(--accent-soft), transparent);
   background-attachment: fixed;
 }
 
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -140,11 +146,17 @@ body {
   color: var(--accent-hover);
 }
 
-/* Utility classes */
+/* ===== Utility classes ===== */
 .glass {
-  background: color-mix(in srgb, var(--bg-elev) 70%, transparent);
-  backdrop-filter: blur(20px) saturate(150%);
-  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  background: color-mix(in srgb, var(--bg-elev) 72%, transparent);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+}
+
+.glass-strong {
+  background: color-mix(in srgb, var(--bg-elev) 88%, transparent);
+  backdrop-filter: blur(32px) saturate(180%);
+  -webkit-backdrop-filter: blur(32px) saturate(180%);
 }
 
 .gradient-text {
@@ -177,15 +189,23 @@ body {
   pointer-events: none;
 }
 
+.gradient-bg {
+  background: var(--gradient-subtle);
+}
+
+.glow {
+  box-shadow: 0 0 0 1px var(--accent-soft), 0 4px 24px var(--accent-glow);
+}
+
 .shimmer {
   background: linear-gradient(
     90deg,
     transparent,
-    color-mix(in srgb, var(--fg) 8%, transparent),
+    color-mix(in srgb, var(--fg) 6%, transparent),
     transparent
   );
   background-size: 200% 100%;
-  animation: shimmer 1.6s infinite;
+  animation: shimmer 1.4s infinite;
 }
 
 @keyframes shimmer {
@@ -200,20 +220,20 @@ body {
 .pulse-dot::before {
   content: "";
   position: absolute;
-  inset: -4px;
+  inset: -3px;
   border-radius: 9999px;
   background: currentColor;
-  opacity: 0.4;
+  opacity: 0.35;
   animation: pulse 2s infinite;
 }
 @keyframes pulse {
   0%,
   100% {
     transform: scale(1);
-    opacity: 0.4;
+    opacity: 0.35;
   }
   50% {
-    transform: scale(1.5);
+    transform: scale(1.6);
     opacity: 0;
   }
 }
@@ -229,13 +249,13 @@ body {
   }
 }
 .animate-fade-in {
-  animation: fade-in 0.3s ease-out;
+  animation: fade-in 0.25s ease-out;
 }
 
 @keyframes slide-up {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -243,7 +263,21 @@ body {
   }
 }
 .animate-slide-up {
-  animation: slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: slide-up 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.animate-scale-in {
+  animation: scale-in 0.2s ease-out;
 }
 
 /* Code blocks */
@@ -336,6 +370,49 @@ pre code {
   color: var(--accent);
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+/* Professional table */
+.pro-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.pro-table thead th {
+  padding: 10px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-soft);
+  background: var(--bg-soft);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  text-align: start;
+}
+.pro-table tbody td {
+  padding: 12px 16px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: middle;
+}
+.pro-table tbody tr {
+  transition: background-color 0.15s ease;
+}
+.pro-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.pro-table tbody tr:hover {
+  background-color: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+/* Card hover depth */
+.card-hover {
+  transition: all 0.2s ease;
+}
+.card-hover:hover {
+  box-shadow: var(--shadow-lg);
+  border-color: color-mix(in srgb, var(--accent) 25%, var(--border));
 }
 
 /* Smooth focus ring */

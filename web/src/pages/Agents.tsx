@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/Badge";
 import { apiGet, apiPost } from "@/lib/api";
 import { toast } from "sonner";
 import { cn, formatNumber, relativeTime } from "@/lib/utils";
+import { PageHeader } from "@/components/layout/PageHeader";
 
 type Agent = { slug: string; name: string; description: string; status: string; current_version: string };
 type AgentRun = { run_id: string; slug: string; name: string; version: string; status: string; cost_usd?: number; prompt_tokens?: number; completion_tokens?: number; created_at?: string; updated_at?: string; error?: string | null };
@@ -68,17 +69,17 @@ export function AgentsPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <div className="flex items-center gap-2 text-xs font-semibold text-[var(--accent)] mb-2"><Bot className="h-4 w-4" /> مركز الوكلاء</div>
-          <h1 className="text-2xl font-bold">Agents Control Plane</h1>
-          <p className="text-sm text-[var(--fg-muted)] mt-1 max-w-2xl">إصدارات الوكلاء، التشغيلات، الأدوات، والموافقات في شاشة تشغيل واحدة.</p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={load} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /> تحديث</Button>
-          <Button variant="primary" onClick={runAgentTest} loading={running}><Play className="h-4 w-4" /> تشغيل مهمة حقيقية</Button>
-        </div>
-      </header>
+      <PageHeader
+        icon={<Bot className="h-4 w-4 text-[var(--accent)]" />}
+        title="Agents Control Plane"
+        description="إصدارات الوكلاء، التشغيلات، الأدوات، والموافقات في شاشة تشغيل واحدة."
+        action={
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={load} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /> تحديث</Button>
+            <Button variant="primary" onClick={runAgentTest} loading={running}><Play className="h-4 w-4" /> تشغيل مهمة حقيقية</Button>
+          </div>
+        }
+      />
 
       <section className="grid grid-cols-2 xl:grid-cols-4 gap-3">
         <Metric icon={Bot} label="الوكلاء" value={agents.length} detail="تعريفات مسجلة" />

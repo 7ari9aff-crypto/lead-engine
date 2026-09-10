@@ -16,6 +16,7 @@ import { Input, Label } from "@/components/ui/Input";
 import { apiPost } from "@/lib/api";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/layout/PageHeader";
 
 type Status = "DELIVERABLE" | "RISKY" | "CATCH_ALL" | "INVALID" | "UNKNOWN";
 
@@ -80,15 +81,11 @@ export function VerifyPage() {
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <MailCheck className="h-5 w-5 text-[var(--accent)]" />
-          فحص الإيميل
-        </h1>
-        <p className="text-sm text-[var(--fg-muted)] mt-1">
-          تحقّق 5-حالات: <b>DELIVERABLE</b> · <b>RISKY</b> · <b>CATCH_ALL</b> · <b>INVALID</b> · <b>UNKNOWN</b> — مع كشف catch-all بشكل صريح.
-        </p>
-      </div>
+      <PageHeader
+        icon={<MailCheck className="h-4 w-4 text-[var(--accent)]" />}
+        title="فحص الإيميل"
+        description={<>تحقّق 5-حالات: <b>DELIVERABLE</b> · <b>RISKY</b> · <b>CATCH_ALL</b> · <b>INVALID</b> · <b>UNKNOWN</b> — مع كشف catch-all بشكل صريح.</>}
+      />
 
       <Card>
         <CardHeader>

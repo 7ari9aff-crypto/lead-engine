@@ -468,6 +468,44 @@ def api_status(db: Database = Depends(get_db)):
     }
 
 
+@app.get("/api/analytics")
+def api_analytics(db: Database = Depends(get_db)):
+    """Time-series analytics for the dashboard: leads per day, jobs per day,
+    usage units per day — last 30 days."""
+    import datetime
+
+    cutoff = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=30)
+              ).strftime("%Y-%m-%d")
+
+    leads_over_time = db.query(
+        """SELECT date(created_at) AS date, COUNT(*) AS count
+           FROM leads WHERE created_at >= ? GROUP BY date(created_at)
+           ORDER BY date ASC""",
+        (cutoff,),
+    )
+    jobs_over_time = db.query(
+        """SELECT date(created_at) AS date, COUNT(*) AS total,
+                  SUM(CASE WHEN state='COMPLETED' THEN 1 ELSE 0 END) AS completed,
+                  SUM(CASE WHEN state='PAUSED' THEN 1 ELSE 0 END) AS paused,
+                  SUM(CASE WHEN state='FAILED' THEN 1 ELSE 0 END) AS failed
+           FROM jobs WHERE created_at >= ? GROUP BY date(created_at)
+           ORDER BY date ASC""",
+        (cutoff,),
+    )
+    usage_over_time = db.query(
+        """SELECT date(ts) AS date, COALESCE(SUM(units),0) AS units,
+                  COUNT(*) AS calls
+           FROM usage_ledger WHERE ts >= ? GROUP BY date(ts)
+           ORDER BY date ASC""",
+        (cutoff,),
+    )
+    return {
+        "leads_over_time": leads_over_time,
+        "jobs_over_time": jobs_over_time,
+        "usage_over_time": usage_over_time,
+    }
+
+
 class ProviderStatusRequest(BaseModel):
     status: str  # active | disabled
 

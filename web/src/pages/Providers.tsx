@@ -18,6 +18,8 @@ import { toast } from "sonner";
 import { cn, formatNumber, relativeTime } from "@/lib/utils";
 import { Spinner, EmptyState } from "@/components/ui/EmptyState";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/Dialog";
+import { PageHeader } from "@/components/layout/PageHeader";
+import { FilterPills } from "@/components/ui/FilterPills";
 import { Label } from "@/components/ui/Input";
 
 const STATUSES = ["ALL", "active", "degraded", "exhausted", "cooldown", "disabled"] as const;
@@ -87,15 +89,11 @@ export function ProvidersPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Boxes className="h-5 w-5 text-[var(--accent)]" />
-          المزوّدون
-        </h1>
-        <p className="text-sm text-[var(--fg-muted)] mt-1">
-          الحالة هنا مقروءة مباشرة من قاعدة البيانات — نفس اللي بياخدها الـRouter قراره.
-        </p>
-      </div>
+      <PageHeader
+        icon={<Boxes className="h-4 w-4 text-[var(--accent)]" />}
+        title="المزوّدون"
+        description="الحالة هنا مقروءة مباشرة من قاعدة البيانات — نفس اللي بياخدها الـRouter قراره."
+      />
 
       {/* Filters */}
       <Card>
@@ -109,31 +107,16 @@ export function ProvidersPage() {
               className="pe-10"
             />
           </div>
-          <div className="flex gap-1 flex-wrap">
-            {STATUSES.map((s) => (
-              <Button
-                key={s}
-                size="sm"
-                variant={filter === s ? "primary" : "outline"}
-                onClick={() => setFilter(s)}
-              >
-                {s === "ALL" ? "الكل" : s}
-              </Button>
-            ))}
-          </div>
-          <div className="flex gap-1 flex-wrap">
-            {TASKS.map((t) => (
-              <Button
-                key={t}
-                size="sm"
-                variant="outline"
-                onClick={() => setTaskFilter(t)}
-                className={cn(taskFilter === t && "bg-[var(--accent-soft)] text-[var(--accent-hover)] border-[var(--accent)]")}
-              >
-                {t === "ALL" ? "كل المهام" : t}
-              </Button>
-            ))}
-          </div>
+          <FilterPills
+            options={STATUSES.map((s) => ({ value: s, label: s === "ALL" ? "الكل" : s }))}
+            value={filter}
+            onChange={setFilter}
+          />
+          <FilterPills
+            options={TASKS.map((t) => ({ value: t, label: t === "ALL" ? "كل المهام" : t }))}
+            value={taskFilter}
+            onChange={setTaskFilter}
+          />
         </CardContent>
       </Card>
 
@@ -152,17 +135,17 @@ export function ProvidersPage() {
             />
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="pro-table">
                 <thead>
-                  <tr className="border-b border-[var(--border)] bg-[var(--bg-soft)]">
-                    <th className="text-right p-3 font-semibold">المزوّد</th>
-                    <th className="text-right p-3 font-semibold">المهمة</th>
-                    <th className="text-right p-3 font-semibold">الحالة</th>
-                    <th className="text-right p-3 font-semibold">المفتاح</th>
-                    <th className="text-right p-3 font-semibold">الاستهلاك</th>
-                    <th className="text-right p-3 font-semibold">الاستدعاءات</th>
-                    <th className="text-right p-3 font-semibold">آخر استخدام</th>
-                    <th className="text-right p-3 font-semibold">إجراءات</th>
+                  <tr>
+                    <th>المزوّد</th>
+                    <th>المهمة</th>
+                    <th>الحالة</th>
+                    <th>المفتاح</th>
+                    <th>الاستهلاك</th>
+                    <th>الاستدعاءات</th>
+                    <th>آخر استخدام</th>
+                    <th>إجراءات</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -170,19 +153,19 @@ export function ProvidersPage() {
                     const usage = p.quota_limit ? ((p.quota_used || 0) / p.quota_limit) * 100 : 0;
                     const isBusy = busy === `${p.name}:${p.task}`;
                     return (
-                      <tr key={i} className="border-b border-[var(--border-soft)] hover:bg-[var(--bg-hover)] transition-colors">
-                        <td className="p-3 font-medium">
+                      <tr key={i}>
+                        <td className="font-medium">
                           <div className="flex items-center gap-2">
                             <Activity className="h-3.5 w-3.5 text-[var(--accent)]" />
                             {p.name}
                           </div>
                         </td>
-                        <td className="p-3">
+                        <td>
                           <Badge variant="outline" className="text-[10px]">
                             {p.task}
                           </Badge>
                         </td>
-                        <td className="p-3">
+                        <td>
                           <Badge
                             variant={
                               p.status === "active"
@@ -197,7 +180,7 @@ export function ProvidersPage() {
                             {p.status}
                           </Badge>
                         </td>
-                        <td className="p-3">
+                        <td>
                           <Badge
                             variant={p.key_state === "set" ? "success" : p.key_state === "missing" ? "danger" : "default"}
                             className="text-[10px]"
@@ -205,7 +188,7 @@ export function ProvidersPage() {
                             {p.key_state === "set" ? "✔" : p.key_state === "missing" ? "✗" : p.key_state === "local" ? "محلي" : "?"}
                           </Badge>
                         </td>
-                        <td className="p-3 tabular-nums" dir="ltr">
+                        <td className="tabular-nums" dir="ltr">
                           <div className="flex flex-col gap-1">
                             <span>
                               {formatNumber(p.quota_used || 0)} / {p.quota_limit ? formatNumber(p.quota_limit) : "∞"}
@@ -225,11 +208,11 @@ export function ProvidersPage() {
                             )}
                           </div>
                         </td>
-                        <td className="p-3 tabular-nums">{formatNumber(p.calls || 0)}</td>
-                        <td className="p-3 text-xs text-[var(--fg-muted)]">
+                        <td className="tabular-nums">{formatNumber(p.calls || 0)}</td>
+                        <td className="text-xs text-[var(--fg-muted)]">
                           {p.last_used ? relativeTime(p.last_used) : "—"}
                         </td>
-                        <td className="p-3">
+                        <td>
                           <div className="flex gap-1">
                             {p.status === "disabled" ? (
                               <Button

@@ -23,6 +23,8 @@ import { useLiveData } from "@/hooks/useLiveData";
 import { apiGet } from "@/lib/api";
 import { downloadFile, formatNumber, truncate, cn } from "@/lib/utils";
 import { Spinner, EmptyState } from "@/components/ui/EmptyState";
+import { PageHeader } from "@/components/layout/PageHeader";
+import { StatCard } from "@/components/ui/FilterPills";
 
 export function LeadsPage() {
   const { data, loading } = useLiveData(() => apiGet.leads({ limit: 500 }), 5000);
@@ -74,29 +76,24 @@ export function LeadsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Database className="h-5 w-5 text-[var(--accent)]" />
-            الـLeads
-          </h1>
-          <p className="text-sm text-[var(--fg-muted)] mt-1">
-            {formatNumber(stats.total)} إجمالي · {formatNumber(stats.accepted)} مقبولة ·{" "}
-            {formatNumber(stats.review)} مراجعة · {formatNumber(stats.rejected)} مرفوضة
-          </p>
-        </div>
-        <Button variant="primary" onClick={exportCSV} disabled={filtered.length === 0}>
-          <Download className="h-4 w-4" />
-          تنزيل CSV ({filtered.length})
-        </Button>
-      </div>
+      <PageHeader
+        icon={<Database className="h-4 w-4 text-[var(--accent)]" />}
+        title="الـLeads"
+        description={`${formatNumber(stats.total)} إجمالي · ${formatNumber(stats.accepted)} مقبولة · ${formatNumber(stats.review)} مراجعة · ${formatNumber(stats.rejected)} مرفوضة`}
+        action={
+          <Button variant="primary" onClick={exportCSV} disabled={filtered.length === 0}>
+            <Download className="h-4 w-4" />
+            تنزيل CSV ({filtered.length})
+          </Button>
+        }
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatPill icon={<CheckCircle2 className="h-4 w-4" />} label="مقبولة" value={stats.accepted} color="success" />
-        <StatPill icon={<AlertTriangle className="h-4 w-4" />} label="مراجعة" value={stats.review} color="warn" />
-        <StatPill icon={<XCircle className="h-4 w-4" />} label="مرفوضة" value={stats.rejected} color="danger" />
-        <StatPill icon={<TrendingUp className="h-4 w-4" />} label="إجمالي" value={stats.total} color="accent" />
+        <StatCard icon={CheckCircle2} label="مقبولة" value={stats.accepted} tone="success" />
+        <StatCard icon={AlertTriangle} label="مراجعة" value={stats.review} tone="warn" />
+        <StatCard icon={XCircle} label="مرفوضة" value={stats.rejected} tone="danger" />
+        <StatCard icon={TrendingUp} label="إجمالي" value={stats.total} tone="accent" />
       </div>
 
       {/* Filters */}
@@ -145,26 +142,23 @@ export function LeadsPage() {
             />
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="pro-table">
                 <thead>
-                  <tr className="border-b border-[var(--border)] bg-[var(--bg-soft)]">
-                    <th className="text-right p-3 font-semibold">الاسم</th>
-                    <th className="text-right p-3 font-semibold">المدينة</th>
-                    <th className="text-right p-3 font-semibold">الدومين</th>
-                    <th className="text-right p-3 font-semibold">الإيميل</th>
-                    <th className="text-right p-3 font-semibold">صانع القرار</th>
-                    <th className="text-right p-3 font-semibold">الدرجة</th>
-                    <th className="text-right p-3 font-semibold">المرحلة</th>
-                    <th className="text-right p-3 font-semibold">القانوني</th>
+                  <tr>
+                    <th>الاسم</th>
+                    <th>المدينة</th>
+                    <th>الدومين</th>
+                    <th>الإيميل</th>
+                    <th>صانع القرار</th>
+                    <th>الدرجة</th>
+                    <th>المرحلة</th>
+                    <th>القانوني</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map((l, i) => (
-                    <tr
-                      key={i}
-                      className="border-b border-[var(--border-soft)] hover:bg-[var(--bg-hover)] transition-colors"
-                    >
-                      <td className="p-3">
+                    <tr key={i}>
+                      <td>
                         <div className="flex items-center gap-2">
                           <Building2 className="h-3.5 w-3.5 text-[var(--fg-soft)] shrink-0" />
                           <div>
@@ -177,8 +171,8 @@ export function LeadsPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="p-3 text-xs">{l.city || "—"}</td>
-                      <td className="p-3">
+                      <td className="text-xs">{l.city || "—"}</td>
+                      <td>
                         {l.domain ? (
                           <a
                             href={`https://${l.domain}`}
@@ -195,7 +189,7 @@ export function LeadsPage() {
                           "—"
                         )}
                       </td>
-                      <td className="p-3 text-xs">
+                      <td className="text-xs">
                         {l.email ? (
                           <div className="flex flex-col gap-0.5">
                             <a
@@ -216,7 +210,7 @@ export function LeadsPage() {
                           "—"
                         )}
                       </td>
-                      <td className="p-3 text-xs">
+                      <td className="text-xs">
                         {l.decision_maker ? (
                           <div className="flex items-center gap-1">
                             <User className="h-3 w-3 text-[var(--fg-soft)]" />
@@ -226,7 +220,7 @@ export function LeadsPage() {
                           "—"
                         )}
                       </td>
-                      <td className="p-3">
+                      <td>
                         {l.score != null ? (
                           <div className="flex items-center gap-2">
                             <span className="font-bold tabular-nums text-sm">{l.score.toFixed(0)}</span>
@@ -240,7 +234,7 @@ export function LeadsPage() {
                           "—"
                         )}
                       </td>
-                      <td className="p-3">
+                      <td>
                         <Badge
                           variant={l.stage === "ACCEPTED" ? "success" : l.stage === "REVIEW" ? "warn" : "danger"}
                         >
@@ -248,7 +242,7 @@ export function LeadsPage() {
                           {l.stage}
                         </Badge>
                       </td>
-                      <td className="p-3 text-xs text-[var(--fg-muted)]">
+                      <td className="text-xs text-[var(--fg-muted)]">
                         {l.legal_status || "—"}
                       </td>
                     </tr>
@@ -263,33 +257,4 @@ export function LeadsPage() {
   );
 }
 
-function StatPill({
-  icon,
-  label,
-  value,
-  color,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-  color: "success" | "warn" | "danger" | "accent";
-}) {
-  const colorMap = {
-    success: "var(--success)",
-    warn: "var(--warn)",
-    danger: "var(--danger)",
-    accent: "var(--accent)",
-  };
-  return (
-    <div className="rounded-lg p-3 bg-[var(--bg-soft)] border border-[var(--border-soft)]">
-      <div
-        className="flex items-center gap-2 mb-1 text-xs"
-        style={{ color: colorMap[color] }}
-      >
-        {icon}
-        {label}
-      </div>
-      <div className="text-2xl font-bold tabular-nums">{formatNumber(value)}</div>
-    </div>
-  );
-}
+

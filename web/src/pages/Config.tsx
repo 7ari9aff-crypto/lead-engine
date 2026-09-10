@@ -16,6 +16,7 @@ import { apiGet, apiPost } from "@/lib/api";
 import { toast } from "sonner";
 import { Spinner } from "@/components/ui/EmptyState";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/layout/PageHeader";
 
 export function ConfigPage() {
   const [files, setFiles] = useState<{ path: string; content: string; key: string }[]>([]);
@@ -90,27 +91,23 @@ export function ConfigPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Settings className="h-5 w-5 text-[var(--accent)]" />
-            الإعدادات
-          </h1>
-          <p className="text-sm text-[var(--fg-muted)] mt-1">
-            أي تعديل يطبق من التشغيل القادم، ويُعمل منه نسخة احتياطية <code>.bak</code> تلقائيًا.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="ghost" onClick={revert} disabled={!dirty}>
-            <RotateCcw className="h-4 w-4" />
-            تراجع
-          </Button>
-          <Button variant="primary" onClick={save} disabled={!dirty || !yamlValid} loading={saving}>
-            <Save className="h-4 w-4" />
-            حفظ
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        icon={<Settings className="h-4 w-4 text-[var(--accent)]" />}
+        title="الإعدادات"
+        description={<>أي تعديل يطبق من التشغيل القادم، ويُعمل منه نسخة احتياطية <code>.bak</code> تلقائيًا.</>}
+        action={
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={revert} disabled={!dirty}>
+              <RotateCcw className="h-4 w-4" />
+              تراجع
+            </Button>
+            <Button variant="primary" onClick={save} disabled={!dirty || !yamlValid} loading={saving}>
+              <Save className="h-4 w-4" />
+              حفظ
+            </Button>
+          </div>
+        }
+      />
 
       {loading ? (
         <div className="flex items-center justify-center py-20">

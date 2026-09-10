@@ -6,22 +6,30 @@ import {
   CheckCircle2,
   AlertTriangle,
   Database,
-  TrendingUp,
-  Sparkles,
   Trash2,
   Layers,
   Cpu,
-  Database as DatabaseIcon,
   HardDrive,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  ArrowUpRight,
+  Clock,
+  Zap,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Badge, StatusDot } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { Spinner, EmptyState } from "@/components/ui/EmptyState";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { apiGet, apiPost, type ProviderRow } from "@/lib/api";
 import { formatNumber, relativeTime, truncate } from "@/lib/utils";
 import { toast } from "sonner";
 import { PageSkeleton } from "@/components/ui/Skeleton";
+import {
+  AreaChart, Area, BarChart, Bar, ResponsiveContainer,
+  XAxis, YAxis, Tooltip, CartesianGrid, Cell,
+} from "recharts";
+import { cn } from "@/lib/utils";
 
 export function OverviewPage() {
   const { data, isLoading, refetch } = useQuery({
@@ -30,9 +38,13 @@ export function OverviewPage() {
     refetchInterval: 5000,
   });
 
-  if (isLoading && !data) {
-    return <PageSkeleton />;
-  }
+  const { data: analytics } = useQuery({
+    queryKey: ["analytics"],
+    queryFn: apiGet.analytics,
+    refetchInterval: 15000,
+  });
+
+  if (isLoading && !data) return <PageSkeleton />;
 
   const providers = data?.providers ?? [];
   const recentJobs = data?.recent_jobs ?? [];
@@ -43,35 +55,43 @@ export function OverviewPage() {
 
   const leadsAccepted = leadsByStage.ACCEPTED || 0;
   const leadsReview = leadsByStage.REVIEW || 0;
-  const leadsRejected = leadsByStage.REJECTED || 0;
   const leadsTotal = data?.leads_total ?? 0;
-
-  const totalCost = providers.reduce((sum, p) => sum + (p.quota_used || 0), 0);
+  const totalUnits = providers.reduce((sum, p) => sum + (p.quota_used || 0), 0);
   const healthy = providers.filter((p) => p.status === "active").length;
   const degraded = providers.filter((p) => ["degraded", "exhausted", "cooldown", "disabled"].includes(p.status)).length;
   const running = jobsByState.RUNNING || 0;
   const queued = jobsByState.QUEUED || 0;
   const paused = jobsByState.PAUSED || 0;
 
+  // Trend calculations from analytics
+  const leadsTrend = calcTrend(analytics?.leads_over_time ?? []);
+  const usageTrend = calcTrend(analytics?.usage_over_time ?? []);
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-[var(--accent)]" />
-          نظرة عامة على النظام
-        </h1>
-        <p className="text-sm text-[var(--fg-muted)] mt-1">
-          حالة المحرك في الوقت الفعلي — كل الأرقام مباشرة من قاعدة البيانات.
-        </p>
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2.5">
+            <span className="flex items-center justify-center h-8 w-8 rounded-lg gradient-bg">
+              <Zap className="h-4 w-4 text-[var(--accent)]" />
+            </span>
+            نظرة عامة على النظام
+          </h1>
+          <p className="text-sm text-[var(--fg-muted)] mt-1.5">
+            حالة المحرك في الوقت الفعلي — كل الأرقام مباشرة من قاعدة البيانات.
+          </p>
+        </div>
       </div>
 
-      {/* Hero metrics */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* Metric cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <MetricCard
           icon={<CheckCircle2 className="h-5 w-5" />}
           label="Leads مقبولة"
           value={formatNumber(leadsAccepted)}
           color="success"
+          trend={leadsTrend}
         />
         <MetricCard
           icon={<AlertTriangle className="h-5 w-5" />}
@@ -87,46 +107,102 @@ export function OverviewPage() {
           sub={`${running} شغّال · ${queued} بالانتظار · ${paused} موقّفة`}
         />
         <MetricCard
-          icon={<Database className="h-5 w-5" />}
+          icon={<Cpu className="h-5 w-5" />}
           label="استهلاك الـunits"
-          value={formatNumber(totalCost)}
+          value={formatNumber(totalUnits)}
           color="accent"
+          trend={usageTrend}
         />
       </div>
 
-      {/* Real charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <ProviderStatusChart providers={providers} />
-        <LeadsDistributionChart leadsByStage={leadsByStage} />
+      {/* Charts row */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>
+              <TrendingUp className="h-4 w-4 text-[var(--accent)]" />
+              الـLeads عبر الوقت
+            </CardTitle>
+            <CardDescription>آخر 30 يوم</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <LeadsAreaChart data={analytics?.leads_over_time ?? []} />
+          </CardContent>
+        </Card>
+
+        <ProviderHealthChart providers={providers} healthy={healthy} degraded={degraded} />
       </div>
 
+      {/* Usage + Jobs row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card>
+        <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>
               <Activity className="h-4 w-4 text-[var(--accent)]" />
-              صحة المزوّدين
+              استهلاك المزوّدين
             </CardTitle>
-            <CardDescription>
-              {healthy} صحّي · {degraded} منخفض · {providers.length} إجمالي
-            </CardDescription>
+            <CardDescription>أعلى المزوّدين استهلاكًا للـunits</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-2 max-h-[400px] overflow-y-auto">
+          <CardContent>
+            <UsageBarChart data={usage} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              <Clock className="h-4 w-4 text-[var(--info)]" />
+              آخر المهام
+            </CardTitle>
+            <CardDescription>{Math.min(6, recentJobs.length)} مهمة</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-1.5 max-h-[340px] overflow-y-auto">
+            {recentJobs.length === 0 ? (
+              <EmptyState icon={<Briefcase className="h-7 w-7" />} title="لا توجد مهام بعد" />
+            ) : (
+              recentJobs.slice(0, 6).map((j) => (
+                <div
+                  key={j.job_id}
+                  className="flex items-center justify-between gap-2 rounded-lg p-2.5 hover:bg-[var(--bg-hover)] transition-colors"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <StatusDot status={j.state} />
+                    <div className="min-w-0">
+                      <div className="font-medium text-sm truncate" dir="ltr">{truncate(j.job_id, 14)}</div>
+                      <div className="text-xs text-[var(--fg-soft)]">
+                        {j.created_at ? relativeTime(j.created_at) : "—"}
+                      </div>
+                    </div>
+                  </div>
+                  <JobStateBadge state={j.state} />
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Provider list + cache */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>
+              <Layers className="h-4 w-4 text-[var(--accent)]" />
+              حالة المزوّدين
+            </CardTitle>
+            <CardDescription>{healthy} صحّي · {degraded} منخفض · {providers.length} إجمالي</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-1.5 max-h-[350px] overflow-y-auto">
             {providers.length === 0 ? (
-              <EmptyState icon={<Layers className="h-8 w-8" />} title="لا يوجد مزوّدون" />
+              <EmptyState icon={<Layers className="h-7 w-7" />} title="لا يوجد مزوّدون" />
             ) : (
               providers.map((p, i) => (
-                <div
-                  key={i}
-                  className="flex items-center gap-3 rounded-lg p-2.5 hover:bg-[var(--bg-hover)] transition-colors"
-                >
+                <div key={i} className="flex items-center gap-3 rounded-lg p-2.5 hover:bg-[var(--bg-hover)] transition-colors">
                   <StatusDot status={p.status} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-sm">{p.name}</span>
-                      <Badge variant="outline" className="text-[10px]">
-                        {p.task}
-                      </Badge>
+                      <Badge variant="outline" className="text-[10px]">{p.task}</Badge>
                     </div>
                     <div className="text-xs text-[var(--fg-muted)] mt-0.5 flex gap-2 flex-wrap">
                       <span dir="ltr">
@@ -154,111 +230,36 @@ export function OverviewPage() {
         <Card>
           <CardHeader>
             <CardTitle>
-              <Briefcase className="h-4 w-4 text-[var(--info)]" />
-              آخر المهام
-            </CardTitle>
-            <CardDescription>أحدث {Math.min(8, recentJobs.length)} مهمة</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2 max-h-[400px] overflow-y-auto">
-            {recentJobs.length === 0 ? (
-              <EmptyState icon={<Briefcase className="h-8 w-8" />} title="لا توجد مهام بعد" />
-            ) : (
-              recentJobs.slice(0, 8).map((j) => (
-                <div
-                  key={j.job_id}
-                  className="rounded-lg p-2.5 hover:bg-[var(--bg-hover)] transition-colors"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <StatusDot status={j.state} />
-                      <span className="font-medium text-sm truncate" dir="ltr">
-                        {truncate(j.job_id, 16)}
-                      </span>
-                      <Badge variant="outline" className="text-[10px]">
-                        {j.icp_id}
-                      </Badge>
-                    </div>
-                    <Badge
-                      variant={
-                        j.state === "COMPLETED"
-                          ? "success"
-                          : j.state === "RUNNING" || j.state === "RESUMING"
-                          ? "info"
-                          : j.state === "PAUSED" || j.state === "DEGRADED"
-                          ? "warn"
-                          : j.state === "FAILED"
-                          ? "danger"
-                          : "default"
-                      }
-                    >
-                      {j.state}
-                    </Badge>
-                  </div>
-                  <div className="text-xs text-[var(--fg-muted)] mt-1 flex gap-2 flex-wrap">
-                    {j.created_at && <span>بدأت {relativeTime(j.created_at)}</span>}
-                    {j.pause_reason && (
-                      <span className="text-[var(--warn)]">· {truncate(j.pause_reason, 50)}</span>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>
               <HardDrive className="h-4 w-4 text-[var(--warn)]" />
-              الكاش + أعلى استهلاك
+              الكاش
             </CardTitle>
-            <CardDescription>3 مستويات: L1 request · L2 entity · L3 evidence</CardDescription>
+            <CardDescription>3 مستويات: L1 · L2 · L3</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="grid grid-cols-3 gap-2 text-xs">
+            <div className="grid grid-cols-3 gap-2">
               {Object.entries(cacheEntries).map(([lvl, n]) => (
-                <div key={lvl} className="rounded-lg p-2.5 bg-[var(--bg-soft)] border border-[var(--border-soft)]">
-                  <div className="text-[10px] text-[var(--fg-soft)]">{lvl}</div>
-                  <div className="text-lg font-bold tabular-nums">{formatNumber(n)}</div>
+                <div key={lvl} className="rounded-lg p-2.5 bg-[var(--bg-soft)] border border-[var(--border-soft)] text-center">
+                  <div className="text-[10px] text-[var(--fg-soft)] mb-1">{lvl}</div>
+                  <div className="text-xl font-bold tabular-nums">{formatNumber(n)}</div>
                 </div>
               ))}
             </div>
-            <div className="space-y-1.5">
-              <div className="text-xs text-[var(--fg-soft)] flex items-center gap-1.5">
-                <Cpu className="h-3 w-3" />
-                أعلى المزوّدين استهلاكًا
+            <div className="rounded-lg p-3 bg-[var(--bg-soft)] border border-[var(--border-soft)]">
+              <div className="text-xs text-[var(--fg-soft)] mb-2 flex items-center gap-1.5">
+                <Database className="h-3 w-3" />
+                معلومات النظام
               </div>
-              {usage.slice(0, 5).map((u, i) => (
-                <div key={i} className="flex items-center gap-2 text-xs">
-                  <span className="font-medium">{u.provider}</span>
-                  <span className="text-[var(--fg-soft)]">{u.task}</span>
-                  <span className="ms-auto tabular-nums">{formatNumber(u.units)}</span>
-                </div>
-              ))}
+              <div className="space-y-1.5 text-xs">
+                <SysRow label="الإصدار" value={data?.version || "—"} />
+                <SysRow label="Python" value={data?.system?.python || "—"} />
+                <SysRow label="Supabase" value={data?.system?.supabase_configured ? "✔ مهيأ" : "✗ غير مهيأ"}
+                  ok={data?.system?.supabase_configured} />
+                <SysRow label="إجمالي الـleads" value={formatNumber(leadsTotal)} />
+              </div>
             </div>
           </CardContent>
         </Card>
       </div>
-
-      {/* System info */}
-      <Card>
-        <CardHeader>
-          <CardTitle>معلومات النظام</CardTitle>
-          <CardDescription>إصدار {data?.version} · Python {data?.system?.python}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
-            <Field label="قاعدة البيانات" value={data?.system?.db_path} mono />
-            <Field
-              label="Supabase"
-              value={data?.system?.supabase_configured ? "✔ مهيأ" : "✗ غير مهيأ"}
-              ok={data?.system?.supabase_configured}
-            />
-            <Field label="إجمالي leads" value={formatNumber(leadsTotal)} />
-            <Field label="إجمالي الاستدعاءات" value={formatNumber(providers.reduce((s, p) => s + (p.calls || 0), 0))} />
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Danger zone */}
       <Card>
@@ -308,18 +309,29 @@ export function OverviewPage() {
   );
 }
 
+// ===== Sub-components =====
+
+function calcTrend(data: { date: string; count?: number; units?: number }[]) {
+  if (!data || data.length < 2) return null;
+  const today = data[data.length - 1];
+  const yesterday = data[data.length - 2];
+  const todayVal = today?.count ?? today?.units ?? 0;
+  const yesterdayVal = yesterday?.count ?? yesterday?.units ?? 0;
+  if (yesterdayVal === 0) return todayVal > 0 ? { dir: "up" as const, pct: 100 } : null;
+  const pct = Math.round(((todayVal - yesterdayVal) / yesterdayVal) * 100);
+  if (pct === 0) return null;
+  return { dir: pct > 0 ? "up" as const : "down" as const, pct: Math.abs(pct) };
+}
+
 function MetricCard({
-  icon,
-  label,
-  value,
-  color,
-  sub,
+  icon, label, value, color, sub, trend,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string | number;
   color: "success" | "warn" | "info" | "danger" | "accent";
   sub?: string;
+  trend?: { dir: "up" | "down"; pct: number } | null;
 }) {
   const colorMap = {
     success: "var(--success)",
@@ -328,19 +340,33 @@ function MetricCard({
     danger: "var(--danger)",
     accent: "var(--accent)",
   } as const;
+
   return (
-    <Card className="hover:border-[var(--accent)] transition-colors group">
+    <Card className="hover:border-[var(--accent)] transition-all duration-200 group relative overflow-hidden">
       <CardContent className="p-5">
         <div className="flex items-start justify-between mb-3">
           <div
-            className="p-2 rounded-lg"
+            className="p-2 rounded-xl transition-transform group-hover:scale-105"
             style={{
-              background: `color-mix(in srgb, ${colorMap[color]} 15%, transparent)`,
+              background: `color-mix(in srgb, ${colorMap[color]} 12%, transparent)`,
               color: colorMap[color],
             }}
           >
             {icon}
           </div>
+          {trend && (
+            <div
+              className={cn(
+                "flex items-center gap-0.5 text-xs font-semibold px-1.5 py-0.5 rounded-md",
+                trend.dir === "up"
+                  ? "text-[var(--success)] bg-[color-mix(in_srgb,var(--success)_12%,transparent)]"
+                  : "text-[var(--danger)] bg-[color-mix(in_srgb,var(--danger)_12%,transparent)]"
+              )}
+            >
+              {trend.dir === "up" ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+              {trend.pct}%
+            </div>
+          )}
         </div>
         <div className="text-2xl font-bold mb-1 tabular-nums">{value}</div>
         <div className="text-xs text-[var(--fg-muted)]">{label}</div>
@@ -350,39 +376,93 @@ function MetricCard({
   );
 }
 
-function Field({ label, value, mono, ok }: { label: string; value: any; mono?: boolean; ok?: boolean }) {
+function SysRow({ label, value, ok }: { label: string; value: string; ok?: boolean }) {
   return (
-    <div className="rounded-lg p-2.5 bg-[var(--bg-soft)] border border-[var(--border-soft)]">
-      <div className="text-[10px] text-[var(--fg-soft)] mb-0.5">{label}</div>
-      <div className={cn("text-sm font-medium truncate", ok === true && "text-[var(--success)]", ok === false && "text-[var(--danger)]")} dir={mono ? "ltr" : "rtl"}>
+    <div className="flex items-center justify-between">
+      <span className="text-[var(--fg-soft)]">{label}</span>
+      <span className={cn("font-medium", ok === true && "text-[var(--success)]", ok === false && "text-[var(--danger)]")}>
         {value}
-      </div>
+      </span>
     </div>
   );
 }
 
-// cn helper
-import { cn } from "@/lib/utils";
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
+function JobStateBadge({ state }: { state: string }) {
+  const variant =
+    state === "COMPLETED" ? "success" :
+    state === "RUNNING" || state === "RESUMING" ? "info" :
+    state === "PAUSED" || state === "DEGRADED" ? "warn" :
+    state === "FAILED" ? "danger" : "default";
+  return <Badge variant={variant as any} className="text-[10px] shrink-0">{state}</Badge>;
+}
 
-function ProviderStatusChart({ providers }: { providers: ProviderRow[] }) {
-  const data = [
-    { name: "صحّي", value: providers.filter((p) => p.status === "active").length, color: "#10b981" },
-    { name: "منخفض", value: providers.filter((p) => ["degraded", "exhausted", "cooldown"].includes(p.status)).length, color: "#f59e0b" },
-    { name: "معطّل", value: providers.filter((p) => p.status === "disabled").length, color: "#6c7080" },
-  ].filter((d) => d.value > 0);
+function LeadsAreaChart({ data }: { data: { date: string; count: number }[] }) {
+  if (!data || data.length === 0) {
+    return <EmptyState icon={<TrendingUp className="h-7 w-7" />} title="لا توجد بيانات بعد" description="ستظهر هنا عند تشغيل المهام" />;
+  }
 
-  if (providers.length === 0) {
+  const chartData = data.map((d) => ({
+    date: d.date.slice(5),
+    count: d.count,
+  }));
+
+  return (
+    <div className="h-[240px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={chartData} margin={{ top: 5, right: 5, left: -15, bottom: 0 }}>
+          <defs>
+            <linearGradient id="leadsGradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.3} />
+              <stop offset="100%" stopColor="var(--accent)" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+          <XAxis dataKey="date" stroke="var(--fg-soft)" fontSize={11} tickLine={false} axisLine={false} />
+          <YAxis stroke="var(--fg-soft)" fontSize={11} tickLine={false} axisLine={false} />
+          <Tooltip
+            contentStyle={{
+              background: "var(--bg-elev)",
+              border: "1px solid var(--border)",
+              borderRadius: 10,
+              fontSize: 12,
+              boxShadow: "var(--shadow-lg)",
+            }}
+            labelStyle={{ color: "var(--fg-muted)" }}
+          />
+          <Area
+            type="monotone"
+            dataKey="count"
+            stroke="var(--accent)"
+            strokeWidth={2}
+            fill="url(#leadsGradient)"
+            name="Leads"
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function ProviderHealthChart({ providers, healthy, degraded }: {
+  providers: ProviderRow[];
+  healthy: number;
+  degraded: number;
+}) {
+  const disabled = providers.filter((p) => p.status === "disabled").length;
+  const total = providers.length;
+  const healthyPct = total > 0 ? Math.round((healthy / total) * 100) : 0;
+
+  if (total === 0) {
     return (
       <Card>
         <CardHeader>
           <CardTitle>
             <Activity className="h-4 w-4 text-[var(--accent)]" />
-            توزيع المزوّدين
+            صحة المزوّدين
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <EmptyState icon={<Layers className="h-8 w-8" />} title="لا يوجد مزوّدون" />
+          <EmptyState icon={<Layers className="h-7 w-7" />} title="لا يوجد مزوّدون" />
         </CardContent>
       </Card>
     );
@@ -393,115 +473,82 @@ function ProviderStatusChart({ providers }: { providers: ProviderRow[] }) {
       <CardHeader>
         <CardTitle>
           <Activity className="h-4 w-4 text-[var(--accent)]" />
-          توزيع المزوّدين حسب الحالة
+          صحة المزوّدين
         </CardTitle>
-        <CardDescription>{providers.length} مزوّد إجمالي</CardDescription>
+        <CardDescription>{total} مزوّد إجمالي</CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="h-[220px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={data}
-                innerRadius={50}
-                outerRadius={85}
-                paddingAngle={2}
-                dataKey="value"
-                nameKey="name"
-                stroke="none"
-              >
-                {data.map((entry, i) => (
-                  <Cell key={i} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip
-                contentStyle={{
-                  background: "var(--bg-elev)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 8,
-                  fontSize: 12,
-                }}
+        <div className="flex items-center justify-center mb-4">
+          <div className="relative h-32 w-32">
+            <svg className="h-full w-full -rotate-90" viewBox="0 0 120 120">
+              <circle cx="60" cy="60" r="50" fill="none" stroke="var(--bg-soft)" strokeWidth="12" />
+              <circle
+                cx="60" cy="60" r="50" fill="none"
+                stroke="var(--success)" strokeWidth="12" strokeLinecap="round"
+                strokeDasharray={`${(healthyPct / 100) * 314} 314`}
+                className="transition-all duration-700"
               />
-              <Legend
-                iconType="circle"
-                wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
-              />
-            </PieChart>
-          </ResponsiveContainer>
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-2xl font-bold tabular-nums">{healthyPct}%</span>
+              <span className="text-[10px] text-[var(--fg-soft)]">صحّي</span>
+            </div>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="rounded-lg p-2 bg-[color-mix(in_srgb,var(--success)_8%,transparent)]">
+            <div className="text-lg font-bold text-[var(--success)] tabular-nums">{healthy}</div>
+            <div className="text-[10px] text-[var(--fg-soft)]">صحّي</div>
+          </div>
+          <div className="rounded-lg p-2 bg-[color-mix(in_srgb,var(--warn)_8%,transparent)]">
+            <div className="text-lg font-bold text-[var(--warn)] tabular-nums">{degraded}</div>
+            <div className="text-[10px] text-[var(--fg-soft)]">منخفض</div>
+          </div>
+          <div className="rounded-lg p-2 bg-[var(--bg-soft)]">
+            <div className="text-lg font-bold text-[var(--fg-soft)] tabular-nums">{disabled}</div>
+            <div className="text-[10px] text-[var(--fg-soft)]">معطّل</div>
+          </div>
         </div>
       </CardContent>
     </Card>
   );
 }
 
-function LeadsDistributionChart({ leadsByStage }: { leadsByStage: Record<string, number> }) {
-  const data = [
-    { name: "مقبولة", value: leadsByStage.ACCEPTED || 0, color: "#10b981" },
-    { name: "مراجعة", value: leadsByStage.REVIEW || 0, color: "#f59e0b" },
-    { name: "مرفوضة", value: leadsByStage.REJECTED || 0, color: "#ef4444" },
-  ].filter((d) => d.value > 0);
-
-  const total = data.reduce((s, d) => s + d.value, 0);
-
-  if (total === 0) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            <Database className="h-4 w-4 text-[var(--accent)]" />
-            توزيع الـleads
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <EmptyState icon={<Database className="h-8 w-8" />} title="لا توجد leads بعد" />
-        </CardContent>
-      </Card>
-    );
+function UsageBarChart({ data }: { data: { provider: string; task: string; calls: number; units: number }[] }) {
+  if (!data || data.length === 0) {
+    return <EmptyState icon={<Cpu className="h-7 w-7" />} title="لا يوجد استهلاك بعد" />;
   }
 
+  const chartData = data.slice(0, 8).map((d) => ({
+    name: d.provider,
+    units: d.units,
+    calls: d.calls,
+  }));
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>
-          <Database className="h-4 w-4 text-[var(--accent)]" />
-          توزيع الـleads
-        </CardTitle>
-        <CardDescription>{formatNumber(total)} lead إجمالي</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="h-[220px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={data}
-                innerRadius={50}
-                outerRadius={85}
-                paddingAngle={2}
-                dataKey="value"
-                nameKey="name"
-                stroke="none"
-              >
-                {data.map((entry, i) => (
-                  <Cell key={i} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip
-                contentStyle={{
-                  background: "var(--bg-elev)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 8,
-                  fontSize: 12,
-                }}
-                formatter={(value: any, name: any) => [
-                  `${formatNumber(value as number)} (${(((value as number) / total) * 100).toFixed(1)}%)`,
-                  name,
-                ]}
-              />
-              <Legend iconType="circle" wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-      </CardContent>
-    </Card>
+    <div className="h-[240px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={chartData} margin={{ top: 5, right: 5, left: -15, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+          <XAxis dataKey="name" stroke="var(--fg-soft)" fontSize={10} tickLine={false} axisLine={false} angle={-25} textAnchor="end" height={50} />
+          <YAxis stroke="var(--fg-soft)" fontSize={11} tickLine={false} axisLine={false} />
+          <Tooltip
+            contentStyle={{
+              background: "var(--bg-elev)",
+              border: "1px solid var(--border)",
+              borderRadius: 10,
+              fontSize: 12,
+              boxShadow: "var(--shadow-lg)",
+            }}
+            cursor={{ fill: "var(--bg-hover)", opacity: 0.5 }}
+          />
+          <Bar dataKey="units" radius={[6, 6, 0, 0]} name="Units">
+            {chartData.map((_, i) => (
+              <Cell key={i} fill="var(--accent)" fillOpacity={1 - (i * 0.08)} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
   );
 }
