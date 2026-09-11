@@ -24,6 +24,7 @@ import { Footer } from "@/components/layout/Footer";
 import { BackToTop } from "@/components/layout/BackToTop";
 import { Input } from "@/components/ui/Input";
 import { apiGet, apiPost } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 
 export default function App() {
@@ -98,19 +99,37 @@ function DashboardLayout({ children }: { children: ReactNode }) {
 
 function AuthGate({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
+  const [mode, setMode] = useState<"supabase" | "password" | "open">("open");
   const [authenticated, setAuthenticated] = useState(false);
   const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     apiGet.authSession().then((result) => {
       setAuthenticated(result.authenticated);
+      setMode(result.mode || "open");
       setReady(true);
     }).catch(() => setReady(true));
   }, []);
 
   if (!ready) return <div className="py-20 text-center text-sm text-[var(--fg-muted)]">جارٍ التحقق من الجلسة…</div>;
   if (authenticated) return <>{children}</>;
+
+  async function supabaseLogin(event: React.FormEvent) {
+    event.preventDefault();
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      const result = await apiGet.authSession();
+      setAuthenticated(result.authenticated);
+    } catch (error: any) {
+      toast.error(error.message || "بيانات الدخول غير صحيحة");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function login(event: React.FormEvent) {
     event.preventDefault();
@@ -126,13 +145,22 @@ function AuthGate({ children }: { children: ReactNode }) {
     }
   }
 
+  const isSupabase = mode === "supabase";
+
   return (
     <div className="min-h-[60vh] flex items-center justify-center">
-      <form onSubmit={login} className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-6 shadow-[var(--shadow)]">
+      <form onSubmit={isSupabase ? supabaseLogin : login} className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-6 shadow-[var(--shadow)]">
         <div className="text-xs font-semibold text-[var(--accent)] mb-2">Lead Engine Control Plane</div>
         <h1 className="text-xl font-bold mb-2">تسجيل الدخول</h1>
-        <p className="text-sm text-[var(--fg-muted)] mb-5">أدخل كلمة مرور لوحة التحكم للمتابعة.</p>
-        <Input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="كلمة المرور" autoFocus />
+        <p className="text-sm text-[var(--fg-muted)] mb-5">
+          {isSupabase ? "ادخل بحساب المنصة — لكل مستأجر مساحته الخاصة." : "أدخل كلمة مرور لوحة التحكم للمتابعة."}
+        </p>
+        {isSupabase && (
+          <Input type="email" value={email} onChange={(event) => setEmail(event.target.value)}
+                 placeholder="البريد الإلكتروني" dir="ltr" autoFocus className="mb-3" />
+        )}
+        <Input type="password" value={password} onChange={(event) => setPassword(event.target.value)}
+               placeholder="كلمة المرور" dir="ltr" autoFocus={!isSupabase} />
         <Button type="submit" variant="primary" loading={loading} className="w-full mt-4">دخول</Button>
       </form>
     </div>

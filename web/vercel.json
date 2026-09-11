@@ -4,6 +4,8 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "env": {
-    "VITE_BACKEND_URL": "https://lead-engine-gamma-silk.vercel.app"
+    "VITE_BACKEND_URL": "https://lead-engine-gamma-silk.vercel.app",
+    "VITE_SUPABASE_URL": "https://abshiqxxsvdtbdngycpb.supabase.co",
+    "VITE_SUPABASE_PUBLISHABLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFic2hpcXh4c3ZkdGJkbmd5Y3BiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg5NjE2NjIsImV4cCI6MjEwNDUzNzY2Mn0.fiBqBpoO6vMqmbhqoQ2kaH7fqm3CnvjF8Je0EukHsMw"
   }
 }

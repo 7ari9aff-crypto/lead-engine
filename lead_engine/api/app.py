@@ -42,6 +42,21 @@ load_env()
 DATA_DIR.mkdir(exist_ok=True)
 settings = load_settings()
 
+# Org-scoped provider credentials live encrypted in the platform DB; hydrate
+# them into the process env so every provider adapter reads them unchanged.
+def _hydrate_credentials_at_boot() -> None:
+    try:
+        from ..secrets import hydrate_environment
+
+        db = open_db()
+        hydrate_environment(db, os.environ.get("LEAD_ENGINE_ORG_ID"))
+        db.conn.close()
+    except Exception:
+        pass  # no DSN/org/key yet — .env bootstrap path
+
+
+_hydrate_credentials_at_boot()
+
 STATIC_DIR = ROOT / "lead_engine" / "static"
 CONFIG_FILES = {
     "settings": CONFIG_DIR / "settings.yaml",
@@ -63,6 +78,7 @@ PROTECTED_PATHS = ("/api/", "/mcp", "/leads", "/jobs", "/providers", "/benchmark
 
 @app.middleware("http")
 async def admin_session_guard(request: Request, call_next):
+    from . import auth_jwt
     from .auth import COOKIE_NAME, valid_session
 
     path = request.url.path
@@ -82,8 +98,11 @@ async def admin_session_guard(request: Request, call_next):
             return resp
     public = path in {"/health", "/api/auth/login", "/api/auth/session", "/api/auth/logout"}
     protected = path.startswith(PROTECTED_PATHS)
-    if protected and not public and not valid_session(request.cookies.get(COOKIE_NAME)):
-        return JSONResponse({"detail": "authentication required"}, status_code=401)
+    if protected and not public:
+        token = auth_jwt.bearer_token(request.headers)
+        claims = auth_jwt.validate_supabase_jwt(token) if token else None
+        if claims is None and not valid_session(request.cookies.get(COOKIE_NAME)):
+            return JSONResponse({"detail": "authentication required"}, status_code=401)
     return await call_next(request)
 
 
@@ -186,9 +205,19 @@ def auth_login(req: LoginRequest):
 
 @app.get("/api/auth/session")
 def auth_session(request: Request):
+    from . import auth_jwt
     from .auth import COOKIE_NAME, enabled, valid_session
 
-    return {"authenticated": not enabled() or valid_session(request.cookies.get(COOKIE_NAME))}
+    token = auth_jwt.bearer_token(request.headers)
+    claims = auth_jwt.validate_supabase_jwt(token) if token else None
+    cookie_ok = valid_session(request.cookies.get(COOKIE_NAME))
+    mode = auth_jwt.auth_mode()
+    if mode == "supabase":
+        authenticated = claims is not None
+    else:
+        authenticated = (not enabled()) or cookie_ok
+    return {"authenticated": authenticated, "mode": mode,
+            "org_id": os.environ.get("LEAD_ENGINE_ORG_ID") if authenticated else None}
 
 
 @app.post("/api/auth/logout")
@@ -200,6 +229,7 @@ def auth_logout():
     return response
 
 
+@app.get("/api/v1/health")
 @app.get("/health")
 def health(db: Database = Depends(get_db)):
     router = Router(db, _cache(db), settings)
@@ -368,6 +398,7 @@ def _cache(db):
     return CacheLayer(db, load_cache_policy())
 
 
+@app.get("/api/v1/providers")
 @app.get("/providers")
 def providers(db: Database = Depends(get_db)):
     router = Router(db, _cache(db), settings)
@@ -412,6 +443,7 @@ def run_benchmark_endpoint(req: RunRequest, background: BackgroundTasks,
     }
 
 
+@app.get("/api/v1/jobs")
 @app.get("/api/jobs")
 @app.get("/jobs")
 def list_jobs(db: Database = Depends(get_db)):
@@ -446,6 +478,7 @@ def resume_job(job_id: str, req: ResumeRequest, background: BackgroundTasks,
     return {"state": summary.get("state"), "metrics": metrics}
 
 
+@app.get("/api/v1/leads")
 @app.get("/api/leads")
 @app.get("/leads")
 def leads(job_id: str | None = Query(default=None), stage: str | None = Query(default=None),
@@ -465,6 +498,7 @@ def leads(job_id: str | None = Query(default=None), stage: str | None = Query(de
     return db.query(sql, params)
 
 
+@app.post("/api/v1/verify-email")
 @app.post("/verify-email")
 def verify_email(req: VerifyRequest, db: Database = Depends(get_db)):
     router = Router(db, _cache(db), settings)
@@ -868,6 +902,19 @@ def api_keys_save(req: dict, db: Database = Depends(get_db)):
     if not updates:
         raise HTTPException(status_code=422, detail="لا مفاتيح في الطلب")
 
+    # Platform path: org-scoped AES-GCM credentials in the DB (source of
+    # truth in production). .env remains the local bootstrap fallback.
+    org_id = os.environ.get("LEAD_ENGINE_ORG_ID")
+    platform_mode = bool(org_id and os.environ.get("LEAD_ENGINE_ENCRYPTION_KEY"))
+    if platform_mode:
+        from ..secrets import SecretsUnavailable, save_provider_credential
+
+        try:
+            for key, value in updates.items():
+                save_provider_credential(db, org_id, key, value)
+        except SecretsUnavailable:
+            platform_mode = False
+
     lines = ENV_PATH.read_text(encoding="utf-8").splitlines() if ENV_PATH.exists() else []
     remaining = dict(updates)
     out = []
@@ -882,13 +929,16 @@ def api_keys_save(req: dict, db: Database = Depends(get_db)):
     for key, value in remaining.items():
         if value:
             out.append(f"{key}={value}")
-    try:
-        ENV_PATH.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
-    except OSError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail="مفيش .env قابل للكتابة في نشر السيرفرليس — حط المفاتيح في Vercel Project Settings → Environment Variables",
-        ) from exc
+    if platform_mode:
+        pass  # credentials persisted encrypted above; env hydrated below
+    else:
+        try:
+            ENV_PATH.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="مفيش .env قابل للكتابة في نشر السيرفرليس — حط المفاتيح في Vercel Project Settings → Environment Variables",
+            ) from exc
 
     for key, value in updates.items():
         if value:
@@ -896,6 +946,11 @@ def api_keys_save(req: dict, db: Database = Depends(get_db)):
         else:
             os.environ.pop(key, None)
     load_env()
+
+    if platform_mode:
+        from ..secrets import hydrate_environment
+
+        hydrate_environment(db, org_id)
 
     # keys changed -> re-evaluate availability right away
     Registry(db).seed_if_empty()

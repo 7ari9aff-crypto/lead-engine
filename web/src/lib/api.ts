@@ -1,5 +1,8 @@
 // API client for the Lead Engine backend.
 // All requests go through Vite proxy in dev and the configured backend in prod.
+// Auth: Supabase Bearer token when a session exists; cookie fallback otherwise.
+
+import { getAccessToken } from "@/lib/supabase";
 
 const BASE = (import.meta.env.VITE_BACKEND_URL || "").replace(/\/$/, "");
 
@@ -18,12 +21,15 @@ async function request<T = any>(
   init: RequestInit = {}
 ): Promise<T> {
   const url = `${BASE}${path}`;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...((init.headers as Record<string, string>) || {}),
+  };
+  const token = await getAccessToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(url, {
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(init.headers || {}),
-    },
+    headers,
     ...init,
   });
   const text = await res.text();
@@ -188,7 +194,7 @@ function normalizeProvider(p: any): ProviderRow {
 }
 
 export const apiGet = {
-  authSession: () => api.get<{ authenticated: boolean }>("/api/auth/session"),
+  authSession: () => api.get<{ authenticated: boolean; mode?: "supabase" | "password" | "open"; org_id?: string | null }>("/api/auth/session"),
   agents: () => api.get<{ agents: any[] }>("/api/agents"),
   agentRuns: () => api.get<{ runs: any[] }>("/api/agent-runs"),
   tools: () => api.get<{ tools: any[] }>("/api/tools"),
