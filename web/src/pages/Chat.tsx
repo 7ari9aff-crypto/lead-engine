@@ -190,6 +190,7 @@ export function ChatPage() {
   const [busy, setBusy] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [promptsOpen, setPromptsOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -427,6 +428,40 @@ export function ChatPage() {
               />
               {/* Composer toolbar */}
               <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
+                {/* Quick prompts */}
+                <div className="relative" data-popover>
+                  <button
+                    onClick={() => { setPromptsOpen(!promptsOpen); setModelOpen(false); setToolsOpen(false); setAgentOpen(false); }}
+                    className="flex items-center justify-center h-8 w-8 rounded-lg text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)] transition-colors"
+                    title="أسئلة جاهزة"
+                  >
+                    <Plus className={cn("h-4 w-4 transition-transform", promptsOpen && "rotate-45")} />
+                  </button>
+                  {promptsOpen && (
+                    <div className="absolute bottom-full mb-2 start-0 w-72 rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] shadow-[var(--shadow-lg)] z-50 overflow-hidden animate-scale-in">
+                      <div className="px-3 pt-2.5 pb-1.5 text-[10px] font-semibold text-[var(--fg-soft)] uppercase tracking-wider">
+                        أسئلة جاهزة
+                      </div>
+                      {QUICK_PROMPTS.map((qp, i) => {
+                        const Icon = qp.icon;
+                        return (
+                          <button
+                            key={i}
+                            onClick={() => { setPromptsOpen(false); send(qp.prompt); }}
+                            className="w-full flex items-start gap-2.5 px-3 py-2.5 text-right hover:bg-[var(--bg-hover)] transition-colors"
+                          >
+                            <Icon className="mt-0.5 h-3.5 w-3.5 text-[var(--accent)] shrink-0" />
+                            <span className="flex-1 min-w-0">
+                              <span className="block text-[13px] font-medium text-[var(--fg)]">{qp.title}</span>
+                              <span className="block text-[11px] text-[var(--fg-muted)] mt-0.5 truncate">{qp.prompt}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
                 {/* Agent picker */}
                 <div className="relative" data-popover>
                   <button
@@ -487,50 +522,6 @@ export function ChatPage() {
                   )}
                 </div>
 
-                {/* Model picker */}
-                <div className="relative" data-popover>
-                  <button
-                    onClick={() => { setModelOpen(!modelOpen); setToolsOpen(false); }}
-                    className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs font-medium text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)] transition-colors"
-                  >
-                    <Cpu className="h-3.5 w-3.5 text-[var(--accent)]" />
-                    {currentModel.short}
-                    <ChevronDown className={cn("h-3 w-3 transition-transform", modelOpen && "rotate-180")} />
-                  </button>
-                  {modelOpen && (
-                    <div className="absolute bottom-full mb-2 start-0 w-72 rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] shadow-[var(--shadow-lg)] z-50 overflow-hidden animate-scale-in">
-                      <div className="px-3 pt-2.5 pb-1.5 text-[10px] font-semibold text-[var(--fg-soft)] uppercase tracking-wider">
-                        الموديل
-                      </div>
-                      {MODELS.map((m) => {
-                        const selected = m.id === provider;
-                        const available = m.id === null || availability(m.id);
-                        return (
-                          <button
-                            key={m.short}
-                            onClick={() => { setProvider(m.id); setModelOpen(false); }}
-                            className={cn(
-                              "w-full flex items-start gap-2.5 px-3 py-2.5 text-right transition-colors",
-                              selected ? "bg-[var(--accent-soft)]" : "hover:bg-[var(--bg-hover)]"
-                            )}
-                          >
-                            <span className={cn(
-                              "mt-1 h-1.5 w-1.5 rounded-full shrink-0",
-                              available ? "bg-[var(--success)]" : "bg-[var(--danger)]"
-                            )} title={available ? "متاح" : "المفتاح غير مضبوط"} />
-                            <span className="flex-1 min-w-0">
-                              <span className="flex items-center gap-1.5 text-[13px] font-medium text-[var(--fg)]">
-                                {m.name}
-                                {selected && <Check className="h-3.5 w-3.5 text-[var(--accent)]" />}
-                              </span>
-                              <span className="block text-[11px] text-[var(--fg-muted)] mt-0.5">{m.desc}</span>
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
 
                 {/* Integrations / tools picker */}
                 <div className="relative" data-popover>
@@ -610,6 +601,50 @@ export function ChatPage() {
                   )}
                 </div>
 
+                {/* Model picker */}
+                <div className="relative" data-popover>
+                  <button
+                    onClick={() => { setModelOpen(!modelOpen); setToolsOpen(false); }}
+                    className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs font-medium text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)] transition-colors"
+                  >
+                    <Cpu className="h-3.5 w-3.5 text-[var(--accent)]" />
+                    {currentModel.short}
+                    <ChevronDown className={cn("h-3 w-3 transition-transform", modelOpen && "rotate-180")} />
+                  </button>
+                  {modelOpen && (
+                    <div className="absolute bottom-full mb-2 start-0 w-72 rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] shadow-[var(--shadow-lg)] z-50 overflow-hidden animate-scale-in">
+                      <div className="px-3 pt-2.5 pb-1.5 text-[10px] font-semibold text-[var(--fg-soft)] uppercase tracking-wider">
+                        الموديل
+                      </div>
+                      {MODELS.map((m) => {
+                        const selected = m.id === provider;
+                        const available = m.id === null || availability(m.id);
+                        return (
+                          <button
+                            key={m.short}
+                            onClick={() => { setProvider(m.id); setModelOpen(false); }}
+                            className={cn(
+                              "w-full flex items-start gap-2.5 px-3 py-2.5 text-right transition-colors",
+                              selected ? "bg-[var(--accent-soft)]" : "hover:bg-[var(--bg-hover)]"
+                            )}
+                          >
+                            <span className={cn(
+                              "mt-1 h-1.5 w-1.5 rounded-full shrink-0",
+                              available ? "bg-[var(--success)]" : "bg-[var(--danger)]"
+                            )} title={available ? "متاح" : "المفتاح غير مضبوط"} />
+                            <span className="flex-1 min-w-0">
+                              <span className="flex items-center gap-1.5 text-[13px] font-medium text-[var(--fg)]">
+                                {m.name}
+                                {selected && <Check className="h-3.5 w-3.5 text-[var(--accent)]" />}
+                              </span>
+                              <span className="block text-[11px] text-[var(--fg-muted)] mt-0.5">{m.desc}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
                 <span className="ms-auto" />
                 {busy ? (
                   <Button variant="danger" size="icon-sm" onClick={stop} title="إيقاف">
