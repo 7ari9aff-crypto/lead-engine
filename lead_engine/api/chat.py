@@ -184,13 +184,22 @@ def execute_tool(name: str, args: dict, router, db) -> dict:
         return {"error": f"{type(exc).__name__}: {exc}"}
 
 
-def run_agent(router, db, messages: list) -> dict:
-    """One user turn -> up to MAX_STEPS tool rounds -> final Arabic reply."""
+def run_agent(router, db, messages: list, provider: str | None = None,
+              enabled_tools: list | None = None) -> dict:
+    """One user turn -> up to MAX_STEPS tool rounds -> final Arabic reply.
+    provider: pin the model (chat model picker). enabled_tools: subset of the
+    tool names to expose this turn (integrations picker); None = all."""
     contents = []
     for m in messages[-12:]:
         role = "model" if m.get("role") == "assistant" else "user"
         contents.append({"role": role, "parts": [{"text": str(m.get("content", ""))}]})
     flat = "\n".join(f"{m.get('role')}: {m.get('content')}" for m in messages[-6:])
+
+    tools_decl = TOOLS_DECL
+    if enabled_tools is not None:
+        allowed = set(enabled_tools)
+        decls = [d for d in TOOLS_DECL[0]["function_declarations"] if d["name"] in allowed]
+        tools_decl = [{"function_declarations": decls}] if decls else None
 
     tool_trace = []
     try:
@@ -198,11 +207,12 @@ def run_agent(router, db, messages: list) -> dict:
             payload = {
                 "contents": contents,
                 "system_instruction": SYSTEM_INSTRUCTION,
-                "tools": TOOLS_DECL,
+                "tools": tools_decl,
                 "prompt": flat,
                 "json_mode": False,
             }
-            result, meta = router.route("reasoning", payload, use_cache=False)
+            result, meta = router.route("reasoning", payload, use_cache=False,
+                                        prefer_provider=provider)
             fcs = result.get("function_calls") or []
             if not fcs:
                 return {"reply": result.get("text", "") or "…",

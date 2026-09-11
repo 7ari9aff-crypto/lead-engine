@@ -118,11 +118,14 @@ class Registry:
         )
 
     # ----------------------------------------------------------------- write
-    def record_usage(self, provider, task, job_id, units, unit_kind, status, latency_ms):
+    def record_usage(self, provider, task, job_id, units, unit_kind, status, latency_ms,
+                     prompt_tokens=0, completion_tokens=0, key_index=None):
         self.db.execute(
-            "INSERT INTO usage_ledger (ts, provider, task, job_id, units, unit_kind, status, latency_ms)"
-            " VALUES (?,?,?,?,?,?,?,?)",
-            (utcnow(), provider, task, job_id, units, unit_kind, status, latency_ms),
+            "INSERT INTO usage_ledger (ts, provider, task, job_id, units, unit_kind, status,"
+            " latency_ms, prompt_tokens, completion_tokens, key_index)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (utcnow(), provider, task, job_id, units, unit_kind, status, latency_ms,
+             int(prompt_tokens or 0), int(completion_tokens or 0), key_index),
         )
 
     def add_quota_used(self, provider, task, units, multiplier: int = 1):

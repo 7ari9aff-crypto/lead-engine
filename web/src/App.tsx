@@ -1,12 +1,12 @@
 import { useEffect, useState, Component, type ReactNode } from "react";
 import { Route, Switch, Redirect } from "wouter";
+import { useLocation } from "wouter";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 import { useUI } from "@/hooks/useTheme";
 import { OverviewPage } from "@/pages/Overview";
 import { ChatPage } from "@/pages/Chat";
 import { KeysPage } from "@/pages/Keys";
-import { ProvidersPage } from "@/pages/Providers";
 import { JobsPage } from "@/pages/Jobs";
 import { LeadsPage } from "@/pages/Leads";
 import { VerifyPage } from "@/pages/Verify";
@@ -48,7 +48,8 @@ export default function App() {
               <Route path="/" component={OverviewPage} />
               <Route path="/chat" component={ChatPage} />
               <Route path="/keys" component={KeysPage} />
-              <Route path="/providers" component={ProvidersPage} />
+              {/* Providers merged into the Keys page */}
+              <Route path="/providers" component={() => <Redirect to="/keys" />} />
               <Route path="/jobs" component={JobsPage} />
               <Route path="/leads" component={LeadsPage} />
               <Route path="/verify" component={VerifyPage} />
@@ -67,16 +68,27 @@ export default function App() {
 }
 
 function DashboardLayout({ children }: { children: ReactNode }) {
+  const [location] = useLocation();
+  // Immersive pages (chat) take the full viewport height and scroll
+  // internally — no page chrome below the topbar.
+  const immersive = location === "/chat";
   return (
-    <div className="flex min-h-screen" dir="ltr">
+    <div className="flex h-screen overflow-hidden" dir="ltr">
       <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0" dir="rtl">
+      <div className="flex-1 flex flex-col min-w-0 h-screen" dir="rtl">
         <Topbar />
-        <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6 max-w-[1600px] w-full mx-auto animate-fade-in">
-          <AuthGate>{children}</AuthGate>
-        </main>
-        <Footer />
-        <BackToTop />
+        {immersive ? (
+          <main className="flex-1 min-h-0 animate-fade-in">
+            <AuthGate>{children}</AuthGate>
+          </main>
+        ) : (
+          <>
+            <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-10 py-6 max-w-[1500px] w-full mx-auto animate-fade-in">
+              <AuthGate>{children}</AuthGate>
+            </main>
+            <Footer />
+          </>
+        )}
       </div>
     </div>
   );

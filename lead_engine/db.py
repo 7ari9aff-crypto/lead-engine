@@ -38,7 +38,10 @@ CREATE TABLE IF NOT EXISTS usage_ledger (
   units REAL DEFAULT 1,
   unit_kind TEXT,
   status TEXT,
-  latency_ms INTEGER
+  latency_ms INTEGER,
+  prompt_tokens INTEGER DEFAULT 0,
+  completion_tokens INTEGER DEFAULT 0,
+  key_index INTEGER
 );
 CREATE TABLE IF NOT EXISTS jobs (
   job_id TEXT PRIMARY KEY,
@@ -205,6 +208,7 @@ class Database:
         self.conn.execute("PRAGMA busy_timeout=5000")
         self.conn.executescript(SCHEMA)
         self._migrate_provider_columns()
+        self._migrate_usage_columns()
         self.conn.commit()
 
     def _migrate_provider_columns(self):
@@ -212,6 +216,16 @@ class Database:
         for name, definition in (("base_url", "TEXT"), ("model_name", "TEXT")):
             if name not in existing:
                 self.conn.execute(f"ALTER TABLE providers ADD COLUMN {name} {definition}")
+
+    def _migrate_usage_columns(self):
+        existing = {row["name"] for row in self.conn.execute("PRAGMA table_info(usage_ledger)")}
+        for name, definition in (
+            ("prompt_tokens", "INTEGER DEFAULT 0"),
+            ("completion_tokens", "INTEGER DEFAULT 0"),
+            ("key_index", "INTEGER"),
+        ):
+            if name not in existing:
+                self.conn.execute(f"ALTER TABLE usage_ledger ADD COLUMN {name} {definition}")
 
     def execute(self, sql, params=()):
         cur = self.conn.execute(sql, params)

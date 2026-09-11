@@ -69,8 +69,11 @@ class Router:
 
     # ---------------------------------------------------------------- public
     def route(self, task: str, payload: dict, job_id=None,
-              use_cache: bool = True, cache_data_type: str = None):
-        """Execute one task through the best available provider."""
+              use_cache: bool = True, cache_data_type: str = None,
+              prefer_provider: str = None):
+        """Execute one task through the best available provider.
+        prefer_provider: pin the task to one provider (chat model picker);
+        raises NoProviderAvailable naming it when that provider is blocked."""
         if use_cache:
             hit = self.cache.get_request(task, payload)
             if hit is not None:
@@ -84,7 +87,12 @@ class Router:
         tried = []
         key_counts = {name: max(1, len(getattr(a, "keys", []) or []))
                       for name, a in self.adapters.items()}
-        for row in self.registry.providers_for_task(task, key_counts=key_counts):
+        rows = self.registry.providers_for_task(task, key_counts=key_counts)
+        if prefer_provider:
+            rows = [r for r in rows if r["name"] == prefer_provider]
+            if not rows:
+                raise NoProviderAvailable(task, [f"{prefer_provider}:not_registered"])
+        for row in rows:
             name = row["name"]
             adapter = self.adapters.get(name)
             if adapter is None or not getattr(adapter, "available", False):
@@ -158,7 +166,12 @@ class Router:
             latency = int((time.time() - started) * 1000)
             units = float(result.get("units", 1))
             rate_info = result.pop("rate_info", None) or {}
-            self.registry.record_usage(name, task, job_id, units, row["quota_kind"], "ok", latency)
+            usage_info = result.pop("usage", None) or {}
+            self.registry.record_usage(
+                name, task, job_id, units, row["quota_kind"], "ok", latency,
+                prompt_tokens=usage_info.get("prompt_tokens", 0),
+                completion_tokens=usage_info.get("completion_tokens", 0),
+                key_index=getattr(adapter, "_key_index", None))
             self.registry.add_quota_used(name, task, units, key_counts.get(name, 1))
             if "remaining_requests" in rate_info:
                 self.registry.set_rpm_from_headers(name, task, rate_info["remaining_requests"])

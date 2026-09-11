@@ -1,28 +1,38 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
-  PlayCircle,
-  RotateCcw,
-  Database,
-  FileText,
-  Briefcase,
-  Loader2,
+  PlayCircle, RotateCcw, Database, FileText, Briefcase, Loader2,
+  StopCircle, Clock, CheckCircle2, XCircle, Play,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
+import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge, StatusDot } from "@/components/ui/Badge";
-import { Input, Label } from "@/components/ui/Input";
+import { Input } from "@/components/ui/Input";
+import { FilterPills } from "@/components/ui/FilterPills";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/Dialog";
 import { useLiveData } from "@/hooks/useLiveData";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, type JobRow } from "@/lib/api";
 import { toast } from "sonner";
-import { formatDate, truncate } from "@/lib/utils";
+import { formatDate, relativeTime, truncate, cn } from "@/lib/utils";
 import { Spinner, EmptyState } from "@/components/ui/EmptyState";
 import { PageHeader } from "@/components/layout/PageHeader";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
+const STATE_META: Record<string, { label: string; variant: "success" | "info" | "warn" | "danger" | "default"; filter: string }> = {
+  QUEUED: { label: "في الطابور", variant: "default", filter: "active" },
+  RUNNING: { label: "تعمل الآن", variant: "info", filter: "active" },
+  RESUMING: { label: "تستأنف", variant: "info", filter: "active" },
+  DEGRADED: { label: "مكتملة بتدهور", variant: "warn", filter: "done" },
+  COMPLETED: { label: "مكتملة", variant: "success", filter: "done" },
+  PAUSED: { label: "موقوفة", variant: "warn", filter: "paused" },
+  FAILED: { label: "فاشلة", variant: "danger", filter: "failed" },
+};
 
 export function JobsPage() {
-  const { data, loading, refresh } = useLiveData(() => apiGet.jobs(), 5000);
+  const { data, loading, refresh } = useLiveData(() => apiGet.jobs(), 4000);
   const [icp, setIcp] = useState("v0_saudi_dental");
   const [running, setRunning] = useState(false);
+  const [filter, setFilter] = useState("all");
   const [report, setReport] = useState<any>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -57,7 +67,7 @@ export function JobsPage() {
     setBusy(`sync:${id}`);
     try {
       const res = await apiPost.syncSupabase(id);
-      toast.success(`تمت مزامنة ${res?.synced ?? res?.n ?? 0} lead`);
+      toast.success(`تمت مزامنة ${res?.synced ?? res?.n ?? 0} ليد`);
       refresh();
     } catch (e: any) {
       toast.error("فشل: " + e.message);
@@ -80,135 +90,83 @@ export function JobsPage() {
   }
 
   const jobs = data ?? [];
+  const counts = useMemo(() => ({
+    all: jobs.length,
+    active: jobs.filter((j) => ["QUEUED", "RUNNING", "RESUMING"].includes(j.state)).length,
+    paused: jobs.filter((j) => j.state === "PAUSED").length,
+    done: jobs.filter((j) => ["COMPLETED", "DEGRADED"].includes(j.state)).length,
+    failed: jobs.filter((j) => j.state === "FAILED").length,
+  }), [jobs]);
+
+  const filtered = jobs.filter((j) => {
+    if (filter === "all") return true;
+    const meta = STATE_META[j.state];
+    return meta?.filter === filter;
+  });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <PageHeader
-        icon={<Briefcase className="h-4 w-4 text-[var(--accent)]" />}
+        icon={<Briefcase className="h-4 w-4 text-white" />}
         title="المهام"
-        description="شغّل الـpipeline، تابع المهام، استأنف الموقوفة، وزامن مع Supabase."
-      />
-
-      {/* Run form */}
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            <PlayCircle className="h-4 w-4 text-[var(--accent)]" />
-            تشغيل الـPipeline
-          </CardTitle>
-          <CardDescription>
-            تشغيل <b>حقيقي</b> على الـAPIs. لو مفيش مفتاح مناسب، المهمة هتتوقف برسالة واضحة.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end">
-            <div>
-              <Label>ملف الـICP</Label>
-              <Input value={icp} onChange={(e) => setIcp(e.target.value)} dir="ltr" placeholder="v0_saudi_dental" />
-            </div>
-            <Button variant="primary" onClick={run} loading={running}>
-              <PlayCircle className="h-4 w-4" />
-              تشغيل الآن
+        description="شغّل خط التوليد الحقيقي، تابع الحالة لحظة بلحظة، واستأنف الموقوف — والمزامنة لـSupabase تلقائية"
+        action={
+          <div className="flex items-center gap-2">
+            <Input
+              value={icp}
+              onChange={(e) => setIcp(e.target.value)}
+              dir="ltr"
+              placeholder="v0_saudi_dental"
+              className="h-8 w-44 font-mono text-xs"
+            />
+            <Button variant="primary" size="sm" onClick={run} loading={running}>
+              <Play className="h-3.5 w-3.5" />
+              تشغيل جديد
             </Button>
           </div>
-        </CardContent>
-      </Card>
+        }
+      />
 
-      {/* Jobs list */}
-      <Card>
-        <CardContent className="p-0">
-          {loading && !data ? (
-            <div className="flex items-center justify-center py-20">
-              <Spinner className="h-6 w-6 text-[var(--accent)]" />
-            </div>
-          ) : jobs.length === 0 ? (
-            <EmptyState
-              icon={<Briefcase className="h-8 w-8" />}
-              title="لا توجد مهام"
-              description="شغّل الـpipeline من النموذج أعلاه"
+      <div className="flex items-center gap-3 flex-wrap">
+        <FilterPills
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { value: "all", label: `الكل ${counts.all ? `· ${counts.all}` : ""}` },
+            { value: "active", label: `نشطة ${counts.active ? `· ${counts.active}` : ""}` },
+            { value: "paused", label: `موقوفة ${counts.paused ? `· ${counts.paused}` : ""}` },
+            { value: "done", label: `مكتملة ${counts.done ? `· ${counts.done}` : ""}` },
+            { value: "failed", label: `فاشلة ${counts.failed ? `· ${counts.failed}` : ""}` },
+          ]}
+        />
+      </div>
+
+      {loading && !data ? (
+        <div className="flex items-center justify-center py-20">
+          <Spinner className="h-6 w-6 text-[var(--accent)]" />
+        </div>
+      ) : filtered.length === 0 ? (
+        <Card>
+          <EmptyState
+            icon={<Briefcase className="h-8 w-8" />}
+            title={jobs.length === 0 ? "لا توجد مهام بعد" : "لا مهام في هذا الفلتر"}
+            description="شغّل أول مهمة من الزر أعلى الصفحة — التشغيل حقيقي على الـAPIs، ولو الحصص خلصت المهمة تتوقف مؤقتًا برسالة واضحة مش فشل."
+          />
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map((j) => (
+            <JobRowCard
+              key={j.job_id}
+              job={j}
+              busy={busy}
+              onResume={resume}
+              onSync={sync}
+              onReport={openReport}
             />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="pro-table">
-                <thead>
-                  <tr>
-                    <th>المهمة</th>
-                    <th>ICP</th>
-                    <th>الحالة</th>
-                    <th>سبب الإيقاف</th>
-                    <th>بدأت</th>
-                    <th>إجراءات</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {jobs.map((j) => (
-                    <tr key={j.job_id}>
-                      <td className="font-mono text-xs" dir="ltr">{truncate(j.job_id, 24)}</td>
-                      <td>
-                        <Badge variant="outline" className="text-[10px]">{j.icp_id}</Badge>
-                      </td>
-                      <td>
-                        <Badge
-                          variant={
-                            j.state === "COMPLETED" ? "success" :
-                            j.state === "RUNNING" || j.state === "RESUMING" ? "info" :
-                            j.state === "PAUSED" || j.state === "DEGRADED" ? "warn" :
-                            j.state === "FAILED" ? "danger" : "default"
-                          }
-                        >
-                          <StatusDot status={j.state} />
-                          {j.state}
-                        </Badge>
-                      </td>
-                      <td className="text-xs text-[var(--fg-muted)] max-w-xs truncate" title={j.pause_reason || ""}>
-                        {j.pause_reason || "—"}
-                      </td>
-                      <td className="text-xs text-[var(--fg-muted)]">
-                        {j.created_at ? formatDate(j.created_at, false) : "—"}
-                      </td>
-                      <td>
-                        <div className="flex gap-1">
-                          {j.state === "PAUSED" && (
-                            <Button
-                              size="icon-sm"
-                              variant="ghost"
-                              disabled={busy === j.job_id}
-                              onClick={() => resume(j.job_id)}
-                              title="استئناف"
-                            >
-                              <RotateCcw className="h-3.5 w-3.5 text-[var(--info)]" />
-                            </Button>
-                          )}
-                          {(j.state === "COMPLETED" || j.state === "DEGRADED") && (
-                            <Button
-                              size="icon-sm"
-                              variant="ghost"
-                              disabled={busy === `sync:${j.job_id}`}
-                              onClick={() => sync(j.job_id)}
-                              title="مزامنة Supabase"
-                            >
-                              <Database className="h-3.5 w-3.5 text-[var(--accent)]" />
-                            </Button>
-                          )}
-                          <Button
-                            size="icon-sm"
-                            variant="ghost"
-                            disabled={busy === `report:${j.job_id}`}
-                            onClick={() => openReport(j.job_id)}
-                            title="التقرير"
-                          >
-                            <FileText className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+          ))}
+        </div>
+      )}
 
       <Dialog open={reportOpen} onOpenChange={setReportOpen}>
         <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
@@ -220,9 +178,9 @@ export function JobsPage() {
             <DialogDescription className="font-mono" dir="ltr">{report?.job_id}</DialogDescription>
           </DialogHeader>
           {report?.report_markdown ? (
-            <pre className="text-xs bg-[var(--bg-soft)] p-4 rounded-lg border border-[var(--border)] max-h-[65vh] overflow-auto whitespace-pre-wrap leading-relaxed" dir="ltr">
-              {report.report_markdown}
-            </pre>
+            <div className="md-body text-[13px] rounded-lg border border-[var(--border)] bg-[var(--bg-elev)] p-5 max-h-[65vh] overflow-auto">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{report.report_markdown}</ReactMarkdown>
+            </div>
           ) : (
             <pre className="text-xs bg-[var(--bg-soft)] p-3 rounded-lg border border-[var(--border)] max-h-[60vh] overflow-auto" dir="ltr">
               {JSON.stringify(report, null, 2)}
@@ -231,5 +189,80 @@ export function JobsPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function JobRowCard({ job, busy, onResume, onSync, onReport }: {
+  job: JobRow;
+  busy: string | null;
+  onResume: (id: string) => void;
+  onSync: (id: string) => void;
+  onReport: (id: string) => void;
+}) {
+  const meta = STATE_META[job.state] ?? STATE_META.QUEUED;
+  const accent =
+    job.state === "COMPLETED" || job.state === "DEGRADED" ? "var(--success)" :
+    job.state === "FAILED" ? "var(--danger)" :
+    job.state === "PAUSED" ? "var(--warn)" : "var(--accent)";
+  const live = ["RUNNING", "QUEUED", "RESUMING"].includes(job.state);
+
+  return (
+    <Card className="p-0 overflow-hidden">
+      <div className="flex items-center gap-4 px-4 py-3" style={{ borderInlineStart: `3px solid ${accent}` }}>
+        {/* State icon */}
+        <div className="shrink-0">
+          {live ? (
+            <Loader2 className="h-4.5 w-4.5 animate-spin text-[var(--accent)]" />
+          ) : job.state === "COMPLETED" || job.state === "DEGRADED" ? (
+            <CheckCircle2 className="h-4.5 w-4.5 text-[var(--success)]" />
+          ) : job.state === "FAILED" ? (
+            <XCircle className="h-4.5 w-4.5 text-[var(--danger)]" />
+          ) : job.state === "PAUSED" ? (
+            <StopCircle className="h-4.5 w-4.5 text-[var(--warn)]" />
+          ) : (
+            <Clock className="h-4.5 w-4.5 text-[var(--fg-soft)]" />
+          )}
+        </div>
+
+        {/* Identity */}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-mono text-xs font-semibold" dir="ltr">{truncate(job.job_id, 22)}</span>
+            <Badge variant={meta.variant} className="text-[10px]">
+              <StatusDot status={job.state} />
+              {meta.label}
+            </Badge>
+            <Badge variant="outline" className="text-[10px]">{job.icp_id}</Badge>
+          </div>
+          <div className="text-[11px] text-[var(--fg-soft)] mt-1 flex items-center gap-2">
+            <span>{job.created_at ? formatDate(job.created_at, false) : "—"}</span>
+            {job.updated_at && <span>· آخر تحديث {relativeTime(job.updated_at)}</span>}
+            {job.pause_reason && (
+              <span className="text-[var(--warn)] truncate max-w-xs" title={job.pause_reason}>· {job.pause_reason}</span>
+            )}
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-1 shrink-0">
+          {job.state === "PAUSED" && (
+            <Button size="sm" variant="outline" disabled={busy === job.job_id} onClick={() => onResume(job.job_id)}>
+              <RotateCcw className="h-3.5 w-3.5" />
+              استئناف
+            </Button>
+          )}
+          {(job.state === "COMPLETED" || job.state === "DEGRADED") && (
+            <Button size="sm" variant="ghost" disabled={busy === `sync:${job.job_id}`} onClick={() => onSync(job.job_id)} title="مزامنة Supabase يدويًا">
+              <Database className={cn("h-3.5 w-3.5", busy === `sync:${job.job_id}` && "animate-spin")} />
+              مزامنة
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" disabled={busy === `report:${job.job_id}`} onClick={() => onReport(job.job_id)}>
+            <FileText className="h-3.5 w-3.5" />
+            التقرير
+          </Button>
+        </div>
+      </div>
+    </Card>
   );
 }

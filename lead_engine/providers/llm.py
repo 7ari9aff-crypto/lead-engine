@@ -21,11 +21,13 @@ class LLMBase(BaseProvider):
     def request(self, task, payload):
         prompt = payload["prompt"]
         json_mode = payload.get("json_mode", True)
-        text, rate_info = self.complete(prompt, json_mode)
+        text, meta = self.complete(prompt, json_mode)
         return {"provider": self.name, "model": self.model_name, "text": text,
-                "rate_info": rate_info, "units": 1}
+                "rate_info": meta.get("rate_info") or {},
+                "usage": meta.get("usage") or {}, "units": 1}
 
     def complete(self, prompt, json_mode):
+        """Returns (text, meta) where meta carries rate_info + real token usage."""
         raise NotImplementedError
 
     @property
@@ -42,18 +44,19 @@ class GeminiProvider(LLMBase):
     def request(self, task, payload):
         # multi-turn agent path (chat): contents + optional function-calling tools
         if "contents" in payload:
-            text, fcs, rate_info = self._generate(
+            text, fcs, meta = self._generate(
                 payload["contents"],
                 system=payload.get("system_instruction"),
                 tools=payload.get("tools"))
             return {"provider": self.name, "model": self.model_name, "text": text,
-                    "function_calls": fcs, "rate_info": rate_info, "units": 1}
+                    "function_calls": fcs, "rate_info": meta.get("rate_info") or {},
+                    "usage": meta.get("usage") or {}, "units": 1}
         return super().request(task, payload)
 
     def complete(self, prompt, json_mode):
-        text, _fcs, rate_info = self._generate(
+        text, _fcs, meta = self._generate(
             [{"role": "user", "parts": [{"text": prompt}]}], json_mode=json_mode)
-        return text, rate_info
+        return text, meta
 
     def _generate(self, contents, system=None, tools=None, json_mode=False):
         gen_cfg = {"temperature": 0.4}
@@ -82,7 +85,12 @@ class GeminiProvider(LLMBase):
                 fcs.append({"name": p["functionCall"]["name"],
                             "args": p["functionCall"].get("args") or {},
                             "_raw": p})
-        return text, fcs, self._rate_info(resp.headers)
+        usage_data = data.get("usageMetadata") or {}
+        usage = {}
+        if usage_data:
+            usage = {"prompt_tokens": int(usage_data.get("promptTokenCount") or 0),
+                     "completion_tokens": int(usage_data.get("candidatesTokenCount") or 0)}
+        return text, fcs, {"rate_info": self._rate_info(resp.headers), "usage": usage}
 
 
 class _OpenAICompat(LLMBase):
@@ -99,7 +107,12 @@ class _OpenAICompat(LLMBase):
         resp = self._http("POST", self.endpoint_url or self.URL, json=body, headers=self._headers())
         data = self._json(resp)
         text = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
-        return text, self._rate_info(resp.headers)
+        usage_data = data.get("usage") or {}
+        usage = {}
+        if usage_data:
+            usage = {"prompt_tokens": int(usage_data.get("prompt_tokens") or 0),
+                     "completion_tokens": int(usage_data.get("completion_tokens") or 0)}
+        return text, {"rate_info": self._rate_info(resp.headers), "usage": usage}
 
 
 class GroqProvider(_OpenAICompat):
@@ -141,4 +154,9 @@ class OllamaProvider(LLMBase):
             body["format"] = "json"
         resp = self._http("POST", f"{base.rstrip('/')}/api/chat", json=body)
         data = self._json(resp)
-        return (data.get("message") or {}).get("content", ""), self._rate_info(resp.headers)
+        usage = {}
+        if data.get("prompt_eval_count") or data.get("eval_count"):
+            usage = {"prompt_tokens": int(data.get("prompt_eval_count") or 0),
+                     "completion_tokens": int(data.get("eval_count") or 0)}
+        return (data.get("message") or {}).get("content", ""), {
+            "rate_info": self._rate_info(resp.headers), "usage": usage}

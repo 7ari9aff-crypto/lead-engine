@@ -108,6 +108,44 @@ export type LeadRow = {
   job_id?: string | null;
 };
 
+export type KeyCard = {
+  index: number | null;
+  masked: string | null;
+  calls: number;
+  units: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  last_used: string | null;
+};
+
+export type ProviderUsageRow = {
+  provider: string;
+  env_key: string;
+  docs_url: string;
+  keys_configured: number;
+  keys: KeyCard[];
+  usage: {
+    calls: number;
+    units: number;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
+  quota: {
+    kind: string | null;
+    limit: number | null;
+    used: number;
+    percent: number | null;
+  };
+  live: { usage_source: string; used: number | null; limit: number | null; percent: number | null } | null;
+  status: string | null;
+};
+
+export type KeyUsageResponse = {
+  providers: ProviderUsageRow[];
+  totals: { prompt_tokens: number; completion_tokens: number; calls: number };
+};
+
 export type StatusResponse = {
   version: string;
   providers: ProviderRow[];
@@ -186,6 +224,12 @@ export const apiGet = {
     jobs_over_time: { date: string; total: number; completed: number; paused: number; failed: number }[];
     usage_over_time: { date: string; units: number; calls: number }[];
   }>("/api/analytics"),
+  keysUsage: () => api.get<KeyUsageResponse>("/api/keys/usage"),
+  keys: () => api.get<{
+    env_path: string;
+    groups: Record<string, string>;
+    keys: { name: string; group: string; configured: boolean; masked: string; plain?: boolean }[];
+  }>("/api/keys"),
 };
 
 export const apiPost = {
@@ -202,8 +246,15 @@ export const apiPost = {
     api.post<any>(`/sync-supabase`, { job_id: id, stage }),
   verifyEmail: (email: string) =>
     api.post<any>(`/verify-email`, { email }),
-  chat: (messages: { role: string; content: string }[]) =>
-    api.post<any>(`/api/chat`, { messages }),
+  chat: (
+    messages: { role: string; content: string }[],
+    options: { provider?: string | null; tools?: string[] | null } = {}
+  ) =>
+    api.post<any>(`/api/chat`, {
+      messages,
+      provider: options.provider || null,
+      tools: options.tools ?? null,
+    }),
   saveKeys: (keys: Record<string, string>) => api.post<{ ok: boolean; saved: string[] }>(`/api/keys`, keys),
   saveConfig: (key: string, text: string) =>
     api.put<{ ok: boolean; backup: string }>(`/api/config/${key}`, { text }),
@@ -215,4 +266,6 @@ export const apiPost = {
     api.put<{ ok: boolean }>(`/api/providers/${encodeURIComponent(name)}/${encodeURIComponent(task)}/config`, config),
   wipeData: () => api.post<{ ok: boolean }>(`/api/data/reset`),
   purgeCache: () => api.post<{ ok: boolean }>(`/api/cache/purge`),
+  resolveApproval: (id: string, status: "APPROVED" | "REJECTED") =>
+    api.post<{ ok: boolean }>(`/api/approvals/${encodeURIComponent(id)}/resolve`, { status }),
 };

@@ -66,6 +66,14 @@ async def admin_session_guard(request: Request, call_next):
     from .auth import COOKIE_NAME, valid_session
 
     path = request.url.path
+    # Single-origin dashboard: browser navigations to paths that double as
+    # API routes (/jobs, /leads, /providers) must get the SPA, while API
+    # clients (curl, n8n) keep receiving JSON.
+    if request.method == "GET" and path in {"/jobs", "/leads", "/providers"} \
+            and "text/html" in request.headers.get("accept", ""):
+        index = STATIC_DIR / "index.html"
+        if index.exists():
+            return FileResponse(index)
     public = path in {"/health", "/api/auth/login", "/api/auth/session", "/api/auth/logout"}
     protected = path.startswith(PROTECTED_PATHS)
     if protected and not public and not valid_session(request.cookies.get(COOKIE_NAME)):
@@ -371,6 +379,8 @@ def sync_supabase(req: SyncRequest, db: Database = Depends(get_db)):
 
 class ChatRequest(BaseModel):
     messages: list  # [{role: user|assistant, content: str}]
+    provider: str | None = None      # pin the model (chat model picker)
+    tools: list | None = None        # subset of tool names (integrations picker)
 
 
 @app.post("/api/chat")
@@ -380,7 +390,8 @@ def api_chat(req: ChatRequest, db: Database = Depends(get_db)):
     if not req.messages:
         raise HTTPException(status_code=422, detail="messages is required")
     router = Router(db, _cache(db), settings)
-    return run_agent(router, db, req.messages)
+    return run_agent(router, db, req.messages, provider=req.provider,
+                     enabled_tools=req.tools)
 
 
 # ---------------------------------------------------------------------------
@@ -753,6 +764,146 @@ def api_keys_save(req: dict, db: Database = Depends(get_db)):
     Registry(db).seed_if_empty()
     return {"ok": True, "saved": sorted(updates.keys()),
             "keys": api_keys_list()["keys"]}
+
+
+# ---------------------------------------------------------------------------
+# Per-key usage — real consumption (tokens where the provider reports them),
+# quota percent vs the configured limit, live from the provider when it
+# exposes a key-usage API (OpenRouter), else from the local ledger.
+# ---------------------------------------------------------------------------
+
+PROVIDER_DOCS = {
+    "TAVILY_API_KEY": ("tavily", "https://app.tavily.com/home"),
+    "BRAVE_SEARCH_API_KEY": ("brave", "https://api-dashboard.search.brave.com/app/keys"),
+    "EXA_API_KEY": ("exa", "https://dashboard.exa.ai/api-keys"),
+    "GEMINI_API_KEY": ("gemini", "https://aistudio.google.com/apikey"),
+    "GROQ_API_KEY": ("groq", "https://console.groq.com/keys"),
+    "OPENROUTER_API_KEY": ("openrouter", "https://openrouter.ai/settings/keys"),
+    "APOLLO_API_KEY": ("apollo", "https://app.apollo.io/settings/integrations/api"),
+    "HUNTER_API_KEY": ("hunter", "https://hunter.io/api-keys"),
+    "ABSTRACT_API_KEY": ("abstract", "https://app.abstractapi.com/api/email-validation"),
+}
+
+
+def _mask_key(key: str) -> str:
+    return f"{key[:6]}…{key[-3:]}" if len(key) > 9 else "•••"
+
+
+def _openrouter_key_live(api_key: str):
+    """Live credit usage straight from the provider for this key."""
+    try:
+        import requests
+        resp = requests.get(
+            "https://openrouter.ai/api/v1/auth/key",
+            headers={"Authorization": f"Bearer {api_key}"}, timeout=10)
+        if resp.status_code == 200:
+            data = (resp.json() or {}).get("data") or {}
+            usage = data.get("usage")
+            limit = data.get("limit")
+            percent = None
+            if isinstance(limit, (int, float)) and limit and isinstance(usage, (int, float)):
+                percent = round(100.0 * usage / limit, 1)
+            return {"usage_source": "provider", "used": usage, "limit": limit,
+                    "percent": percent}
+    except Exception:
+        pass
+    return None
+
+
+@app.get("/api/keys/usage")
+def api_keys_usage(db: Database = Depends(get_db)):
+    """Everything the keys page needs: per provider, per pooled key — calls,
+    units, prompt/completion tokens, last used — plus quota percent."""
+    per_key_rows = db.query(
+        "SELECT provider, task, key_index, COUNT(*) AS calls,"
+        " COALESCE(SUM(units),0) AS units,"
+        " COALESCE(SUM(prompt_tokens),0) AS prompt_tokens,"
+        " COALESCE(SUM(completion_tokens),0) AS completion_tokens,"
+        " MAX(ts) AS last_used"
+        " FROM usage_ledger GROUP BY provider, task, key_index")
+    status_by_pair = {(r["name"], r["task"]): r
+                      for r in Registry(db).status_table()}
+    usage_agg = db.query(
+        "SELECT provider, COUNT(*) AS calls, COALESCE(SUM(units),0) AS units,"
+        " COALESCE(SUM(prompt_tokens),0) AS prompt_tokens,"
+        " COALESCE(SUM(completion_tokens),0) AS completion_tokens"
+        " FROM usage_ledger GROUP BY provider")
+    agg_by_provider = {r["provider"]: r for r in usage_agg}
+
+    # group ledger rows by provider (key_index may be NULL for legacy rows)
+    by_provider: dict = {}
+    for r in per_key_rows:
+        by_provider.setdefault(r["provider"], []).append(r)
+
+    env_by_provider = {}
+    for env_key, (name, _docs) in PROVIDER_DOCS.items():
+        raw = os.environ.get(env_key) or ""
+        env_by_provider[name] = [k.strip() for k in raw.replace("\n", ",").split(",") if k.strip()]
+
+    out = []
+    for env_key, (name, docs) in PROVIDER_DOCS.items():
+        keys_pool = env_by_provider.get(name) or []
+        ledger_rows = by_provider.get(name) or []
+        agg = agg_by_provider.get(name) or {}
+
+        # per-key buckets: match on key_index when recorded, else one bucket
+        key_cards = []
+        total_pct_bases = []
+        if keys_pool:
+            for idx, key in enumerate(keys_pool):
+                rows = [r for r in ledger_rows if (r["key_index"] if r["key_index"] is not None else 0) == idx]
+                key_cards.append({
+                    "index": idx, "masked": _mask_key(key),
+                    "calls": sum(r["calls"] for r in rows),
+                    "units": sum(r["units"] for r in rows),
+                    "prompt_tokens": sum(r["prompt_tokens"] for r in rows),
+                    "completion_tokens": sum(r["completion_tokens"] for r in rows),
+                    "last_used": max((r["last_used"] for r in rows), default=None),
+                })
+        elif ledger_rows:
+            key_cards.append({
+                "index": None, "masked": None,
+                "calls": agg.get("calls", 0), "units": agg.get("units", 0),
+                "prompt_tokens": agg.get("prompt_tokens", 0),
+                "completion_tokens": agg.get("completion_tokens", 0),
+                "last_used": max((r["last_used"] for r in ledger_rows), default=None),
+            })
+
+        quota = {}
+        first_status = None
+        for pair, row in status_by_pair.items():
+            if pair[0] == name:
+                first_status = row
+                if row["quota_limit"] is not None:
+                    quota = {"kind": row["quota_kind"], "limit": row["quota_limit"],
+                             "used": row["quota_used"] or 0,
+                             "percent": round(100.0 * (row["quota_used"] or 0) / row["quota_limit"], 1)}
+                else:
+                    quota = {"kind": row["quota_kind"], "limit": None,
+                             "used": row["quota_used"] or 0, "percent": None}
+                break
+
+        live = None
+        if name == "openrouter" and keys_pool:
+            live = _openrouter_key_live(keys_pool[0])
+
+        out.append({
+            "provider": name, "env_key": env_key, "docs_url": docs,
+            "keys_configured": len(keys_pool),
+            "keys": key_cards,
+            "usage": {"calls": agg.get("calls", 0), "units": agg.get("units", 0),
+                      "prompt_tokens": agg.get("prompt_tokens", 0),
+                      "completion_tokens": agg.get("completion_tokens", 0),
+                      "total_tokens": (agg.get("prompt_tokens", 0) + agg.get("completion_tokens", 0))},
+            "quota": quota,
+            "live": live,
+            "status": first_status["status"] if first_status else None,
+        })
+
+    totals = {"prompt_tokens": sum(o["usage"]["prompt_tokens"] for o in out),
+              "completion_tokens": sum(o["usage"]["completion_tokens"] for o in out),
+              "calls": sum(o["usage"]["calls"] for o in out)}
+    return {"providers": out, "totals": totals}
 
 
 @app.post("/api/data/reset")

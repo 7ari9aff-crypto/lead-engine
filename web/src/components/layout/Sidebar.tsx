@@ -2,7 +2,6 @@ import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard,
   KeyRound,
-  Boxes,
   PlayCircle,
   Database,
   MailCheck,
@@ -15,6 +14,7 @@ import {
   Zap,
   X,
   BookOpen,
+  MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUI } from "@/hooks/useTheme";
@@ -25,7 +25,7 @@ const NAV_SECTIONS = [
     title: "الرئيسية",
     items: [
       { href: "/", label: "نظرة عامة", icon: LayoutDashboard },
-      { href: "/chat", label: "المساعد الذكي", icon: Bot, badge: "AI" },
+      { href: "/chat", label: "المساعد الذكي", icon: MessageSquare, badge: "AI" },
     ],
   },
   {
@@ -39,11 +39,10 @@ const NAV_SECTIONS = [
   {
     title: "الإدارة",
     items: [
-      { href: "/providers", label: "المزوّدون", icon: Boxes },
-      { href: "/keys", label: "مفاتيح API", icon: KeyRound },
-      { href: "/config", label: "الإعدادات", icon: Settings },
+      { href: "/keys", label: "المفاتيح والمزودون", icon: KeyRound },
       { href: "/integrations", label: "التكاملات و MCP", icon: Plug },
       { href: "/agents", label: "الوكلاء", icon: Bot },
+      { href: "/config", label: "الإعدادات", icon: Settings },
     ],
   },
 ];
@@ -100,8 +99,8 @@ export function Sidebar() {
             </div>
             {!collapsed && (
               <div className="flex flex-col">
-                <span className="font-semibold text-sm gradient-text leading-tight">محرك الـLeads</span>
-                <span className="text-[10px] text-[var(--fg-soft)]">v1.0 — RTL</span>
+                <span className="font-semibold text-sm leading-tight">Lead Engine</span>
+                <span className="text-[10px] text-[var(--fg-soft)]">منصة توليد العملاء</span>
               </div>
             )}
           </div>
@@ -174,10 +173,10 @@ export function Sidebar() {
             );
           })}
           {!collapsed && (
-            <div className="my-1.5 rounded-lg p-2.5 gradient-bg border border-[var(--border-soft)]">
+            <div className="my-1.5 rounded-lg p-2.5 bg-[var(--bg-soft)] border border-[var(--border-soft)]">
               <div className="flex items-center gap-2 text-xs text-[var(--fg-muted)]">
-                <Sparkles className="h-3.5 w-3.5 text-[var(--accent)]" />
-                <span>نظام ذكي واعي بالحصص</span>
+                <Sparkles className="h-3.5 w-3.5 text-[var(--accent)] shrink-0" />
+                <span>تشغيل حقيقي واعٍ بالحصص</span>
               </div>
             </div>
           )}
