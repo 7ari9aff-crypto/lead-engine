@@ -51,6 +51,18 @@
 - **DoD**: توستس خضراء على SQLite + دخول JWT حقيقي + استعلام tenant-scoped يعمل + advisors نظيفة
 
 ### المرحلة 2 — أول عميل مدفوع
+**طبقات Outreach المسجلة (تُبنى مع أول قناة outbound أو أول CRM sync — لا قبلها):**
+- **Policy / Suppression / Risk gate**: بوابة pre-send موحدة قبل أي outbound action
+  (email/WhatsApp/SMS) — suppression list (unsubscribed/bounced/compliant-blocked)،
+  قواعد القناة، حدود الحجم، وrisk throttles. النواة موجودة في الدومين بالفعل:
+  Legal Gate للتخزين، تحقق الإيميل 5-حالات كمضاد bounce، وquotas الروتر كأول
+  risk throttle. المحفز: أول مسار إرسال حقيقي.
+- **Integration Platform (OAuth)**: OAuth 2.0 code flow بحالة state موثقة،
+  تطبيق واحد لكل مزود يخدم كل العملاء، connection store per-tenant (امتداد
+  لـorganization_provider_credentials بحقول access/refresh/expires_at)،
+  token refresh في الـworker عبر credential_ref فقط، وadapters بـcapability
+  registry — LinkedIn تبقى unavailable رسميًا لحين وصول API معتمد.
+  المحفز: أول مزود يحتاج تصريح المستخدم (Gmail send / HubSpot sync).
 - Queue + Job Workers منفصلة (leases/heartbeats) + Outbox + Consumers idempotent
 - Billing (Subscription + Entitlement + Usage Ledger) + Webhooks موقعة HMAC + Notifications
 - Retention/Deletion كـendpoints + SLO أولية + alerting
