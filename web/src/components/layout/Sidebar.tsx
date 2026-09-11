@@ -15,6 +15,7 @@ import {
   X,
   BookOpen,
   MessageSquare,
+  Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUI } from "@/hooks/useTheme";
@@ -42,6 +43,7 @@ const NAV_SECTIONS = [
       { href: "/keys", label: "المفاتيح والمزودون", icon: KeyRound },
       { href: "/integrations", label: "التكاملات و MCP", icon: Plug },
       { href: "/agents", label: "الوكلاء", icon: Bot },
+      { href: "/activity", label: "سجل النشاط", icon: Activity },
       { href: "/config", label: "الإعدادات", icon: Settings },
     ],
   },

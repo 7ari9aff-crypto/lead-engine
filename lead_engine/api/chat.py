@@ -15,6 +15,16 @@ from ..router import NoProviderAvailable
 
 MAX_STEPS = 6
 
+# Scope tag for each tool — used by agent tool_policy to decide which tools
+# an agent is allowed to call (multi-tenant safety).
+TOOL_SCOPES = {
+    "run_lead_generation": ["jobs:run", "leads:write"],
+    "get_job_status": ["jobs:read"],
+    "list_leads": ["leads:read"],
+    "verify_email": ["verification:run"],
+    "system_status": ["system:read"],
+}
+
 SYSTEM_INSTRUCTION = """أنت "مساعد محرك الـLeads" — واجهة محادثة لنظام توليد leads واعٍ بالحصص (quotas).
 لديك أدوات تنفّذ عمليات حقيقية على النظام: تشغيل التوليد، متابعة المهام، استعراض الـleads، فحص الإيميلات، وحالة النظام.
 
@@ -185,15 +195,47 @@ def execute_tool(name: str, args: dict, router, db) -> dict:
 
 
 def run_agent(router, db, messages: list, provider: str | None = None,
-              enabled_tools: list | None = None) -> dict:
+              enabled_tools: list | None = None,
+              agent_slug: str | None = None) -> dict:
     """One user turn -> up to MAX_STEPS tool rounds -> final Arabic reply.
     provider: pin the model (chat model picker). enabled_tools: subset of the
-    tool names to expose this turn (integrations picker); None = all."""
+    tool names to expose this turn (integrations picker); None = all.
+    agent_slug: name of the agent row in `agents` table — its active version's
+    instructions + tool_policy drive the system prompt + tool filter. Falls back
+    to SYSTEM_INSTRUCTION + all tools when omitted (backwards compatible)."""
     contents = []
     for m in messages[-12:]:
         role = "model" if m.get("role") == "assistant" else "user"
         contents.append({"role": role, "parts": [{"text": str(m.get("content", ""))}]})
     flat = "\n".join(f"{m.get('role')}: {m.get('content')}" for m in messages[-6:])
+
+    # ---- Resolve agent config (DB-driven) ----
+    system_instruction = SYSTEM_INSTRUCTION
+    if agent_slug:
+        try:
+            from ..agent_registry import AgentRegistry
+            payload = AgentRegistry(db).get_active_version(agent_slug)
+        except Exception:
+            payload = None
+        if payload:
+            version_row = payload["version"]
+            agent_row = payload["agent"]
+            custom = (version_row or {}).get("instructions")
+            if custom:
+                # Keep the role framing consistent — wrap any user instructions
+                # with the same identity header so the model still knows who it is.
+                system_instruction = (
+                    f"أنت \"{agent_row.get('name') or agent_slug}\" — {agent_row.get('description') or 'مساعد متخصص'}\n\n"
+                    f"{custom}"
+                )
+            # Filter the toolset by the agent's tool_policy.scopes if present.
+            scopes = ((version_row or {}).get("tool_policy") or {}).get("scopes")
+            if scopes and enabled_tools is None:
+                # Each tool declares its scopes; intersect with the agent's allowed scopes.
+                allowed_scopes = set(scopes)
+                allowed = {name for name, tool_scopes in TOOL_SCOPES.items()
+                           if set(tool_scopes) & allowed_scopes}
+                enabled_tools = list(allowed) or None
 
     tools_decl = TOOLS_DECL
     if enabled_tools is not None:
@@ -206,7 +248,7 @@ def run_agent(router, db, messages: list, provider: str | None = None,
         for _step in range(MAX_STEPS):
             payload = {
                 "contents": contents,
-                "system_instruction": SYSTEM_INSTRUCTION,
+                "system_instruction": system_instruction,
                 "tools": tools_decl,
                 "prompt": flat,
                 "json_mode": False,

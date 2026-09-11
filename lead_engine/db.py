@@ -128,6 +128,9 @@ CREATE TABLE IF NOT EXISTS agent_versions (
     version TEXT NOT NULL,
     instructions TEXT,
     model_policy TEXT,
+    model_provider TEXT,         -- gemini | groq | openrouter | ollama | router
+    model_name TEXT,             -- optional explicit model id (e.g. gemini-2.5-pro)
+    thinking_effort TEXT,        -- low | medium | high | max (model-specific support)
     tool_policy TEXT,
     output_schema TEXT,
     status TEXT NOT NULL DEFAULT 'draft',
@@ -209,6 +212,7 @@ class Database:
         self.conn.executescript(SCHEMA)
         self._migrate_provider_columns()
         self._migrate_usage_columns()
+        self._migrate_agent_version_columns()
         self.conn.commit()
 
     def _migrate_provider_columns(self):
@@ -226,6 +230,22 @@ class Database:
         ):
             if name not in existing:
                 self.conn.execute(f"ALTER TABLE usage_ledger ADD COLUMN {name} {definition}")
+
+    def _migrate_agent_version_columns(self):
+        existing = {row["name"] for row in self.conn.execute("PRAGMA table_info(agent_versions)")}
+        for name, definition in (
+            ("model_provider", "TEXT"),
+            ("model_name", "TEXT"),
+            ("thinking_effort", "TEXT"),
+        ):
+            if name not in existing:
+                self.conn.execute(f"ALTER TABLE agent_versions ADD COLUMN {name} {definition}")
+        # Backfill: existing version rows from older schemas had no model_provider.
+        # Treat them as "router" (the legacy default) so the chat layer doesn't break.
+        self.conn.execute(
+            "UPDATE agent_versions SET model_provider='router'"
+            " WHERE model_provider IS NULL OR model_provider=''"
+        )
 
     def execute(self, sql, params=()):
         cur = self.conn.execute(sql, params)

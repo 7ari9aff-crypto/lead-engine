@@ -13,6 +13,9 @@ AGENT_SEED = {
         "version": "1.0.0",
         "instructions": "Run the deterministic lead pipeline and use LLMs only for ambiguous qualification tasks.",
         "model_policy": {"task": "reasoning", "fallback": "router"},
+        "model_provider": "router",
+        "model_name": None,
+        "thinking_effort": None,
         "tool_policy": {"scopes": ["search:read", "leads:write", "verification:run"]},
         "output_schema": {"type": "object", "required": ["job_id", "state", "leads"]},
     }
@@ -44,9 +47,10 @@ class AgentRegistry:
                 (agent_id, slug, item["name"], item["description"], "active", item["version"], now, now),
             )
             self.db.execute(
-                "INSERT OR IGNORE INTO agent_versions (agent_id, version, instructions, model_policy, tool_policy, output_schema, status, created_at)"
-                " VALUES (?,?,?,?,?,?,?,?)",
+                "INSERT OR IGNORE INTO agent_versions (agent_id, version, instructions, model_policy, model_provider, model_name, thinking_effort, tool_policy, output_schema, status, created_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (agent_id, item["version"], item["instructions"], json.dumps(item["model_policy"]),
+                 item.get("model_provider"), item.get("model_name"), item.get("thinking_effort"),
                  json.dumps(item["tool_policy"]), json.dumps(item["output_schema"]), "published", now),
             )
         for name, description, scopes, approval in TOOL_SEED:
@@ -171,3 +175,148 @@ class AgentRegistry:
             (status, utcnow(), approval_id),
         )
         return cur.rowcount > 0
+
+    # ---------- Dynamic CRUD (UI-driven, multi-domain) ----------
+
+    def create_agent(self, slug, name, description="", status="draft"):
+        """Create a new agent row. Returns the agent dict (slug is unique).
+        Raises ValueError on duplicate slug."""
+        existing = self.db.one("SELECT slug FROM agents WHERE slug=?", (slug,))
+        if existing:
+            raise ValueError(f"agent slug '{slug}' already exists")
+        agent_id = f"agent:{slug}"
+        now = utcnow()
+        self.db.execute(
+            "INSERT INTO agents (agent_id, slug, name, description, status, current_version, created_at, updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            (agent_id, slug, name, description, status, None, now, now),
+        )
+        return self.db.one("SELECT * FROM agents WHERE slug=?", (slug,))
+
+    def update_agent(self, slug, fields):
+        """Update mutable agent fields. Allowed: name, description, status."""
+        allowed = {"name", "description", "status"}
+        sets, params = [], []
+        for key in allowed:
+            if key in fields:
+                sets.append(f"{key}=?")
+                params.append(fields[key])
+        if not sets:
+            return self.db.one("SELECT * FROM agents WHERE slug=?", (slug,))
+        sets.append("updated_at=?")
+        params.append(utcnow())
+        params.append(slug)
+        self.db.execute(f"UPDATE agents SET {', '.join(sets)} WHERE slug=?", params)
+        return self.db.one("SELECT * FROM agents WHERE slug=?", (slug,))
+
+    def archive_agent(self, slug):
+        """Soft-delete: set status=archived. Keeps versions + runs for audit."""
+        return self.update_agent(slug, {"status": "archived"}) is not None
+
+    def create_version(
+        self, slug, version, instructions=None,
+        model_provider="router", model_name=None, thinking_effort=None,
+        tool_policy=None, output_schema=None, status="draft",
+    ):
+        """Create a new version row for an existing agent. Validates the slug exists."""
+        agent = self.db.one("SELECT * FROM agents WHERE slug=?", (slug,))
+        if not agent:
+            raise ValueError(f"agent '{slug}' not found")
+        existing = self.db.one(
+            "SELECT version FROM agent_versions WHERE agent_id=? AND version=?",
+            (agent["agent_id"], version),
+        )
+        if existing:
+            raise ValueError(f"version '{version}' already exists for '{slug}'")
+        self.db.execute(
+            "INSERT INTO agent_versions (agent_id, version, instructions, model_policy, model_provider, model_name, thinking_effort, tool_policy, output_schema, status, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (agent["agent_id"], version, instructions,
+             json.dumps({"task": "reasoning", "fallback": model_provider}) if model_provider else None,
+             model_provider, model_name, thinking_effort,
+             json.dumps(tool_policy) if tool_policy else None,
+             json.dumps(output_schema) if output_schema else None,
+             status, utcnow()),
+        )
+        return self.db.one(
+            "SELECT * FROM agent_versions WHERE agent_id=? AND version=?",
+            (agent["agent_id"], version),
+        )
+
+    def set_active_version(self, slug, version):
+        """Point the agent's current_version pointer to an existing version."""
+        agent = self.db.one("SELECT * FROM agents WHERE slug=?", (slug,))
+        if not agent:
+            raise ValueError(f"agent '{slug}' not found")
+        v = self.db.one(
+            "SELECT version FROM agent_versions WHERE agent_id=? AND version=?",
+            (agent["agent_id"], version),
+        )
+        if not v:
+            raise ValueError(f"version '{version}' not found for '{slug}'")
+        self.db.execute(
+            "UPDATE agents SET current_version=?, updated_at=? WHERE slug=?",
+            (version, utcnow(), slug),
+        )
+        return self.db.one("SELECT * FROM agents WHERE slug=?", (slug,))
+
+    def get_active_version(self, slug):
+        """Return the agent + its active version row in one dict (used by the chat)."""
+        agent = self.db.one("SELECT * FROM agents WHERE slug=?", (slug,))
+        if not agent or not agent.get("current_version"):
+            return None
+        version = self.db.one(
+            "SELECT * FROM agent_versions WHERE agent_id=? AND version=?",
+            (agent["agent_id"], agent["current_version"]),
+        )
+        if not version:
+            return None
+        # Parse JSON fields back to dicts for the chat layer
+        for json_field in ("model_policy", "tool_policy", "output_schema"):
+            raw = version.get(json_field)
+            if raw:
+                try:
+                    version[json_field] = json.loads(raw)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        return {"agent": agent, "version": version}
+
+    def register_tool(self, name, description, input_schema=None, output_schema=None, scopes=None, requires_approval=False, enabled=True):
+        """Upsert a tool definition. Lets the UI register new tools without code changes."""
+        self.db.execute(
+            "INSERT INTO tools (name, description, input_schema, output_schema, scopes, requires_approval, enabled, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?)"
+            " ON CONFLICT(name) DO UPDATE SET"
+            "   description=excluded.description,"
+            "   input_schema=excluded.input_schema,"
+            "   output_schema=excluded.output_schema,"
+            "   scopes=excluded.scopes,"
+            "   requires_approval=excluded.requires_approval,"
+            "   enabled=excluded.enabled",
+            (name, description,
+             json.dumps(input_schema) if input_schema else None,
+             json.dumps(output_schema) if output_schema else None,
+             json.dumps(scopes) if scopes else None,
+             int(bool(requires_approval)),
+             int(bool(enabled)),
+             utcnow()),
+        )
+        return self.db.one("SELECT * FROM tools WHERE name=?", (name,))
+
+    def register_connection(self, connection_id, provider, kind="custom", base_url=None, status="configured", metadata=None):
+        """Upsert a generic platform connection (LinkedIn, Google Maps, WhatsApp, custom HTTP...)."""
+        self.db.execute(
+            "INSERT INTO connections (connection_id, provider, kind, base_url, status, metadata_json, created_at, last_checked_at)"
+            " VALUES (?,?,?,?,?,?,?,?)"
+            " ON CONFLICT(connection_id) DO UPDATE SET"
+            "   provider=excluded.provider,"
+            "   kind=excluded.kind,"
+            "   base_url=excluded.base_url,"
+            "   status=excluded.status,"
+            "   metadata_json=excluded.metadata_json,"
+            "   last_checked_at=excluded.last_checked_at",
+            (connection_id, provider, kind, base_url, status,
+             json.dumps(metadata, ensure_ascii=False) if metadata else None,
+             utcnow(), utcnow()),
+        )
+        return self.db.one("SELECT * FROM connections WHERE connection_id=?", (connection_id,))

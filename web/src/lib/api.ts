@@ -146,6 +146,14 @@ export type KeyUsageResponse = {
   totals: { prompt_tokens: number; completion_tokens: number; calls: number };
 };
 
+export type ActivityEvent = {
+  id: number;
+  ts: string;
+  kind: string;
+  payload: any;
+  correlation_id: string | null;
+};
+
 export type StatusResponse = {
   version: string;
   providers: ProviderRow[];
@@ -198,14 +206,14 @@ export const apiGet = {
     return { providers: arr.map(normalizeProvider) };
   },
   jobs: async (): Promise<JobRow[]> => {
-    return api.get<JobRow[]>("/jobs");
+    return api.get<JobRow[]>("/api/jobs");
   },
-  job: (id: string) => api.get<{ job: JobRow; events: any[] }>(`/jobs/${encodeURIComponent(id)}`),
+  job: (id: string) => api.get<{ job: JobRow; events: any[] }>(`/api/jobs/${encodeURIComponent(id)}`),
   leads: (params: { job_id?: string; stage?: string; limit?: number } = {}) => {
     const q = new URLSearchParams();
     if (params.job_id) q.set("job_id", params.job_id);
     if (params.stage) q.set("stage", params.stage);
-    return api.get<LeadRow[]>(`/leads?${q.toString()}`);
+    return api.get<LeadRow[]>(`/api/leads?${q.toString()}`);
   },
   config: async (): Promise<{ files: { path: string; content: string }[] }> => {
     const r = await api.get<Record<string, { path: string; text: string }>>("/api/config");
@@ -230,6 +238,12 @@ export const apiGet = {
     groups: Record<string, string>;
     keys: { name: string; group: string; configured: boolean; masked: string; plain?: boolean }[];
   }>("/api/keys"),
+  activity: (limit = 50, kind?: string) => {
+    const q = new URLSearchParams();
+    q.set("limit", String(limit));
+    if (kind) q.set("kind", kind);
+    return api.get<{events: ActivityEvent[]}>(`/api/activity?${q.toString()}`);
+  },
 };
 
 export const apiPost = {
@@ -248,12 +262,13 @@ export const apiPost = {
     api.post<any>(`/verify-email`, { email }),
   chat: (
     messages: { role: string; content: string }[],
-    options: { provider?: string | null; tools?: string[] | null } = {}
+    options: { provider?: string | null; tools?: string[] | null; agent?: string | null } = {}
   ) =>
     api.post<any>(`/api/chat`, {
       messages,
       provider: options.provider || null,
       tools: options.tools ?? null,
+      agent: options.agent || null,
     }),
   saveKeys: (keys: Record<string, string>) => api.post<{ ok: boolean; saved: string[] }>(`/api/keys`, keys),
   saveConfig: (key: string, text: string) =>
@@ -268,4 +283,20 @@ export const apiPost = {
   purgeCache: () => api.post<{ ok: boolean }>(`/api/cache/purge`),
   resolveApproval: (id: string, status: "APPROVED" | "REJECTED") =>
     api.post<{ ok: boolean }>(`/api/approvals/${encodeURIComponent(id)}/resolve`, { status }),
+  createAgent: (body: { slug: string; name: string; description?: string; status?: string }) =>
+    api.post<{ agent: any }>(`/api/agents`, body),
+  updateAgent: (slug: string, body: { name?: string; description?: string; status?: string }) =>
+    api.patch<{ agent: any }>(`/api/agents/${encodeURIComponent(slug)}`, body),
+  createAgentVersion: (slug: string, body: {
+    version: string;
+    instructions?: string;
+    model_provider?: string;
+    model_name?: string;
+    thinking_effort?: string;
+    tool_policy?: { scopes?: string[] };
+    activate?: boolean;
+  }) =>
+    api.post<{ version: any; activated: any }>(`/api/agents/${encodeURIComponent(slug)}/versions`, body),
+  recordActivity: (body: {kind: string, payload: any, correlation_id?: string}) =>
+    api.post<{event: ActivityEvent}>("/api/activity", body),
 };

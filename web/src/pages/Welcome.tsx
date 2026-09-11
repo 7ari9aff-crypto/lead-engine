@@ -1,431 +1,450 @@
 import { Link } from "wouter";
 import {
   Zap,
-  Brain,
-  Globe,
-  Shield,
-  Mail,
-  Database,
-  ArrowLeft,
-  Sparkles,
-  Check,
-  Star,
-  Users,
-  TrendingUp,
-  Search,
-  Filter,
-  RefreshCw,
-  ChevronRight,
-  Github,
-  Twitter,
-  Linkedin,
   Bot,
-  Activity,
-  Boxes,
-  Lock,
+  Sparkles,
+  ArrowLeft,
+  ArrowDown,
+  Network,
+  MousePointerClick,
+  Layers,
+  Play,
+  UserPlus,
+  Headphones,
+  PenLine,
+  Target,
+  Linkedin,
+  Map,
+  MessageCircle,
+  Mail,
+  Slack,
+  Send,
+  BookOpen,
+  Check,
 } from "lucide-react";
-import { motion } from "framer-motion";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { useUI } from "@/hooks/useTheme";
-import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { Footer } from "@/components/layout/Footer";
 
-const FEATURES = [
+type Pillar = { icon: typeof Bot; title: string; desc: string; color: string };
+type Step = { num: string; icon: typeof Bot; title: string; desc: string };
+type Domain = { icon: typeof Bot; title: string; desc: string };
+type Integration = { icon: typeof Bot; label: string };
+type Stat = { value: string; label: string };
+
+const PILLARS: Pillar[] = [
   {
-    icon: Bot,
-    title: "وكيل ذكي",
-    desc: "يشغّل لك pipeline كامل بأمر واحد — يختار المزوّد الصحّ، يراقب الكوتا، يوقف عند العوائق.",
+    icon: Network,
+    title: "متعدد الوكلاء",
+    desc: "وكيل مستقل لكل مهمة — leads، دعم، محتوى، مبيعات. شغّل اللي تحتاجه ووقّف الباقي.",
     color: "var(--accent)",
   },
   {
-    icon: Search,
-    title: "بحث متعدد المصادر",
-    desc: "Tavily + Brave + Exa مع تدوير تلقائي — لو واحد قفل rate-limit ينتقل للثاني بدون ما تضيّع وقت.",
+    icon: MousePointerClick,
+    title: "بدون كود",
+    desc: "كل شيء من لوحة مرئية: الإعدادات، الفلاتر، الكلمات المفتاحية، الـ prompts. بدون سطر كود.",
     color: "var(--info)",
   },
   {
-    icon: Brain,
-    title: "تفكير مؤتمت",
-    desc: "5 نماذج لغوية (Gemini, Groq, OpenRouter, Ollama محلي) مع تقييم جودة لكل رد.",
+    icon: Layers,
+    title: "متعدد المجالات",
+    desc: "نفس المنصة تخدم أي بيزنس: B2B، B2C، عقار، تعليم، مطاعم. الوكلاء يتكيّفوا مع مجالك.",
     color: "var(--success)",
   },
   {
-    icon: Mail,
-    title: "فحص إيميل 5-حالات",
-    desc: "DELIVERABLE · RISKY · CATCH_ALL · INVALID · UNKNOWN — يفصل بدقة catch-all عن غيره.",
+    icon: Check,
+    title: "APIs حقيقية 100%",
+    desc: "كل البيانات والتكاملات من APIs مدفوعة فعلاً — لا placeholders ولا mocks في الـ demos.",
     color: "var(--warn)",
   },
+];
+
+const STEPS: Step[] = [
   {
-    icon: Shield,
-    title: "بوابة قانونية",
-    desc: "PDPL-aware: يحجب أي شركة بدون إجماع قانوني قبل ما توصل لسجلّك. default-deny.",
-    color: "var(--danger)",
+    num: "1",
+    icon: MousePointerClick,
+    title: "اربط",
+    desc: "وصّل حساباتك على المنصات — LinkedIn، Gmail، WhatsApp، Slack… في أقل من دقيقة.",
   },
   {
-    icon: Database,
-    title: "كاش ذكي 3-مستويات",
-    desc: "L1 request · L2 entity · L3 evidence — نفس الشركة ما تتسألش عنها مرتين.",
-    color: "var(--accent)",
+    num: "2",
+    icon: Layers,
+    title: "اضبط",
+    desc: "اختر الوكيل، حدد الجمهور والهدف، اضبط الـ prompt مرة واحدة. المنصة تشتغل وحدها.",
+  },
+  {
+    num: "3",
+    icon: Play,
+    title: "شغّل",
+    desc: "اضغط ابدأ. شوف النتائج مباشرة في الداشبورد، أو خلّي الوكلاء يبعتوا تلقائي.",
   },
 ];
 
-const STATS = [
-  { value: "18+", label: "مزوّد متاح" },
-  { value: "8", label: "مراحل pipeline" },
-  { value: "5", label: "نماذج لغوية" },
-  { value: "100%", label: "قابل للنشر" },
+const DOMAINS: Domain[] = [
+  {
+    icon: UserPlus,
+    title: "توليد العملاء المحتملين",
+    desc: "يلاقي الشركات والأشخاص، يفحص الإيميلات، يبعت رسائل مخصصة.",
+  },
+  {
+    icon: Headphones,
+    title: "دعم العملاء",
+    desc: "يرد على الاستفسارات 24/7 بالعربية والإنجليزية، يحوّل الحالات الحساسة للموظف.",
+  },
+  {
+    icon: PenLine,
+    title: "تسويق المحتوى",
+    desc: "يكتب بوستات، يصمم أفكار، ينشر على منصاتك في الأوقات الصح.",
+  },
+  {
+    icon: Target,
+    title: "المبيعات والتأهيل",
+    desc: "يأهل الـ leads، يحجز اجتماعات، يتابع العملاء المحتملين لحين الإغلاق.",
+  },
 ];
 
-const PILLARS = [
-  { icon: Activity, title: "Job State Machine", desc: "QUEUED → RUNNING → DEGRADED → COMPLETED" },
-  { icon: RefreshCw, title: "Resume من الإيقاف", desc: "يوقف بذكاء، يكمل من حيث ما وقف" },
-  { icon: Filter, title: "Dedup 3-مراحل", desc: "exact → identity → fuzzy" },
-  { icon: Lock, title: "مفاتيح مشفّرة", desc: ".env خارج git، live update" },
+const INTEGRATIONS: Integration[] = [
+  { icon: Linkedin, label: "LinkedIn" },
+  { icon: Map, label: "Google Maps" },
+  { icon: MessageCircle, label: "WhatsApp" },
+  { icon: Mail, label: "Gmail" },
+  { icon: Slack, label: "Slack" },
+  { icon: Send, label: "Telegram" },
+  { icon: BookOpen, label: "Notion" },
 ];
 
-const fadeUp = {
-  initial: { opacity: 0, y: 20 },
-  whileInView: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" as const } },
-  viewport: { once: true, margin: "-50px" },
-};
-
-const stagger = {
-  initial: {},
-  whileInView: { transition: { staggerChildren: 0.08 } },
-  viewport: { once: true, margin: "-50px" },
-};
+const STATS: Stat[] = [
+  { value: "30+", label: "عميل محتمل / يوم" },
+  { value: "5", label: "منصات متصلة" },
+  { value: "<$0.01", label: "تكلفة كل lead" },
+];
 
 export function WelcomePage() {
-  const { theme } = useUI();
-
   return (
-    <div className="min-h-screen overflow-x-hidden">
+    <div dir="rtl" className="min-h-screen overflow-x-hidden bg-[var(--bg)] text-[var(--fg)]">
       {/* === NAV === */}
-      <motion.header
-        initial={{ y: -20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.4 }}
-        className="sticky top-0 z-40 glass border-b border-[var(--border)]"
-      >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="h-9 w-9 rounded-lg bg-[image:var(--gradient)] shadow-md flex items-center justify-center">
+      <header className="sticky top-0 z-40 glass border-b border-[var(--border)]">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
+          <Link href="/welcome" className="flex items-center gap-2 shrink-0">
+            <div className="h-9 w-9 rounded-lg bg-[image:var(--gradient)] flex items-center justify-center shadow-md">
               <Zap className="h-5 w-5 text-white" />
             </div>
-            <span className="font-bold text-base gradient-text">محرّك الـLeads</span>
-          </div>
+            <span className="font-bold text-base gradient-text">Lead Engine</span>
+          </Link>
           <nav className="hidden md:flex items-center gap-6 text-sm">
-            <a href="#features" className="text-[var(--fg-muted)] hover:text-[var(--fg)] transition-colors">
-              المزايا
-            </a>
-            <a href="#how" className="text-[var(--fg-muted)] hover:text-[var(--fg)] transition-colors">
-              كيف يشتغل
-            </a>
-            <Link href="/pricing" className="text-[var(--fg-muted)] hover:text-[var(--fg)] transition-colors">
-              الأسعار
-            </Link>
-            <a href="#faq" className="text-[var(--fg-muted)] hover:text-[var(--fg)] transition-colors">
-              الأسئلة
-            </a>
+            <a href="#pillars" className="text-[var(--fg-muted)] hover:text-[var(--fg)] transition-colors">المنصة</a>
+            <a href="#how" className="text-[var(--fg-muted)] hover:text-[var(--fg)] transition-colors">كيف يشتغل</a>
+            <a href="#domains" className="text-[var(--fg-muted)] hover:text-[var(--fg)] transition-colors">المجالات</a>
+            <a href="#integrations" className="text-[var(--fg-muted)] hover:text-[var(--fg)] transition-colors">التكاملات</a>
           </nav>
-          <div className="flex items-center gap-2">
-            <ThemeToggle />
+          <div className="flex items-center gap-2 shrink-0">
             <Button variant="ghost" size="sm" asChild>
-              <Link href="/chat">
-                <Bot className="h-4 w-4" />
-                المساعد
-              </Link>
+              <Link href="/pricing">الأسعار</Link>
             </Button>
             <Button variant="primary" size="sm" asChild>
               <Link href="/">
-                <Activity className="h-4 w-4" />
-                افتح اللوحة
+                ابدأ الآن
                 <ArrowLeft className="h-3.5 w-3.5" />
               </Link>
             </Button>
           </div>
         </div>
-      </motion.header>
+      </header>
 
-      {/* === HERO === */}
-      <section className="relative pt-20 pb-32 px-4 sm:px-6 lg:px-8">
-        {/* Background glow */}
+      {/* === 1. HERO === */}
+      <section className="relative pt-16 sm:pt-24 pb-20 sm:pb-28 px-4 sm:px-6 lg:px-8">
         <div className="absolute inset-0 -z-10 overflow-hidden">
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-[var(--accent)] opacity-20 blur-[120px]" />
-          <div className="absolute top-1/3 right-1/4 w-[400px] h-[400px] rounded-full bg-[#8b5cf6] opacity-15 blur-[100px]" />
         </div>
-
-        <div className="max-w-5xl mx-auto text-center">
-          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ duration: 0.5 }}>
-            <Badge variant="accent" className="mb-6 text-xs">
-              <Sparkles className="h-3 w-3" />
-              v1.0 — مفتوح المصدر
-            </Badge>
-          </motion.div>
-
-          <motion.h1
-            {...fadeUp}
-            initial={fadeUp.initial}
-            whileInView={fadeUp.whileInView}
-            viewport={fadeUp.viewport}
-            className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight mb-6 leading-[1.1]"
-          >
-            موتور <span className="gradient-text">توليد العملاء المحتملين</span>
+        <div className="max-w-4xl mx-auto text-center">
+          <Badge variant="accent" className="mb-6 text-xs">
+            <Sparkles className="h-3 w-3" />
+            منصة الوكلاء الذكيين — multi-domain
+          </Badge>
+          <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight mb-6 leading-[1.1]">
+            <span className="gradient-text">منصة الوكلاء الذكيين</span>
             <br />
-            <span className="text-[var(--fg-muted)] text-3xl sm:text-4xl md:text-5xl">واعي بالحصص، يفكّر قبل ما يصرف</span>
-          </motion.h1>
-
-          <motion.p
-            initial={fadeUp.initial}
-            whileInView={fadeUp.whileInView}
-            viewport={fadeUp.viewport}
-            className="text-lg sm:text-xl text-[var(--fg-muted)] max-w-3xl mx-auto mb-10 leading-relaxed"
-          >
-            يجمع لك بيانات الشركات والأشخاص من 18+ مزوّد، يفحص الإيميلات بدقة 5-حالات، يلتزم بسياسة البيانات السعودية — وكله من شات واحد.
-          </motion.p>
-
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="flex flex-wrap items-center justify-center gap-3 mb-16"
-          >
+            <span className="text-[var(--fg-muted)] text-3xl sm:text-4xl md:text-5xl">
+              لكل بيزنس
+            </span>
+          </h1>
+          <p className="text-lg sm:text-xl text-[var(--fg-muted)] max-w-2xl mx-auto mb-10 leading-relaxed">
+            وصّل، اضبط، شغّل. بدون كود، بدون فريق تقني — وكلاء حقيقيين على APIs
+            حقيقية تشتغل بالنيابة عنك.
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-3">
             <Button variant="gradient" size="lg" asChild>
-              <Link href="/chat">
-                <Bot className="h-5 w-5" />
-                ابدأ بالشات الآن
+              <Link href="/">
+                ابدأ مجاناً
                 <ArrowLeft className="h-4 w-4" />
               </Link>
             </Button>
             <Button variant="outline" size="lg" asChild>
-              <a href="#features">
-                تعرّف على المزايا
-                <ChevronRight className="h-4 w-4" />
+              <a href="#how">
+                شوف العرض
+                <ArrowDown className="h-4 w-4" />
               </a>
             </Button>
-          </motion.div>
-
-          {/* Stats */}
-          <motion.div
-            initial={stagger.initial}
-            whileInView={stagger.whileInView}
-            viewport={stagger.viewport}
-            className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-3xl mx-auto"
-          >
-            {STATS.map((s, i) => (
-              <motion.div
-                key={i}
-                initial={fadeUp.initial}
-                whileInView={fadeUp.whileInView}
-                viewport={fadeUp.viewport}
-              >
-                <Card className="hover:border-[var(--accent)] transition-colors">
-                  <div className="p-5">
-                    <div className="text-3xl font-bold gradient-text mb-1">{s.value}</div>
-                    <div className="text-xs text-[var(--fg-muted)]">{s.label}</div>
-                  </div>
-                </Card>
-              </motion.div>
-            ))}
-          </motion.div>
+          </div>
+          <p className="text-xs text-[var(--fg-soft)] mt-5">
+            بدون بطاقة بنكية · مجاني للتجربة
+          </p>
         </div>
       </section>
 
-      {/* === FEATURES === */}
-      <section id="features" className="py-20 px-4 sm:px-6 lg:px-8">
+      {/* === 2. PLATFORM PILLARS === */}
+      <section id="pillars" className="py-16 sm:py-20 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
-          <motion.div {...fadeUp} className="text-center mb-16">
+          <div className="text-center mb-12">
             <Badge variant="default" className="mb-4">
-              <Boxes className="h-3 w-3" />
-              المزايا الكاملة
+              <Layers className="h-3 w-3" />
+              أعمدة المنصة
             </Badge>
-            <h2 className="text-3xl sm:text-4xl font-bold mb-4">كل اللي تحتاجه في مكان واحد</h2>
-            <p className="text-[var(--fg-muted)] max-w-2xl mx-auto text-lg">
-              من البحث الأول إلى مزامنة Supabase — بدون كتابة سطر كود ولا تكلفة رصيد ضائع.
+            <h2 className="text-3xl sm:text-4xl font-bold mb-3">
+              ليش Lead Engine؟
+            </h2>
+            <p className="text-[var(--fg-muted)] max-w-2xl mx-auto text-base">
+              4 أشياء بنيناها من الصفر عشان تكون مختلفة عن أي أداة ثانية.
             </p>
-          </motion.div>
-
-          <motion.div
-            initial={stagger.initial}
-            whileInView={stagger.whileInView}
-            viewport={stagger.viewport}
-            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
-          >
-            {FEATURES.map((f, i) => {
-              const Icon = f.icon;
-              return (
-                <motion.div
-                  key={i}
-                  initial={fadeUp.initial}
-                  whileInView={fadeUp.whileInView}
-                  viewport={fadeUp.viewport}
-                >
-                  <Card className="h-full hover:border-[var(--accent)] transition-all hover:shadow-lg group">
-                    <div className="p-6">
-                      <div
-                        className="h-12 w-12 rounded-lg flex items-center justify-center mb-4 transition-transform group-hover:scale-110"
-                        style={{
-                          background: `color-mix(in srgb, ${f.color} 15%, transparent)`,
-                          color: f.color,
-                        }}
-                      >
-                        <Icon className="h-6 w-6" />
-                      </div>
-                      <h3 className="text-lg font-semibold mb-2">{f.title}</h3>
-                      <p className="text-sm text-[var(--fg-muted)] leading-relaxed">{f.desc}</p>
-                    </div>
-                  </Card>
-                </motion.div>
-              );
-            })}
-          </motion.div>
-        </div>
-      </section>
-
-      {/* === HOW IT WORKS === */}
-      <section id="how" className="py-20 px-4 sm:px-6 lg:px-8 bg-[var(--bg-soft)]/30">
-        <div className="max-w-7xl mx-auto">
-          <motion.div {...fadeUp} className="text-center mb-16">
-            <Badge variant="default" className="mb-4">
-              <TrendingUp className="h-3 w-3" />
-              كيف يشتغل
-            </Badge>
-            <h2 className="text-3xl sm:text-4xl font-bold mb-4">من الأمر إلى الـleads في 8 مراحل</h2>
-          </motion.div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {PILLARS.map((p, i) => {
               const Icon = p.icon;
               return (
-                <motion.div
-                  key={i}
-                  initial={{ opacity: 0, x: 20 }}
-                  whileInView={{ opacity: 1, x: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: i * 0.1 }}
-                >
-                  <Card className="hover:border-[var(--accent)] transition-colors">
-                    <div className="p-6 flex items-start gap-4">
-                      <div className="h-12 w-12 shrink-0 rounded-lg bg-[var(--accent-soft)] text-[var(--accent)] flex items-center justify-center">
-                        <Icon className="h-6 w-6" />
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-semibold mb-1">{p.title}</h3>
-                        <p className="text-sm text-[var(--fg-muted)] font-mono" dir="ltr">{p.desc}</p>
-                      </div>
+                <Card key={i} className="h-full">
+                  <div className="p-5">
+                    <div
+                      className="h-11 w-11 rounded-lg flex items-center justify-center mb-4"
+                      style={{
+                        background: `color-mix(in srgb, ${p.color} 15%, transparent)`,
+                        color: p.color,
+                      }}
+                    >
+                      <Icon className="h-5 w-5" />
                     </div>
-                  </Card>
-                </motion.div>
+                    <h3 className="text-base font-semibold mb-1.5">{p.title}</h3>
+                    <p className="text-sm text-[var(--fg-muted)] leading-relaxed">
+                      {p.desc}
+                    </p>
+                  </div>
+                </Card>
               );
             })}
           </div>
         </div>
       </section>
 
-      {/* === TESTIMONIAL / SOCIAL PROOF === */}
-      <section className="py-20 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-4xl mx-auto text-center">
-          <motion.div {...fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}>
-            <div className="flex justify-center mb-4">
-              {[...Array(5)].map((_, i) => (
-                <Star key={i} className="h-5 w-5 fill-[var(--warn)] text-[var(--warn)]" />
-              ))}
-            </div>
-            <blockquote className="text-2xl sm:text-3xl font-medium leading-relaxed mb-6">
-              "أداة <span className="gradient-text">ترى حدود الرصيد</span> قبل ما تستنزفها. ده اللي كان ناقص في السوق."
-            </blockquote>
-            <div className="flex items-center justify-center gap-3">
-              <div className="h-12 w-12 rounded-full bg-[image:var(--gradient)] flex items-center justify-center text-white font-bold">
-                MA
-              </div>
-              <div className="text-right">
-                <div className="font-semibold">HAMED ADEL</div>
-                <div className="text-sm text-[var(--fg-muted)]">صاحب المنصة · مينتج</div>
-              </div>
-            </div>
-          </motion.div>
+      {/* === 3. HOW IT WORKS === */}
+      <section
+        id="how"
+        className="py-16 sm:py-20 px-4 sm:px-6 lg:px-8 bg-[var(--bg-soft)]/40"
+      >
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-12">
+            <Badge variant="default" className="mb-4">
+              <Play className="h-3 w-3" />
+              كيف يشتغل
+            </Badge>
+            <h2 className="text-3xl sm:text-4xl font-bold mb-3">
+              3 خطوات، وبتشتغل
+            </h2>
+            <p className="text-[var(--fg-muted)] max-w-2xl mx-auto text-base">
+              ما تحتاج تتعلم شي. وصّل، اضبط، شغّل — والباقي على المنصة.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 relative">
+            {STEPS.map((s, i) => {
+              const Icon = s.icon;
+              return (
+                <div key={i} className="relative">
+                  <Card className="h-full">
+                    <div className="p-6">
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="h-10 w-10 shrink-0 rounded-full bg-[var(--accent-soft)] text-[var(--accent)] flex items-center justify-center font-bold">
+                          {s.num}
+                        </div>
+                        <div className="h-10 w-10 shrink-0 rounded-lg bg-[image:var(--gradient)] text-white flex items-center justify-center">
+                          <Icon className="h-5 w-5" />
+                        </div>
+                      </div>
+                      <h3 className="text-lg font-semibold mb-2">{s.title}</h3>
+                      <p className="text-sm text-[var(--fg-muted)] leading-relaxed">
+                        {s.desc}
+                      </p>
+                    </div>
+                  </Card>
+                  {i < STEPS.length - 1 && (
+                    <ArrowLeft
+                      aria-hidden="true"
+                      className="hidden md:block absolute top-1/2 -translate-y-1/2 -left-3 h-5 w-5 text-[var(--fg-soft)] bg-[var(--bg)] rounded-full p-0.5"
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </section>
 
-      {/* === FINAL CTA === */}
-      <section className="py-20 px-4 sm:px-6 lg:px-8">
+      {/* === 4. DOMAINS SHOWCASE === */}
+      <section id="domains" className="py-16 sm:py-20 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-12">
+            <Badge variant="default" className="mb-4">
+              <Target className="h-3 w-3" />
+              المجالات
+            </Badge>
+            <h2 className="text-3xl sm:text-4xl font-bold mb-3">
+              وش يقدر الوكيل يسوي لك؟
+            </h2>
+            <p className="text-[var(--fg-muted)] max-w-2xl mx-auto text-base">
+              وكلاء متخصصين في كل مجال — تشغّل اللي يناسب بيزنسك.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {DOMAINS.map((d, i) => {
+              const Icon = d.icon;
+              return (
+                <Card key={i} className="h-full">
+                  <div className="p-5">
+                    <div className="h-11 w-11 rounded-lg bg-[var(--accent-soft)] text-[var(--accent)] flex items-center justify-center mb-4">
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    <h3 className="text-base font-semibold mb-1.5">
+                      {d.title}
+                    </h3>
+                    <p className="text-sm text-[var(--fg-muted)] leading-relaxed">
+                      {d.desc}
+                    </p>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* === 5. INTEGRATIONS TEASER === */}
+      <section
+        id="integrations"
+        className="py-16 sm:py-20 px-4 sm:px-6 lg:px-8 bg-[var(--bg-soft)]/40"
+      >
+        <div className="max-w-5xl mx-auto text-center">
+          <Badge variant="default" className="mb-4">
+            <Network className="h-3 w-3" />
+            تكاملات
+          </Badge>
+          <h2 className="text-3xl sm:text-4xl font-bold mb-3">
+            يشتغل مع كل أدواتك
+          </h2>
+          <p className="text-[var(--fg-muted)] max-w-2xl mx-auto text-base mb-10">
+            وصّل حساباتك الموجودة — ما تحتاج تتخلى عن أي أداة. (التكامل الفعلي
+            يتم في شاشة الـ Connect)
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+            {INTEGRATIONS.map((it, i) => {
+              const Icon = it.icon;
+              return (
+                <div
+                  key={i}
+                  className="flex flex-col items-center gap-2 p-4 rounded-lg border border-[var(--border)] bg-[var(--bg-elev)] hover:border-[var(--accent)] transition-colors"
+                >
+                  <Icon className="h-6 w-6 text-[var(--fg-muted)]" />
+                  <span className="text-xs text-[var(--fg-muted)]">
+                    {it.label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-xs text-[var(--fg-soft)] mt-6">
+            والمزيد قريباً — هذي الأدوات الأكثر طلباً من العملاء.
+          </p>
+        </div>
+      </section>
+
+      {/* === 6. STATS / TRUST === */}
+      <section className="py-16 sm:py-20 px-4 sm:px-6 lg:px-8">
         <div className="max-w-5xl mx-auto">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            whileInView={{ opacity: 1, scale: 1 }}
-            viewport={{ once: true }}
-            className="relative overflow-hidden rounded-2xl p-12 sm:p-16 text-center"
+          <div className="text-center mb-10">
+            <Badge variant="accent" className="mb-4 text-xs">
+              <Sparkles className="h-3 w-3" />
+              أرقام تقريبية
+            </Badge>
+            <h2 className="text-3xl sm:text-4xl font-bold mb-3">
+              وش تتوقع من المنصة؟
+            </h2>
+            <p className="text-[var(--fg-muted)] max-w-2xl mx-auto text-sm">
+              أمثلة مبنية على سيناريوهات واقعية مع الإعدادات الافتراضية. النتيجة
+              الفعلية تعتمد على مجالك وحجم الجمهور.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {STATS.map((s, i) => (
+              <Card key={i}>
+                <div className="p-6 text-center">
+                  <div className="text-3xl sm:text-4xl font-bold gradient-text mb-2 tnum">
+                    {s.value}
+                  </div>
+                  <div className="text-sm text-[var(--fg-muted)] mb-2">
+                    {s.label}
+                  </div>
+                  <div className="inline-block text-[10px] font-medium text-[var(--fg-soft)] bg-[var(--bg-soft)] border border-[var(--border-soft)] rounded-full px-2 py-0.5">
+                    مثال تقريبي
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* === 7. FINAL CTA === */}
+      <section className="py-16 sm:py-24 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-5xl mx-auto">
+          <div
+            className="relative overflow-hidden rounded-2xl p-10 sm:p-16 text-center"
             style={{ background: "var(--gradient)" }}
           >
-            <div className="absolute inset-0 bg-black/20" />
+            <div className="absolute inset-0 bg-black/10" />
             <div className="relative">
-              <Globe className="h-12 w-12 text-white mx-auto mb-4" />
+              <Bot className="h-12 w-12 text-white mx-auto mb-4" />
               <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
-                ابدأ تجربتك المجانية اليوم
+                جاهز تبدأ؟
               </h2>
-              <p className="text-white/80 text-lg mb-8 max-w-2xl mx-auto">
-                30 lead مجانًا، بدون بطاقة بنكية، بدون أي التزام.
+              <p className="text-white/85 text-lg mb-8 max-w-2xl mx-auto">
+                سجّل دخولك، شغّل أول وكيل، وشوف النتيجة بنفسك. التجربة مجانية
+                بالكامل.
               </p>
-              <Button variant="secondary" size="lg" asChild className="!bg-white !text-[var(--accent)] hover:!bg-white/90">
-                <Link href="/chat">
-                  <Sparkles className="h-5 w-5" />
-                  ابدأ الآن
-                  <ArrowLeft className="h-4 w-4" />
-                </Link>
-              </Button>
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                <Button
+                  variant="secondary"
+                  size="lg"
+                  asChild
+                  className="!bg-white !text-[var(--accent)] hover:!bg-white/90"
+                >
+                  <Link href="/">
+                    <Sparkles className="h-5 w-5" />
+                    ابدأ الآن مجاناً
+                    <ArrowLeft className="h-4 w-4" />
+                  </Link>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="lg"
+                  asChild
+                  className="!bg-transparent !border-white/40 !text-white hover:!bg-white/10 hover:!border-white/60"
+                >
+                  <Link href="/pricing">شوف الأسعار</Link>
+                </Button>
+              </div>
             </div>
-          </motion.div>
+          </div>
         </div>
       </section>
 
-      {/* === FOOTER === */}
-      <footer className="border-t border-[var(--border)] py-12 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-8">
-            <div>
-              <div className="flex items-center gap-2 mb-4">
-                <div className="h-8 w-8 rounded-lg bg-[image:var(--gradient)] flex items-center justify-center">
-                  <Zap className="h-4 w-4 text-white" />
-                </div>
-                <span className="font-bold gradient-text">محرّك الـLeads</span>
-              </div>
-              <p className="text-xs text-[var(--fg-muted)] leading-relaxed">
-                موتور توليد leads واعٍ بالحصص، مفتوح المصدر، مصمَّم للسوق السعودي.
-              </p>
-            </div>
-            <div>
-              <h4 className="font-semibold mb-3 text-sm">المنتج</h4>
-              <ul className="space-y-2 text-sm text-[var(--fg-muted)]">
-                <li><Link href="/" className="hover:text-[var(--fg)]">اللوحة</Link></li>
-                <li><Link href="/chat" className="hover:text-[var(--fg)]">المساعد</Link></li>
-                <li><Link href="/pricing" className="hover:text-[var(--fg)]">الأسعار</Link></li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-semibold mb-3 text-sm">المصادر</h4>
-              <ul className="space-y-2 text-sm text-[var(--fg-muted)]">
-                <li><a href="https://github.com/7ari9aff-crypto/lead-engine" target="_blank" rel="noopener" className="hover:text-[var(--fg)] flex items-center gap-1">GitHub <Github className="h-3 w-3" /></a></li>
-                <li><Link href="/docs" className="hover:text-[var(--fg)]">التوثيق</Link></li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-semibold mb-3 text-sm">تواصل</h4>
-              <ul className="space-y-2 text-sm text-[var(--fg-muted)]">
-                <li>7amedadel7@gmail.com</li>
-              </ul>
-            </div>
-          </div>
-          <div className="border-t border-[var(--border-soft)] pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-[var(--fg-soft)]">
-            <div>© 2026 محرّك الـLeads. كل الحقوق محفوظة.</div>
-            <div className="flex items-center gap-3">
-              <a href="#" className="hover:text-[var(--fg-muted)]"><Github className="h-4 w-4" /></a>
-              <a href="#" className="hover:text-[var(--fg-muted)]"><Twitter className="h-4 w-4" /></a>
-              <a href="#" className="hover:text-[var(--fg-muted)]"><Linkedin className="h-4 w-4" /></a>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }

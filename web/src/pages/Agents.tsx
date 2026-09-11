@@ -1,11 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bot, CheckCircle2, Clock3, History, Play, RefreshCw, ShieldCheck,
-  Wrench, XCircle, X, Check, Coins,
+  Wrench, XCircle, X, Check, Coins, Plus, Sparkles, Cpu,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { Input, Textarea, Select, Label } from "@/components/ui/Input";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from "@/components/ui/Dialog";
 import { apiGet, apiPost } from "@/lib/api";
 import { toast } from "sonner";
 import { cn, formatNumber, relativeTime } from "@/lib/utils";
@@ -25,6 +29,7 @@ export function AgentsPage() {
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [busyApproval, setBusyApproval] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -73,6 +78,18 @@ export function AgentsPage() {
 
   const totalTokens = runs.reduce((sum, run) => sum + (run.prompt_tokens || 0) + (run.completion_tokens || 0), 0);
 
+  // Aggregate tool scopes for the picker (deduped, alphabetical)
+  const allScopes = useMemo(() => {
+    const set = new Set<string>();
+    tools.forEach((t) => {
+      try {
+        const scopes = t.scopes ? (typeof t.scopes === "string" ? JSON.parse(t.scopes) : t.scopes) : [];
+        (Array.isArray(scopes) ? scopes : []).forEach((s) => set.add(String(s)));
+      } catch { /* ignore malformed */ }
+    });
+    return Array.from(set).sort();
+  }, [tools]);
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -81,6 +98,10 @@ export function AgentsPage() {
         description="التشغيل الحي للمساعد محتاج موافقة من هنا — والإصدارات والأدوات والتكلفة كلها أمامك"
         action={
           <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              إنشاء وكيل
+            </Button>
             <Button variant="outline" size="sm" onClick={load} disabled={loading}>
               <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
               تحديث
@@ -240,6 +261,13 @@ export function AgentsPage() {
           ))}
         </div>
       </Card>
+
+      <CreateAgentDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        scopes={allScopes}
+        onCreated={() => { load(); }}
+      />
     </div>
   );
 }
@@ -262,4 +290,263 @@ function RunBadge({ status }: { status: string }) {
   if (["COMPLETED", "ACCEPTED"].includes(normalized)) return <Badge variant="success" className="text-[10px]"><CheckCircle2 className="h-3 w-3" /> {status}</Badge>;
   if (["FAILED", "REJECTED"].includes(normalized)) return <Badge variant="danger" className="text-[10px]"><XCircle className="h-3 w-3" /> {status}</Badge>;
   return <Badge variant="warn" className="text-[10px]"><Clock3 className="h-3 w-3" /> {status}</Badge>;
+}
+
+const MODEL_PROVIDERS = [
+  { value: "router", label: "تلقائي (Router)", desc: "يختار الأنسب حسب التوفر والحصص" },
+  { value: "gemini", label: "Gemini", desc: "Google — سريع ورخيص" },
+  { value: "groq", label: "Groq", desc: "سريع جداً — latency منخفض" },
+  { value: "openrouter", label: "OpenRouter", desc: "أي نموذج عبر API واحد" },
+  { value: "ollama", label: "Ollama (محلي)", desc: "يشتغل بدون إنترنت" },
+] as const;
+
+const EFFORT_LEVELS = [
+  { value: "", label: "افتراضي", desc: "النموذج يقرر" },
+  { value: "low", label: "منخفض", desc: "أسرع، أرخص" },
+  { value: "medium", label: "متوسط", desc: "توازن" },
+  { value: "high", label: "عالي", desc: "أعمق، أبطأ" },
+  { value: "max", label: "أقصى", desc: "للتفكير المعقد" },
+] as const;
+
+function slugify(name: string): string {
+  // Arabic-friendly: keep the name as-is, only sanitize ASCII noise
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9\u0600-\u06FF_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+}
+
+function CreateAgentDialog({
+  open, onOpenChange, scopes, onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (b: boolean) => void;
+  scopes: string[];
+  onCreated: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [slugTouched, setSlugTouched] = useState(false);
+  const [description, setDescription] = useState("");
+  const [instructions, setInstructions] = useState("");
+  const [modelProvider, setModelProvider] = useState<string>("router");
+  const [modelName, setModelName] = useState("");
+  const [thinkingEffort, setThinkingEffort] = useState<string>("");
+  const [selectedScopes, setSelectedScopes] = useState<Set<string>>(new Set());
+  const [submitting, setSubmitting] = useState(false);
+
+  // Auto-fill slug from name until user edits it manually
+  useEffect(() => {
+    if (!slugTouched) setSlug(slugify(name));
+  }, [name, slugTouched]);
+
+  // Reset form when dialog closes
+  useEffect(() => {
+    if (!open) {
+      setName(""); setSlug(""); setSlugTouched(false);
+      setDescription(""); setInstructions("");
+      setModelProvider("router"); setModelName("");
+      setThinkingEffort(""); setSelectedScopes(new Set());
+    }
+  }, [open]);
+
+  const requiresModelName = modelProvider === "openrouter" || modelProvider === "ollama";
+  const formValid = name.trim().length >= 1 &&
+    /^[a-z0-9][a-z0-9_-]*$/.test(slug) &&
+    slug.length >= 2 &&
+    (!requiresModelName || modelName.trim().length >= 1);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!formValid) return;
+    setSubmitting(true);
+    try {
+      await apiPost.createAgent({
+        slug, name: name.trim(),
+        description: description.trim(),
+        status: "active",
+      });
+      await apiPost.createAgentVersion(slug, {
+        version: "1.0.0",
+        instructions: instructions.trim() || undefined,
+        model_provider: modelProvider,
+        model_name: modelName.trim() || undefined,
+        thinking_effort: thinkingEffort || undefined,
+        tool_policy: selectedScopes.size > 0 ? { scopes: Array.from(selectedScopes) } : undefined,
+        activate: true,
+      });
+      toast.success(`تم إنشاء الوكيل "${name.trim}" وتفعيل الإصدار 1.0.0`);
+      onOpenChange(false);
+      onCreated();
+    } catch (err: any) {
+      toast.error(err?.message || "فشل إنشاء الوكيل");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function toggleScope(s: string) {
+    setSelectedScopes((prev) => {
+      const next = new Set(prev);
+      if (next.has(s)) next.delete(s);
+      else next.add(s);
+      return next;
+    });
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-[var(--accent)]" />
+            إنشاء وكيل جديد
+          </DialogTitle>
+          <DialogDescription>
+            وكيل متخصص يقدر الشات استدعاؤه. اختار النموذج وقوة التفكير والأدوات المسموحة.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="space-y-4 mt-2">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="agent-name">اسم الوكيل</Label>
+              <Input
+                id="agent-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="مثل: وكيل تأهيل العملاء المحتملين"
+                autoFocus
+                dir="rtl"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="agent-slug">
+                المعرف
+                <span className="text-[10px] text-[var(--fg-soft)] mr-1">(يستخدم في API)</span>
+              </Label>
+              <Input
+                id="agent-slug"
+                value={slug}
+                onChange={(e) => { setSlug(e.target.value); setSlugTouched(true); }}
+                placeholder="lead-qualifier"
+                dir="ltr"
+                className="font-mono text-xs"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="agent-desc">الوصف</Label>
+            <Input
+              id="agent-desc"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="سطر واحد يوضح متى يُستخدم هذا الوكيل"
+              dir="rtl"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="agent-instructions">
+              التعليمات
+              <span className="text-[10px] text-[var(--fg-soft)] mr-1">(system prompt — اختياري)</span>
+            </Label>
+            <Textarea
+              id="agent-instructions"
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              placeholder="أنت وكيل تأهيل leads. تتكلم بالعربية. تركز على الشركات في الرياض..."
+              rows={3}
+              dir="rtl"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="agent-provider" className="flex items-center gap-1.5">
+                <Cpu className="h-3 w-3" /> مزوّد النموذج
+              </Label>
+              <Select
+                id="agent-provider"
+                value={modelProvider}
+                onChange={(e) => setModelProvider(e.target.value)}
+                dir="rtl"
+              >
+                {MODEL_PROVIDERS.map((p) => (
+                  <option key={p.value} value={p.value}>{p.label} — {p.desc}</option>
+                ))}
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="agent-effort">قوة التفكير</Label>
+              <Select
+                id="agent-effort"
+                value={thinkingEffort}
+                onChange={(e) => setThinkingEffort(e.target.value)}
+                dir="rtl"
+              >
+                {EFFORT_LEVELS.map((l) => (
+                  <option key={l.value} value={l.value}>{l.label} — {l.desc}</option>
+                ))}
+              </Select>
+            </div>
+          </div>
+
+          {requiresModelName && (
+            <div className="space-y-1.5">
+              <Label htmlFor="agent-model">اسم النموذج</Label>
+              <Input
+                id="agent-model"
+                value={modelName}
+                onChange={(e) => setModelName(e.target.value)}
+                placeholder={modelProvider === "openrouter" ? "anthropic/claude-sonnet-4.5" : "llama3.1:8b"}
+                dir="ltr"
+                className="font-mono text-xs"
+              />
+            </div>
+          )}
+
+          {scopes.length > 0 && (
+            <div className="space-y-2">
+              <Label>الصلاحيات (scopes)</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {scopes.map((s) => {
+                  const active = selectedScopes.has(s);
+                  return (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => toggleScope(s)}
+                      dir="ltr"
+                      className={cn(
+                        "px-2.5 h-7 rounded-full text-[11px] font-medium border transition-colors",
+                        active
+                          ? "bg-[var(--accent-soft)] border-[var(--accent)] text-[var(--accent)]"
+                          : "bg-[var(--bg-soft)] border-[var(--border-soft)] text-[var(--fg-muted)] hover:border-[var(--border)]"
+                      )}
+                    >
+                      {active && <Check className="inline h-3 w-3 ml-1" />}
+                      {s}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2 border-t border-[var(--border-soft)]">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
+              إلغاء
+            </Button>
+            <Button type="submit" variant="primary" loading={submitting} disabled={!formValid}>
+              <Sparkles className="h-3.5 w-3.5" />
+              إنشاء وتفعيل
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
 }

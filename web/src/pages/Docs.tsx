@@ -1,451 +1,633 @@
-import { Link } from "wouter";
-import {
-  Zap,
-  ArrowLeft,
-  BookOpen,
-  Rocket,
-  Bot,
-  Database,
-  KeyRound,
-  Mail,
-  Code2,
-  Github,
-  Sparkles,
-  CheckCircle2,
-  AlertCircle,
-  Terminal,
-  Cpu,
-  Webhook,
-  Plug,
-} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
+import {
+  BookOpen, Search, ChevronDown, ChevronLeft, Play, Loader2,
+  RefreshCw, AlertCircle, CheckCircle2, Copy, XCircle, Zap,
+} from "lucide-react";
+import { apiGet } from "@/lib/api";
+import { PageHeader } from "@/components/layout/PageHeader";
+import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { Input, Textarea, Label } from "@/components/ui/Input";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { FilterPills } from "@/components/ui/FilterPills";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from "@/components/ui/Dialog";
+import {
+  HTTP_METHODS, METHOD_COLORS, METHOD_LABEL,
+  groupByTag, getParameterInputs, getRequestBodySchema, parseEndpoints,
+  type Endpoint, type HttpMethod, type InputField,
+} from "@/lib/docsGen";
 
-const SECTIONS = [
-  {
-    id: "quickstart",
-    icon: Rocket,
-    title: "البداية السريعة",
-    color: "var(--accent)",
-  },
-  {
-    id: "agent",
-    icon: Bot,
-    title: "المساعد الذكي",
-    color: "var(--info)",
-  },
-  {
-    id: "keys",
-    icon: KeyRound,
-    title: "مفاتيح API",
-    color: "var(--warn)",
-  },
-  {
-    id: "verify",
-    icon: Mail,
-    title: "فحص الإيميل",
-    color: "var(--success)",
-  },
-  {
-    id: "data",
-    icon: Database,
-    title: "مزامنة البيانات",
-    color: "var(--info)",
-  },
-  {
-    id: "api",
-    icon: Code2,
-    title: "API & MCP",
-    color: "var(--accent)",
-  },
-];
-
-const QUICKSTART = [
-  {
-    step: 1,
-    title: "أضف مفاتيح API",
-    desc: "روح لتبويب المفاتيح وأضف GEMINI_API_KEY و TAVILY_API_KEY على الأقل.",
-  },
-  {
-    step: 2,
-    title: "افتح المساعد",
-    desc: "روح للمساعد الذكي واطلب: «اعمل ليد جينيراشن في الرياض»",
-  },
-  {
-    step: 3,
-    title: "راجع النتائج",
-    desc: "النتائج تتزامن تلقائيًا مع Supabase وتظهر في تبويب النتائج — وصدّرها CSV في أي وقت.",
-  },
-];
-
-const CODE_API = `# Chat with the agent
-curl -X POST https://lead-engine-gamma-silk.vercel.app/api/chat \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "messages": [
-      {"role": "user", "content": "اعمل ليد جينيراشن في جدة"}
-    ]
-  }'
-
-# Run a benchmark
-curl -X POST https://lead-engine-gamma-silk.vercel.app/benchmark/run \\
-  -H "Content-Type: application/json" \\
-  -d '{"icp": "v0_saudi_dental"}'
-
-# Get leads
-curl https://lead-engine-gamma-silk.vercel.app/leads?limit=50
-
-# Verify an email
-curl -X POST https://lead-engine-gamma-silk.vercel.app/verify-email \\
-  -H "Content-Type: application/json" \\
-  -d '{"email": "info@clinic.sa"}'`;
-
-const CODE_MCP = `# Add to claude_desktop_config.json
-{
-  "mcpServers": {
-    "lead-engine": {
-      "url": "https://lead-engine-gamma-silk.vercel.app/mcp",
-      "transport": "http"
-    }
-  }
-}`;
-
-const fadeUp = {
-  initial: { opacity: 0, y: 20 },
-  whileInView: { opacity: 1, y: 0, transition: { duration: 0.4 } },
-  viewport: { once: true },
-};
+const FILTER_OPTIONS = [
+  { value: "all", label: "الكل" },
+  ...HTTP_METHODS.map((m) => ({ value: m, label: METHOD_LABEL[m] })),
+] as { value: "all" | HttpMethod; label: string }[];
 
 export function DocsPage() {
+  const [endpoints, setEndpoints] = useState<Endpoint[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [methodFilter, setMethodFilter] = useState<"all" | HttpMethod>("all");
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setEndpoints(null);
+    setError(null);
+    apiGet
+      .openapi()
+      .then((doc) => {
+        if (cancelled) return;
+        const eps = parseEndpoints(doc);
+        if (eps.length === 0) {
+          setError("لم يُرجع الـOpenAPI أي endpoints.");
+        } else {
+          setEndpoints(eps);
+        }
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : "تعذّر تحميل /openapi.json");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey]);
+
+  const filtered = useMemo(() => {
+    if (!endpoints) return [];
+    const q = search.trim().toLowerCase();
+    return endpoints.filter((ep) => {
+      if (methodFilter !== "all" && ep.method !== methodFilter) return false;
+      if (!q) return true;
+      const hay = `${ep.path} ${ep.method} ${ep.summary} ${ep.description} ${ep.group}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [endpoints, search, methodFilter]);
+
+  const groups = useMemo(() => groupByTag(filtered), [filtered]);
+
   return (
-    <div className="min-h-screen">
-      {/* Header */}
-      <header className="sticky top-0 z-40 glass border-b border-[var(--border)]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <Link href="/welcome" className="flex items-center gap-2">
-            <div className="h-9 w-9 rounded-lg bg-[image:var(--gradient)] shadow-md flex items-center justify-center">
-              <Zap className="h-5 w-5 text-white" />
-            </div>
-            <span className="font-bold text-base gradient-text">محرّك الـLeads</span>
-          </Link>
-          <Button variant="ghost" size="sm" asChild>
-            <Link href="/">
-              <ArrowLeft className="h-4 w-4" />
-              اللوحة
-            </Link>
+    <div className="space-y-6">
+      <PageHeader
+        icon={<BookOpen className="h-4 w-4 text-white" />}
+        title="مرجع الـAPI"
+        description="كل endpoints الباك إند مولّدة تلقائيًا من /openapi.json — ابحث، فلتر، وجرّب."
+        action={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setReloadKey((k) => k + 1)}
+            disabled={!endpoints && !error}
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            تحديث
           </Button>
-          <ThemeToggle />
-        </div>
-      </header>
+        }
+      />
 
-      {/* HERO */}
-      <section className="pt-16 pb-12 px-4 sm:px-6 lg:px-8 text-center">
-        <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
-          <Badge variant="accent" className="mb-4">
-            <BookOpen className="h-3 w-3" />
-            التوثيق
-          </Badge>
-        </motion.div>
-        <motion.h1
-          {...fadeUp}
-          initial={fadeUp.initial}
-          whileInView={fadeUp.whileInView}
-          viewport={fadeUp.viewport}
-          className="text-4xl sm:text-5xl font-bold mb-4"
-        >
-          كل اللي تحتاج <span className="gradient-text">تعرفه</span>
-        </motion.h1>
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.2 }}
-          className="text-lg text-[var(--fg-muted)] max-w-2xl mx-auto"
-        >
-          من البداية السريعة إلى الـAPI — كل شيء هنا.
-        </motion.p>
-      </section>
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-20 grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-8">
-        {/* Sidebar nav */}
-        <aside className="hidden lg:block">
-          <div className="sticky top-24 space-y-1">
-            {SECTIONS.map((s) => {
-              const Icon = s.icon;
-              return (
-                <a
-                  key={s.id}
-                  href={`#${s.id}`}
-                  className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)] transition-colors"
-                >
-                  <Icon className="h-4 w-4" />
-                  {s.title}
-                </a>
-              );
-            })}
+      {/* Toolbar */}
+      <Card>
+        <CardContent className="p-4 flex flex-col sm:flex-row gap-3 sm:items-center">
+          <div className="relative flex-1">
+            <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--fg-soft)] pointer-events-none" />
+            <Input
+              placeholder="ابحث في المسار أو الوصف…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pr-9"
+              dir="rtl"
+            />
           </div>
-        </aside>
+          <FilterPills
+            options={FILTER_OPTIONS}
+            value={methodFilter}
+            onChange={(v) => setMethodFilter(v as "all" | HttpMethod)}
+          />
+        </CardContent>
+      </Card>
 
-        {/* Content */}
-        <div className="space-y-16 min-w-0">
-          {/* Quickstart */}
-          <section id="quickstart" className="scroll-mt-20">
-            <SectionHeader icon={Rocket} title="البداية السريعة" color="var(--accent)" />
-            <p className="text-[var(--fg-muted)] mb-6">
-              3 خطوات فقط وتبدأ تولّد leads في أقل من 5 دقائق.
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {QUICKSTART.map((s, i) => (
-                <motion.div
-                  key={i}
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: i * 0.1 }}
-                >
-                  <Card>
-                    <CardContent className="p-6">
-                      <div className="h-8 w-8 rounded-full bg-[var(--accent-soft)] text-[var(--accent)] flex items-center justify-center font-bold mb-3">
-                        {s.step}
-                      </div>
-                      <h3 className="font-semibold mb-2">{s.title}</h3>
-                      <p className="text-sm text-[var(--fg-muted)]">{s.desc}</p>
-                    </CardContent>
-                  </Card>
-                </motion.div>
-              ))}
-            </div>
-          </section>
+      {/* Body */}
+      {!endpoints && !error && (
+        <Card>
+          <CardContent className="p-10 flex items-center justify-center gap-3 text-[var(--fg-muted)]">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            جاري تحميل /openapi.json…
+          </CardContent>
+        </Card>
+      )}
 
-          {/* Agent */}
-          <section id="agent" className="scroll-mt-20">
-            <SectionHeader icon={Bot} title="المساعد الذكي" color="var(--info)" />
-            <p className="text-[var(--fg-muted)] mb-6">
-              المساعد يستخدم Gemini ويقدر ينفّذ أوامر معقدة بأدوات داخلية.
-            </p>
+      {error && (
+        <EmptyState
+          icon={<AlertCircle className="h-8 w-8" />}
+          title="ما قدرنا نحمّل التوثيق"
+          description={error}
+          action={
+            <Button variant="outline" size="sm" onClick={() => setReloadKey((k) => k + 1)}>
+              <RefreshCw className="h-3.5 w-3.5" />
+              حاول مرة ثانية
+            </Button>
+          }
+        />
+      )}
 
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  <Terminal className="h-4 w-4" />
-                  أمثلة أوامر
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-3 text-sm">
-                  <ExampleCmd cmd="اعمل ليد جينيراشن في الرياض" desc="يولّد حتى 30 lead في 5 دقائق" />
-                  <ExampleCmd cmd="افحص الإيميل: info@clinic.sa" desc="يرجع DELIVERABLE/RISKY/CATCH_ALL/INVALID" />
-                  <ExampleCmd cmd="اعرض آخر 10 leads" desc="يجيب البيانات من Supabase" />
-                  <ExampleCmd cmd="إيش حالة النظام؟" desc="يلخّص الـproviders والـjobs" />
-                  <ExampleCmd cmd="إيش حالة النظام؟" desc="يلخّص الـproviders والـjobs والاستهلاك" />
-                </ul>
-              </CardContent>
-            </Card>
-          </section>
+      {endpoints && filtered.length === 0 && (
+        <EmptyState
+          icon={<Search className="h-8 w-8" />}
+          title="لا توجد نتائج"
+          description="جرّب كلمة بحث مختلفة أو غيّر الفلتر."
+        />
+      )}
 
-          {/* Keys */}
-          <section id="keys" className="scroll-mt-20">
-            <SectionHeader icon={KeyRound} title="مفاتيح API" color="var(--warn)" />
-            <p className="text-[var(--fg-muted)] mb-6">
-              المفاتيح تتخزن في <code>.env</code> خارج Git وتدخل حيّز التنفيذ فورًا.
-            </p>
+      {Object.entries(groups).map(([group, eps]) => (
+        <section key={group} className="space-y-3">
+          <div className="flex items-center gap-2 px-1">
+            <Zap className="h-4 w-4 text-[var(--accent)]" />
+            <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--fg-muted)]">
+              {group}
+            </h2>
+            <Badge variant="outline">{eps.length}</Badge>
+          </div>
+          <div className="space-y-2">
+            {eps.map((ep, i) => (
+              <EndpointCard key={`${ep.method}-${ep.path}-${i}`} ep={ep} />
+            ))}
+          </div>
+        </section>
+      ))}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">مطلوبة للبداية</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ul className="space-y-2 text-sm">
-                    <li className="flex items-center gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-[var(--success)]" />
-                      <code className="text-xs" dir="ltr">GEMINI_API_KEY</code>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-[var(--success)]" />
-                      <code className="text-xs" dir="ltr">TAVILY_API_KEY</code>
-                    </li>
-                  </ul>
-                </CardContent>
-              </Card>
+      <p className="text-xs text-[var(--fg-soft)] text-center pt-4">
+        الصفحة تتغذى من <code dir="ltr" className="text-[11px] px-1 py-0.5 rounded bg-[var(--bg-soft)]">/openapi.json</code>
+        تلقائيًا — أي endpoint جديد في الباك إند يظهر هنا بدون تعديل.
+      </p>
+    </div>
+  );
+}
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">اختيارية لكن محسّنة</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ul className="space-y-2 text-sm">
-                    <li className="flex items-center gap-2">
-                      <AlertCircle className="h-4 w-4 text-[var(--warn)]" />
-                      <code className="text-xs" dir="ltr">APOLLO_API_KEY</code>
-                      <span className="text-xs text-[var(--fg-soft)]">— إثراء بيانات</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <AlertCircle className="h-4 w-4 text-[var(--warn)]" />
-                      <code className="text-xs" dir="ltr">HUNTER_API_KEY</code>
-                      <span className="text-xs text-[var(--fg-soft)]">— فحص إيميل</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <AlertCircle className="h-4 w-4 text-[var(--warn)]" />
-                      <code className="text-xs" dir="ltr">SUPABASE_*</code>
-                      <span className="text-xs text-[var(--fg-soft)]">— مزامنة</span>
-                    </li>
-                  </ul>
-                </CardContent>
-              </Card>
-            </div>
+function EndpointCard({ ep }: { ep: Endpoint }) {
+  const [open, setOpen] = useState(false);
+  const [showParams, setShowParams] = useState(false);
+  const [showBody, setShowBody] = useState(false);
+  const [tryIt, setTryIt] = useState(false);
 
-            <div className="mt-4 rounded-xl border border-[var(--accent)]/30 bg-[var(--accent-soft)] p-4 flex gap-3">
-              <Sparkles className="h-5 w-5 text-[var(--accent)] shrink-0 mt-0.5" />
-              <div className="text-sm">
-                <strong className="text-[var(--fg)]">Multi-key rotation:</strong> الصق أكثر من مفتاح في نفس الخانة (كل واحد في سطر) — النظام يدوّر بينهم تلقائيًا.
-              </div>
-            </div>
-          </section>
+  const color = METHOD_COLORS[ep.method];
+  const params = getParameterInputs(ep.parameters);
+  const bodyFields = getRequestBodySchema(ep.requestBody);
 
-          {/* Verify */}
-          <section id="verify" className="scroll-mt-20">
-            <SectionHeader icon={Mail} title="فحص الإيميل" color="var(--success)" />
-            <p className="text-[var(--fg-muted)] mb-6">
-              النظام يكشف بدقة 5-حالات منفصلة، خاصة catch-all.
-            </p>
-            <div className="space-y-2.5">
-              {[
-                { code: "DELIVERABLE", label: "قابل للتوصيل", color: "var(--success)", desc: "يوجد فعلاً ويستقبل" },
-                { code: "RISKY", label: "معرّض للخطر", color: "var(--warn)", desc: "role account أو disposable" },
-                { code: "CATCH_ALL", label: "Catch-All", color: "var(--warn)", desc: "الدومين يستقبل كل الإيميلات" },
-                { code: "INVALID", label: "غير صالح", color: "var(--danger)", desc: "لا يوجد أو معطّل" },
-                { code: "UNKNOWN", label: "غير معروف", color: "var(--fg-soft)", desc: "تعذّر التحقق" },
-              ].map((s) => (
-                <div key={s.code} className="flex items-start gap-3 p-3 rounded-lg bg-[var(--bg-soft)] border border-[var(--border-soft)]">
-                  <code className="text-xs font-mono px-2 py-0.5 rounded shrink-0" style={{ background: `color-mix(in srgb, ${s.color} 15%, transparent)`, color: s.color }} dir="ltr">
-                    {s.code}
-                  </code>
-                  <div>
-                    <div className="font-medium text-sm" style={{ color: s.color }}>{s.label}</div>
-                    <div className="text-xs text-[var(--fg-muted)] mt-0.5">{s.desc}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.15 }}
+    >
+      <Card>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="w-full text-right p-4 flex items-center gap-3 hover:bg-[var(--bg-hover)]/40 transition-colors rounded-xl"
+        >
+          <span
+            className="shrink-0 inline-flex items-center justify-center min-w-[64px] px-2.5 py-1 rounded-md text-[11px] font-bold tracking-wider font-mono"
+            style={{
+              background: `color-mix(in srgb, ${color} 15%, transparent)`,
+              color: color,
+            }}
+          >
+            {METHOD_LABEL[ep.method]}
+          </span>
+          <code
+            dir="ltr"
+            className="flex-1 text-sm font-mono text-[var(--fg)] truncate text-left"
+          >
+            {ep.path}
+          </code>
+          {ep.summary && (
+            <span className="hidden md:block text-xs text-[var(--fg-muted)] truncate max-w-[280px]">
+              {ep.summary}
+            </span>
+          )}
+          <ChevronLeft
+            className={`h-4 w-4 shrink-0 text-[var(--fg-soft)] transition-transform ${open ? "-rotate-90" : ""}`}
+          />
+        </button>
 
-          {/* Data */}
-          <section id="data" className="scroll-mt-20">
-            <SectionHeader icon={Database} title="مزامنة البيانات" color="var(--info)" />
-            <p className="text-[var(--fg-muted)] mb-6">
-              الـleads تتخزن في SQLite محلي + Supabase اختياري. الـCSV export متاح دائمًا.
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">
-                    <Cpu className="h-4 w-4" />
-                    قاعدة البيانات المحلية
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="text-sm text-[var(--fg-muted)] space-y-2">
-                  <p>SQLite في <code dir="ltr" className="text-xs">/var/task/data/lead_engine.sqlite3</code></p>
-                  <p>يحتوي على كل الـjobs والـleads والـusage.</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">
-                    <Plug className="h-4 w-4" />
-                    Supabase (اختياري)
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="text-sm text-[var(--fg-muted)] space-y-2">
-                  <p>أضف <code dir="ltr" className="text-xs">SUPABASE_URL</code> و <code dir="ltr" className="text-xs">SUPABASE_SERVICE_KEY</code></p>
-                  <p>ثم اضغط «مزامنة» في تبويب المهام.</p>
-                </CardContent>
-              </Card>
-            </div>
-          </section>
+        {open && (
+          <CardContent className="pt-0 pb-4 space-y-3">
+            {ep.description && (
+              <p className="text-sm text-[var(--fg-muted)] leading-relaxed">
+                {ep.description}
+              </p>
+            )}
+            {!ep.summary && !ep.description && (
+              <p className="text-xs text-[var(--fg-soft)] italic">
+                ما في وصف لهذا الـendpoint.
+              </p>
+            )}
 
-          {/* API */}
-          <section id="api" className="scroll-mt-20">
-            <SectionHeader icon={Code2} title="API & MCP" color="var(--accent)" />
-            <p className="text-[var(--fg-muted)] mb-6">
-              كل شيء REST. الـMCP server متاح على <code dir="ltr" className="text-xs">/mcp</code> لأي عميل.
-            </p>
+            {/* Parameters */}
+            {params.length > 0 && (
+              <CollapsibleSection label="Parameters" count={params.length}
+                open={showParams} onToggle={() => setShowParams((v) => !v)}>
+                <ParamTable fields={params} showIn />
+              </CollapsibleSection>
+            )}
 
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  <Terminal className="h-4 w-4" />
-                  أمثلة API
-                </CardTitle>
-                <CardDescription>كل endpoint متاح على نفس الـdomain</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <pre className="text-xs bg-[var(--bg)] p-4 rounded-lg overflow-x-auto" dir="ltr">
-                  {CODE_API}
-                </pre>
-              </CardContent>
-            </Card>
+            {/* Body */}
+            {bodyFields && bodyFields.length > 0 && (
+              <CollapsibleSection label="Request body" count={bodyFields.length}
+                open={showBody} onToggle={() => setShowBody((v) => !v)}>
+                <ParamTable fields={bodyFields} />
+              </CollapsibleSection>
+            )}
 
-            <Card className="mt-4">
-              <CardHeader>
-                <CardTitle>
-                  <Webhook className="h-4 w-4" />
-                  MCP Server (Claude / Cursor)
-                </CardTitle>
-                <CardDescription>خلّي Claude يستخدم المحرك كأداة</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <pre className="text-xs bg-[var(--bg)] p-4 rounded-lg overflow-x-auto" dir="ltr">
-                  {CODE_MCP}
-                </pre>
-              </CardContent>
-            </Card>
-          </section>
-
-          {/* CTA */}
-          <Card className="bg-[image:var(--gradient)] border-0">
-            <CardContent className="p-8 text-center text-white">
-              <Github className="h-12 w-12 mx-auto mb-3" />
-              <h2 className="text-2xl font-bold mb-2">الكود مفتوح المصدر</h2>
-              <p className="opacity-90 mb-4">ساهم أو Fork أو اعمل Issue على GitHub</p>
-              <Button variant="secondary" asChild className="!bg-white !text-[var(--accent)]">
-                <a href="https://github.com/7ari9aff-crypto/lead-engine" target="_blank" rel="noopener">
-                  <Github className="h-4 w-4" />
-                  GitHub
-                </a>
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <Button variant="primary" size="sm" onClick={() => setTryIt(true)}>
+                <Play className="h-3.5 w-3.5" />
+                Try it
               </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+            </div>
+          </CardContent>
+        )}
+      </Card>
+
+      {tryIt && (
+        <TryItDialog
+          endpoint={ep}
+          paramFields={params}
+          bodyFields={bodyFields ?? []}
+          onClose={() => setTryIt(false)}
+        />
+      )}
+    </motion.div>
+  );
+}
+
+function ParamTable({ fields, showIn }: { fields: InputField[]; showIn?: boolean }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs" dir="ltr">
+        <thead className="text-[var(--fg-soft)]">
+          <tr className="border-b border-[var(--border-soft)]">
+            <th className="text-left py-1.5 px-2 font-medium">Name</th>
+            {showIn && <th className="text-left py-1.5 px-2 font-medium">In</th>}
+            <th className="text-left py-1.5 px-2 font-medium">Type</th>
+            <th className="text-left py-1.5 px-2 font-medium">Required</th>
+            <th className="text-left py-1.5 px-2 font-medium">Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          {fields.map((p, i) => (
+            <tr key={i} className="border-b border-[var(--border-soft)]/40">
+              <td className="py-1.5 px-2 font-mono font-semibold">{p.name}</td>
+              {showIn && (
+                <td className="py-1.5 px-2"><Badge variant="outline">{p.in}</Badge></td>
+              )}
+              <td className="py-1.5 px-2 text-[var(--fg-muted)]">{p.type}</td>
+              <td className="py-1.5 px-2">
+                {p.required ? (
+                  <span className="text-[var(--danger)] font-medium">yes</span>
+                ) : (
+                  <span className="text-[var(--fg-soft)]">no</span>
+                )}
+              </td>
+              <td className="py-1.5 px-2 text-[var(--fg-muted)]">{p.description ?? "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
 
-function SectionHeader({ icon: Icon, title, color }: { icon: any; title: string; color: string }) {
+function CollapsibleSection({
+  label, count, open, onToggle, children,
+}: { label: string; count: number; open: boolean; onToggle: () => void; children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-3 mb-2">
-      <div
-        className="h-10 w-10 rounded-lg flex items-center justify-center"
-        style={{
-          background: `color-mix(in srgb, ${color} 15%, transparent)`,
-          color: color,
-        }}
+    <div className="rounded-lg border border-[var(--border-soft)] overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-[var(--fg-muted)] hover:bg-[var(--bg-hover)]/40"
       >
-        <Icon className="h-5 w-5" />
-      </div>
-      <h2 className="text-2xl font-bold">{title}</h2>
+        <span className="flex items-center gap-2">
+          <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "" : "-rotate-90"}`} />
+          {label}
+          <Badge variant="outline">{count}</Badge>
+        </span>
+      </button>
+      {open && <div className="p-3 pt-1 bg-[var(--bg-soft)]/30">{children}</div>}
     </div>
   );
 }
 
-function ExampleCmd({ cmd, desc }: { cmd: string; desc: string }) {
+function TryItDialog({
+  endpoint,
+  paramFields,
+  bodyFields,
+  onClose,
+}: {
+  endpoint: Endpoint;
+  paramFields: InputField[];
+  bodyFields: InputField[];
+  onClose: () => void;
+}) {
+  const [values, setValues] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const f of paramFields) init[f.name] = f.default ?? "";
+    if (bodyFields.length === 1 && bodyFields[0].name === "body") {
+      init["body"] = "{}";
+    } else {
+      for (const f of bodyFields) init[f.name] = f.default ?? "";
+    }
+    return init;
+  });
+  const [bodyJson, setBodyJson] = useState<string>(
+    bodyFields.length === 1 && bodyFields[0].name === "body" ? "" : "{}"
+  );
+  const [sending, setSending] = useState(false);
+  const [respStatus, setRespStatus] = useState<number | null>(null);
+  const [respBody, setRespBody] = useState<string>("");
+
+  const color = METHOD_COLORS[endpoint.method];
+
+  async function handleSend() {
+    setSending(true);
+    setRespStatus(null);
+    setRespBody("");
+    try {
+      // Substitute path params.
+      let url = endpoint.path;
+      const pathFields = paramFields.filter((p) => p.in === "path");
+      for (const p of pathFields) {
+        const v = (values[p.name] ?? "").trim();
+        if (!v) {
+          toast.error(`Missing path param: ${p.name}`);
+          setSending(false);
+          return;
+        }
+        url = url.replace(`{${p.name}}`, encodeURIComponent(v));
+      }
+
+      // Build query string.
+      const qs = new URLSearchParams();
+      for (const p of paramFields.filter((q) => q.in === "query")) {
+        const v = (values[p.name] ?? "").trim();
+        if (v) qs.set(p.name, v);
+      }
+      const queryStr = qs.toString();
+      if (queryStr) url += `?${queryStr}`;
+
+      // Headers (custom header params).
+      const headers: Record<string, string> = {};
+      for (const p of paramFields.filter((h) => h.in === "header")) {
+        const v = (values[p.name] ?? "").trim();
+        if (v) headers[p.name] = v;
+      }
+
+      let body: BodyInit | undefined;
+      if (bodyFields.length > 0) {
+        headers["Content-Type"] = "application/json";
+        if (bodyFields.length === 1 && bodyFields[0].name === "body") {
+          body = bodyJson;
+        } else {
+          const obj: Record<string, unknown> = {};
+          for (const f of bodyFields) {
+            const raw = values[f.name];
+            if (raw == null || raw === "") continue;
+            if (f.type === "number") {
+              const n = Number(raw);
+              if (Number.isNaN(n)) {
+                toast.error(`${f.name} لازم يكون رقم`);
+                setSending(false);
+                return;
+              }
+              obj[f.name] = n;
+            } else if (f.type === "boolean") {
+              obj[f.name] = raw === "true" || raw === "1";
+            } else {
+              obj[f.name] = raw;
+            }
+          }
+          body = JSON.stringify(obj);
+        }
+      }
+
+      const res = await fetch(url, {
+        method: METHOD_LABEL[endpoint.method],
+        credentials: "include",
+        headers,
+        body,
+      });
+      setRespStatus(res.status);
+      const text = await res.text();
+      try {
+        setRespBody(text ? JSON.stringify(JSON.parse(text), null, 2) : "(empty body)");
+      } catch {
+        setRespBody(text || "(empty body)");
+      }
+      if (res.ok) toast.success(`${res.status} OK`);
+      else toast.error(`${res.status} ${res.statusText || "Error"}`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setRespStatus(0);
+      setRespBody(`Network error: ${msg}`);
+      toast.error(msg);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function copyResponse() {
+    if (!respBody) return;
+    navigator.clipboard.writeText(respBody).then(
+      () => toast.success("Response copied"),
+      () => toast.error("Copy failed")
+    );
+  }
+
   return (
-    <li className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-[var(--bg-hover)] transition-colors">
-      <code className="flex-1 text-xs bg-[var(--bg)] px-2 py-1 rounded" dir="ltr">{cmd}</code>
-      <span className="text-xs text-[var(--fg-soft)] whitespace-nowrap">{desc}</span>
-    </li>
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 flex-wrap">
+            <span
+              className="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-[11px] font-bold tracking-wider font-mono"
+              style={{
+                background: `color-mix(in srgb, ${color} 15%, transparent)`,
+                color: color,
+              }}
+            >
+              {METHOD_LABEL[endpoint.method]}
+            </span>
+            <code dir="ltr" className="text-sm font-mono">
+              {endpoint.path}
+            </code>
+          </DialogTitle>
+          {endpoint.summary && (
+            <DialogDescription>{endpoint.summary}</DialogDescription>
+          )}
+        </DialogHeader>
+
+        <div className="space-y-4 max-h-[60vh] overflow-y-auto pe-1">
+          {paramFields.length > 0 && (
+            <div className="space-y-3">
+              {(["path", "query", "header"] as const).map((loc) => {
+                const fields = paramFields.filter((p) => p.in === loc);
+                if (fields.length === 0) return null;
+                return (
+                  <div key={loc}>
+                    <div className="text-xs font-semibold uppercase tracking-wider text-[var(--fg-soft)] mb-2">
+                      {loc === "path" ? "Path parameters" : loc === "query" ? "Query parameters" : "Headers"}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {fields.map((f) => (
+                        <div key={f.name}>
+                          <Label className="flex items-center gap-1.5">
+                            <code dir="ltr" className="text-xs">{f.name}</code>
+                            {f.required && (
+                              <span className="text-[var(--danger)] text-[10px]">required</span>
+                            )}
+                          </Label>
+                          {f.enum && f.enum.length > 0 ? (
+                            <select
+                              className="flex h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--bg-soft)] px-3 py-2 text-sm"
+                              value={values[f.name] ?? ""}
+                              onChange={(e) =>
+                                setValues((v) => ({ ...v, [f.name]: e.target.value }))
+                              }
+                            >
+                              <option value="">—</option>
+                              {f.enum.map((opt) => (
+                                <option key={String(opt)} value={String(opt)}>
+                                  {String(opt)}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <Input
+                              dir="ltr"
+                              placeholder={f.example ?? f.type}
+                              value={values[f.name] ?? ""}
+                              onChange={(e) =>
+                                setValues((v) => ({ ...v, [f.name]: e.target.value }))
+                              }
+                            />
+                          )}
+                          {f.description && (
+                            <p className="text-[11px] text-[var(--fg-soft)] mt-1">{f.description}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {bodyFields.length > 0 && (
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wider text-[var(--fg-soft)] mb-2">
+                Request body
+              </div>
+              {bodyFields.length === 1 && bodyFields[0].name === "body" ? (
+                <Textarea
+                  dir="ltr"
+                  rows={8}
+                  placeholder='{"key": "value"}'
+                  value={bodyJson}
+                  onChange={(e) => setBodyJson(e.target.value)}
+                  className="font-mono text-xs"
+                />
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {bodyFields.map((f) => (
+                    <div key={f.name}>
+                      <Label className="flex items-center gap-1.5">
+                        <code dir="ltr" className="text-xs">{f.name}</code>
+                        {f.required && (
+                          <span className="text-[var(--danger)] text-[10px]">required</span>
+                        )}
+                        <span className="text-[var(--fg-soft)] text-[10px]">({f.type})</span>
+                      </Label>
+                      <Input
+                        dir="ltr"
+                        type={f.type === "number" ? "number" : "text"}
+                        placeholder={f.example ?? f.type}
+                        value={values[f.name] ?? ""}
+                        onChange={(e) =>
+                          setValues((v) => ({ ...v, [f.name]: e.target.value }))
+                        }
+                      />
+                      {f.description && (
+                        <p className="text-[11px] text-[var(--fg-soft)] mt-1">{f.description}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {paramFields.length === 0 && bodyFields.length === 0 && (
+            <p className="text-sm text-[var(--fg-muted)]">
+              هذا الـendpoint ما يحتاج parameters أو body — اضغط Send مباشرة.
+            </p>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between gap-2 pt-2 border-t border-[var(--border-soft)]">
+          <div className="flex items-center gap-2 text-xs text-[var(--fg-muted)]">
+            {respStatus !== null &&
+              (respStatus >= 200 && respStatus < 300 ? (
+                <CheckCircle2 className="h-4 w-4 text-[var(--success)]" />
+              ) : (
+                <XCircle className="h-4 w-4 text-[var(--danger)]" />
+              ))}
+            {respStatus !== null && (
+              <span className="font-mono font-semibold">
+                {respStatus === 0 ? "Network error" : respStatus}
+              </span>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button variant="ghost" size="sm" onClick={onClose}>
+              إغلاق
+            </Button>
+            <Button variant="primary" size="sm" onClick={handleSend} loading={sending}>
+              <Play className="h-3.5 w-3.5" />
+              Send
+            </Button>
+          </div>
+        </div>
+
+        {respBody && (
+          <div className="relative rounded-lg border border-[var(--border-soft)] bg-[var(--bg)] overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-1.5 border-b border-[var(--border-soft)] text-[11px] text-[var(--fg-soft)]">
+              <span className="font-mono">Response</span>
+              <button
+                type="button"
+                onClick={copyResponse}
+                className="flex items-center gap-1 hover:text-[var(--fg)] transition-colors"
+              >
+                <Copy className="h-3 w-3" />
+                Copy
+              </button>
+            </div>
+            <pre
+              dir="ltr"
+              className="p-3 text-xs font-mono overflow-x-auto max-h-64 text-[var(--fg)]"
+            >
+              {respBody}
+            </pre>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

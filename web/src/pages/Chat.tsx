@@ -14,6 +14,7 @@ import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 import { apiPost, apiGet } from "@/lib/api";
 import { useLiveData } from "@/hooks/useLiveData";
+import { Link } from "wouter";
 
 // ===== Types =====
 type Role = "user" | "assistant" | "system";
@@ -131,18 +132,22 @@ const useChat = create<ChatState>()(
   )
 );
 
-// ===== Composer preferences (model + integrations) =====
+// ===== Composer preferences (agent + model + integrations) =====
 interface ComposerState {
+  agent: string | null;                // agent slug (null = default = lead-generation)
   provider: string | null;             // null = auto (router priority)
   enabledTools: string[] | null;       // null = all tools
+  setAgent: (a: string | null) => void;
   setProvider: (p: string | null) => void;
   setEnabledTools: (t: string[] | null) => void;
 }
 const useComposer = create<ComposerState>()(
   persist(
     (set) => ({
+      agent: null,
       provider: null,
       enabledTools: null,
+      setAgent: (a) => set({ agent: a }),
       setProvider: (p) => set({ provider: p }),
       setEnabledTools: (t) => set({ enabledTools: t }),
     }),
@@ -178,18 +183,22 @@ const QUICK_PROMPTS = [
 // ===== Page =====
 export function ChatPage() {
   const { sessions, currentId, addMsg, updateMsg, setCurrent, newSession, deleteSession, clearAll } = useChat();
-  const { provider, setProvider, enabledTools, setEnabledTools } = useComposer();
+  const { agent, setAgent, provider, setProvider, enabledTools, setEnabledTools } = useComposer();
   const session = sessions.find((s) => s.id === currentId) || sessions[0];
 
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [agentOpen, setAgentOpen] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const { data: status } = useLiveData(() => apiGet.status(), 15000);
+  const { data: agentsData } = useLiveData(() => apiGet.agents(), 30000);
+  const agents = (agentsData?.agents ?? []) as Array<{ slug: string; name: string; description?: string; current_version?: string | null }>;
+  const activeAgent = agents.find((a) => a.slug === agent) || agents.find((a) => a.slug === "lead-generation") || null;
   const reasoningProviders = (status?.providers ?? []).filter((p) => p.task === "reasoning");
   const availability = (id: string) => {
     const row = reasoningProviders.find((p) => p.name === id);
@@ -215,6 +224,7 @@ export function ChatPage() {
       if (!t.closest("[data-popover]")) {
         setModelOpen(false);
         setToolsOpen(false);
+        setAgentOpen(false);
       }
     }
     document.addEventListener("mousedown", onDoc);
@@ -249,6 +259,7 @@ export function ChatPage() {
       const data = await apiPost.chat(apiMsgs, {
         provider,
         tools: allToolsOn ? null : enabledTools,
+        agent,
       });
       updateMsg(session.id, pendingId, {
         content: data.reply || "(رد فارغ)",
@@ -416,6 +427,66 @@ export function ChatPage() {
               />
               {/* Composer toolbar */}
               <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
+                {/* Agent picker */}
+                <div className="relative" data-popover>
+                  <button
+                    onClick={() => { setAgentOpen(!agentOpen); setModelOpen(false); setToolsOpen(false); }}
+                    className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs font-medium text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)] transition-colors"
+                    title="اختر الوكيل اللي يتكلم معاك"
+                  >
+                    <Bot className="h-3.5 w-3.5 text-[var(--accent)]" />
+                    <span className="max-w-[120px] truncate">
+                      {activeAgent ? activeAgent.name : "وكيل افتراضي"}
+                    </span>
+                    <ChevronDown className={cn("h-3 w-3 transition-transform", agentOpen && "rotate-180")} />
+                  </button>
+                  {agentOpen && (
+                    <div className="absolute bottom-full mb-2 start-0 w-80 rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] shadow-[var(--shadow-lg)] z-50 overflow-hidden animate-scale-in">
+                      <div className="px-3 pt-2.5 pb-1.5 flex items-center justify-between">
+                        <span className="text-[10px] font-semibold text-[var(--fg-soft)] uppercase tracking-wider">
+                          الوكيل
+                        </span>
+                        <Link href="/agents" className="text-[11px] text-[var(--accent)] hover:underline">
+                          إدارة →
+                        </Link>
+                      </div>
+                      {agents.length === 0 ? (
+                        <div className="px-3 py-4 text-[12px] text-[var(--fg-muted)]">
+                          لا يوجد وكلاء. أنشئ واحد من صفحة الوكلاء.
+                        </div>
+                      ) : (
+                        agents.map((a) => {
+                          const selected = a.slug === (agent ?? "lead-generation");
+                          return (
+                            <button
+                              key={a.slug}
+                              onClick={() => { setAgent(a.slug); setAgentOpen(false); }}
+                              className={cn(
+                                "w-full flex items-start gap-2.5 px-3 py-2.5 text-right transition-colors",
+                                selected ? "bg-[var(--accent-soft)]" : "hover:bg-[var(--bg-hover)]"
+                              )}
+                            >
+                              <Bot className={cn(
+                                "mt-1 h-3.5 w-3.5 shrink-0",
+                                selected ? "text-[var(--accent)]" : "text-[var(--fg-soft)]"
+                              )} />
+                              <span className="flex-1 min-w-0">
+                                <span className="flex items-center gap-1.5 text-[13px] font-medium text-[var(--fg)]">
+                                  {a.name}
+                                  {selected && <Check className="h-3.5 w-3.5 text-[var(--accent)]" />}
+                                </span>
+                                <span className="block text-[11px] text-[var(--fg-muted)] mt-0.5 truncate">
+                                  {a.description || `slug: ${a.slug}`}
+                                </span>
+                              </span>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 {/* Model picker */}
                 <div className="relative" data-popover>
                   <button

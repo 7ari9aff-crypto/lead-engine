@@ -68,12 +68,18 @@ async def admin_session_guard(request: Request, call_next):
     path = request.url.path
     # Single-origin dashboard: browser navigations to paths that double as
     # API routes (/jobs, /leads, /providers) must get the SPA, while API
-    # clients (curl, n8n) keep receiving JSON.
+    # clients (curl, n8n) keep receiving JSON. The HTML response MUST be
+    # no-cache: otherwise the browser caches it under the API path and the
+    # app's own fetch to that path receives HTML instead of JSON.
     if request.method == "GET" and path in {"/jobs", "/leads", "/providers"} \
             and "text/html" in request.headers.get("accept", ""):
         index = STATIC_DIR / "index.html"
         if index.exists():
-            return FileResponse(index)
+            resp = FileResponse(index)
+            resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            resp.headers["Pragma"] = "no-cache"
+            resp.headers["Expires"] = "0"
+            return resp
     public = path in {"/health", "/api/auth/login", "/api/auth/session", "/api/auth/logout"}
     protected = path.startswith(PROTECTED_PATHS)
     if protected and not public and not valid_session(request.cookies.get(COOKIE_NAME)):
@@ -111,6 +117,50 @@ class AgentRunRequest(BaseModel):
     agent: str = "lead-generation"
     input: dict = Field(default_factory=dict)
     version: str | None = None
+
+
+class AgentCreateRequest(BaseModel):
+    slug: str = Field(..., min_length=2, max_length=64, pattern=r"^[a-z0-9][a-z0-9_-]*$")
+    name: str = Field(..., min_length=1, max_length=120)
+    description: str = ""
+    status: str = "draft"
+
+
+class AgentUpdateRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    status: str | None = None
+
+
+class AgentVersionCreateRequest(BaseModel):
+    version: str = Field(..., min_length=1, max_length=32)
+    instructions: str | None = None
+    model_provider: str | None = "router"
+    model_name: str | None = None
+    thinking_effort: str | None = None
+    tool_policy: dict | None = None
+    output_schema: dict | None = None
+    status: str = "draft"
+    activate: bool = True
+
+
+class ToolRegisterRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+    description: str = ""
+    input_schema: dict | None = None
+    output_schema: dict | None = None
+    scopes: list[str] | None = None
+    requires_approval: bool = False
+    enabled: bool = True
+
+
+class ConnectionRegisterRequest(BaseModel):
+    connection_id: str = Field(..., min_length=2, max_length=80)
+    provider: str = Field(..., min_length=1, max_length=80)
+    kind: str = "custom"
+    base_url: str | None = None
+    status: str = "configured"
+    metadata: dict | None = None
 
 
 class ApprovalResolution(BaseModel):
@@ -227,6 +277,90 @@ def api_approval_resolve(approval_id: str, req: ApprovalResolution,
     return {"ok": True, "approval_id": approval_id, "status": req.status}
 
 
+# ===== Dynamic agent registry (UI-driven, multi-domain) =====
+
+@app.post("/api/agents")
+def api_agents_create(req: AgentCreateRequest, db: Database = Depends(get_db)):
+    try:
+        agent = AgentRegistry(db).create_agent(
+            slug=req.slug, name=req.name,
+            description=req.description, status=req.status,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"agent": agent}
+
+
+@app.patch("/api/agents/{slug}")
+def api_agents_update(slug: str, req: AgentUpdateRequest, db: Database = Depends(get_db)):
+    fields = {k: v for k, v in req.model_dump().items() if v is not None}
+    agent = AgentRegistry(db).update_agent(slug, fields)
+    if not agent:
+        raise HTTPException(status_code=404, detail="agent not found")
+    return {"agent": agent}
+
+
+@app.post("/api/agents/{slug}/versions")
+def api_agent_version_create(slug: str, req: AgentVersionCreateRequest,
+                             db: Database = Depends(get_db)):
+    reg = AgentRegistry(db)
+    try:
+        version_row = reg.create_version(
+            slug=slug, version=req.version,
+            instructions=req.instructions,
+            model_provider=req.model_provider,
+            model_name=req.model_name,
+            thinking_effort=req.thinking_effort,
+            tool_policy=req.tool_policy,
+            output_schema=req.output_schema,
+            status=req.status,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    activated = None
+    if req.activate:
+        activated = reg.set_active_version(slug, req.version)
+    return {"version": version_row, "activated": activated}
+
+
+@app.post("/api/agents/{slug}/versions/{version}/activate")
+def api_agent_version_activate(slug: str, version: str, db: Database = Depends(get_db)):
+    try:
+        agent = AgentRegistry(db).set_active_version(slug, version)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"agent": agent}
+
+
+@app.get("/api/agents/{slug}/active")
+def api_agent_active(slug: str, db: Database = Depends(get_db)):
+    payload = AgentRegistry(db).get_active_version(slug)
+    if not payload:
+        raise HTTPException(status_code=404, detail="no active version for agent")
+    return payload
+
+
+@app.post("/api/tools")
+def api_tools_register(req: ToolRegisterRequest, db: Database = Depends(get_db)):
+    tool = AgentRegistry(db).register_tool(
+        name=req.name, description=req.description,
+        input_schema=req.input_schema, output_schema=req.output_schema,
+        scopes=req.scopes, requires_approval=req.requires_approval,
+        enabled=req.enabled,
+    )
+    return {"tool": tool}
+
+
+@app.post("/api/connections/register")
+def api_connections_register(req: ConnectionRegisterRequest, db: Database = Depends(get_db)):
+    conn = AgentRegistry(db).register_connection(
+        connection_id=req.connection_id, provider=req.provider,
+        kind=req.kind, base_url=req.base_url, status=req.status,
+        metadata=req.metadata,
+    )
+    return {"connection": conn}
+
+
 def _cache(db):
     from ..cache import CacheLayer
     from ..config import load_cache_policy
@@ -278,6 +412,7 @@ def run_benchmark_endpoint(req: RunRequest, background: BackgroundTasks,
     }
 
 
+@app.get("/api/jobs")
 @app.get("/jobs")
 def list_jobs(db: Database = Depends(get_db)):
     return db.query("SELECT job_id, icp_id, state, pause_reason, resume_at, created_at,"
@@ -311,6 +446,7 @@ def resume_job(job_id: str, req: ResumeRequest, background: BackgroundTasks,
     return {"state": summary.get("state"), "metrics": metrics}
 
 
+@app.get("/api/leads")
 @app.get("/leads")
 def leads(job_id: str | None = Query(default=None), stage: str | None = Query(default=None),
           limit: int = Query(default=100, ge=1, le=1000),
@@ -381,6 +517,7 @@ class ChatRequest(BaseModel):
     messages: list  # [{role: user|assistant, content: str}]
     provider: str | None = None      # pin the model (chat model picker)
     tools: list | None = None        # subset of tool names (integrations picker)
+    agent: str | None = None         # agent slug — instructions + tool_policy from DB
 
 
 @app.post("/api/chat")
@@ -391,7 +528,7 @@ def api_chat(req: ChatRequest, db: Database = Depends(get_db)):
         raise HTTPException(status_code=422, detail="messages is required")
     router = Router(db, _cache(db), settings)
     return run_agent(router, db, req.messages, provider=req.provider,
-                     enabled_tools=req.tools)
+                     enabled_tools=req.tools, agent_slug=req.agent)
 
 
 # ---------------------------------------------------------------------------
@@ -936,6 +1073,11 @@ def dashboard():
     resp.headers["Pragma"] = "no-cache"
     resp.headers["Expires"] = "0"
     return resp
+
+
+# ===== Mount feature routers (added by multi-domain refactor) =====
+from ..activity import get_router as _activity_router
+app.include_router(_activity_router())
 
 
 # SPA fallback — any non-API path that didn't match above returns the SPA

@@ -16,6 +16,7 @@ import { AgentsPage } from "@/pages/Agents";
 import { WelcomePage } from "@/pages/Welcome";
 import { PricingPage } from "@/pages/Pricing";
 import { DocsPage } from "@/pages/Docs";
+import { ActivityPage } from "@/pages/Activity";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/Button";
 import { AlertTriangle, Home, RotateCcw } from "lucide-react";
@@ -56,6 +57,7 @@ export default function App() {
               <Route path="/config" component={ConfigPage} />
               <Route path="/integrations" component={IntegrationsPage} />
               <Route path="/agents" component={AgentsPage} />
+              <Route path="/activity" component={ActivityPage} />
               <Route>
                 <NotFound />
               </Route>
@@ -177,6 +179,8 @@ class ErrorBoundary extends Component<
   componentDidCatch(error: Error, info: { componentStack: string }) {
     // eslint-disable-next-line no-console
     console.error("App error:", error, info);
+    // expose the stack to the DOM so headless diagnostics can read it
+    document.body.setAttribute("data-crash", `${error?.stack || error?.message || String(error)}`);
   }
 
   render() {
