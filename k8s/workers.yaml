@@ -1,0 +1,84 @@
+# Lead Engine — worker fleet (Phase 3 compute plane skeleton)
+# The worker executes queued jobs; scale = replicas here, dedicated
+# namespaces per enterprise tenant later (same image, same contracts).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lead-engine-worker
+  labels: { app: lead-engine-worker }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: lead-engine-worker }
+  template:
+    metadata:
+      labels: { app: lead-engine-worker }
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/7ari9aff-crypto/lead-engine:latest
+          command: ["python", "-m", "lead_engine", "worker", "--poll", "5"]
+          envFrom:
+            - secretRef: { name: lead-engine-secrets }
+          resources:
+            requests: { cpu: "250m", memory: "512Mi" }
+            limits: { cpu: "1", memory: "1Gi" }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lead-engine-event-worker
+  labels: { app: lead-engine-event-worker }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: lead-engine-event-worker }
+  template:
+    metadata:
+      labels: { app: lead-engine-event-worker }
+    spec:
+      containers:
+        - name: event-worker
+          image: ghcr.io/7ari9aff-crypto/lead-engine:latest
+          command: ["python", "-m", "lead_engine", "event-worker", "--once"]
+          envFrom:
+            - secretRef: { name: lead-engine-secrets }
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: lead-engine-data-retention
+spec:
+  schedule: "17 3 * * *"   # daily purge of retention-expired leads
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: purge
+              image: ghcr.io/7ari9aff-crypto/lead-engine:latest
+              command: ["python", "-c"]
+              args:
+                - |
+                  from lead_engine.config import load_env; load_env()
+                  from lead_engine.db import open_db
+                  db = open_db()
+                  # purge expired per-org retention via the governance endpoint logic
+                  from lead_engine.entitlements import get_limits
+                  from datetime import datetime, timedelta, timezone
+                  orgs = db.query("SELECT id, limits FROM public.organizations")
+                  for o in orgs:
+                      days = int((o.get("limits") or {}).get("retention_days", 30))
+                      cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                      ids = [r["lead_id"] for r in db.query(
+                          "SELECT lead_id FROM leads WHERE organization_id=? AND created_at < ?",
+                          (o["id"], cutoff))]
+                      for lid in ids:
+                          db.execute("DELETE FROM evidence WHERE lead_id = ?", (lid,))
+                      if ids:
+                          db.execute("DELETE FROM leads WHERE organization_id=? AND created_at < ?",
+                                     (o["id"], cutoff))
+                  print("retention purge done")
+              envFrom:
+                - secretRef: { name: lead-engine-secrets }

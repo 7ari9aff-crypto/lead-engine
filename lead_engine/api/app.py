@@ -406,6 +406,7 @@ def providers(db: Database = Depends(get_db)):
     return {"status": router.status_report(), "usage": router.usage_report()}
 
 
+@app.post("/api/v1/benchmark/run")
 @app.post("/benchmark/run")
 def run_benchmark_endpoint(req: RunRequest, background: BackgroundTasks,
                            db: Database = Depends(get_db)):
@@ -506,6 +507,7 @@ def verify_email(req: VerifyRequest, db: Database = Depends(get_db)):
     return VerificationPipeline(router).verify(req.email)
 
 
+@app.get("/api/v1/report/{job_id}")
 @app.get("/report/{job_id}")
 def report(job_id: str, db: Database = Depends(get_db)):
     job = db.one("SELECT icp_id, params FROM jobs WHERE job_id=?", (job_id,))
@@ -526,6 +528,7 @@ def report(job_id: str, db: Database = Depends(get_db)):
             "report_markdown": render_report(metrics, {"stages": {}}, leads)}
 
 
+@app.post("/api/v1/sync-supabase")
 @app.post("/sync-supabase")
 def sync_supabase(req: SyncRequest, db: Database = Depends(get_db)):
     from ..sync import SupabaseError, sync_job_to_supabase
@@ -1149,7 +1152,13 @@ app.include_router(_activity_router())
 
 # OAuth Integration Platform (Phase 2) — connect/callback/revoke per provider
 from .integrations_api import router as integrations_router
+from .events_api import router as events_router
+from .data_api import router as data_router
+from .platform_api import router as platform_router
 app.include_router(integrations_router)
+app.include_router(events_router)
+app.include_router(data_router)
+app.include_router(platform_router)
 
 
 # SPA fallback — any non-API path that didn't match above returns the SPA

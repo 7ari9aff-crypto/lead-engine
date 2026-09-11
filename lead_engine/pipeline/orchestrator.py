@@ -162,6 +162,8 @@ class PipelineOrchestrator:
                 self.jobs.transition(job_id, DEGRADED, "local LLM used for some tasks")
             self.jobs.transition(job_id, COMPLETED)
             summary["state"] = COMPLETED
+            self._emit(db, "job.completed", {"job_id": job_id, "icp": icp["icp_id"],
+                                             "leads": summary.get("final_leads", 0)})
             self._store_summary(job_id, summary)
             self._sync_to_supabase(job_id, summary)
             return summary
@@ -171,11 +173,24 @@ class PipelineOrchestrator:
             resume_at = (datetime.now(timezone.utc) + timedelta(seconds=seconds)).strftime(
                 "%Y-%m-%dT%H:%M:%SZ")
             self.jobs.pause(job_id, f"NO_AVAILABLE_PROVIDER:{exc.task}", resume_at)
+            self._emit(db, "job.paused", {"job_id": job_id,
+                                          "reason": f"NO_AVAILABLE_PROVIDER:{exc.task}"})
             self._store_summary(job_id, summary)
             summary["state"] = PAUSED
             summary["pause_reason"] = str(exc)
             summary["resume_at"] = resume_at
             return summary
+
+    def _emit(self, db, event_type: str, payload: dict) -> None:
+        """Domain event -> outbox (at-least-once; consumers deduplicate)."""
+        try:
+            from ..events import emit
+
+            emit(db, getattr(self, "org_id", None) or
+                 __import__("os").environ.get("LEAD_ENGINE_ORG_ID"),
+                 event_type, "job", payload.get("job_id"), payload)
+        except Exception:
+            pass  # events never break the pipeline
 
     def _store_summary(self, job_id: str, summary: dict):
         import json

@@ -30,6 +30,9 @@ def main(argv=None):
     resume = sub.add_parser("resume", help="resume a PAUSED job")
     resume.add_argument("--job", required=True)
 
+    evw = sub.add_parser("event-worker", help="dispatch outbox events (webhooks/notifications)")
+    evw.add_argument("--once", action="store_true")
+
     worker = sub.add_parser("worker", help="run the job worker (platform queue mode)")
     worker.add_argument("--poll", type=int, default=5, help="seconds between polls")
     worker.add_argument("--once", action="store_true", help="process one job then exit")
@@ -115,6 +118,7 @@ def main(argv=None):
         from .benchmark.run import run_benchmark
 
         worker_id = f"worker-{socket.gethostname()}-{os.getpid()}"
+        db = open_db()
         print(f"worker {worker_id} polling every {args.poll}s")
         while True:
             queue.reclaim_expired(db)
@@ -139,8 +143,29 @@ def main(argv=None):
             except Exception as exc:
                 state = queue.fail(db, job_id, f"{type(exc).__name__}: {exc}")
                 print(f"{job_id} failed -> {state}: {exc}")
+                try:
+                    from .events import emit
+
+                    emit(db, os.environ.get("LEAD_ENGINE_ORG_ID"), "job.failed",
+                         "job", job_id, {"job_id": job_id,
+                                         "error": f"{type(exc).__name__}: {exc}"})
+                except Exception:
+                    pass
             if args.once:
                 return 0
+
+    if args.cmd == "event-worker":
+        import time as _time
+
+        from .events import dispatch_pending
+
+        db = open_db()
+        while True:
+            counts = dispatch_pending(db)
+            if args.once or not counts.get("retried"):
+                print(f"event dispatch: {counts}")
+                return 0
+            _time.sleep(2)
 
     if args.cmd == "serve":
         import uvicorn
