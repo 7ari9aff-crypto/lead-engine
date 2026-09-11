@@ -31,7 +31,7 @@ from ..benchmark.metrics import compute_metrics, render_report
 from ..config import (
     CONFIG_DIR, DB_PATH, DATA_DIR, OUTPUTS_DIR, ROOT, load_env, load_settings,
 )
-from ..db import Database
+from ..db import open_db, Database
 from ..agent_registry import AgentRegistry
 from ..jobs import PAUSED, JobManager
 from ..providers.email import VerificationPipeline
@@ -88,7 +88,7 @@ async def admin_session_guard(request: Request, call_next):
 
 
 def get_db():
-    db = Database(DB_PATH)
+    db = open_db()
     try:
         yield db
     finally:
@@ -775,7 +775,7 @@ def _run_background_job(icp_name: str, job_id: str, seed_csv: str | None):
     try:
         run_benchmark(icp_name, job_id=job_id, seed_csv=seed_csv)
     except Exception as exc:  # config/startup errors: mark FAILED, never hang
-        db = Database(DB_PATH)
+        db = open_db()
         JobManager(db).mark_failed(job_id, f"{type(exc).__name__}: {exc}")
         db.conn.close()
 

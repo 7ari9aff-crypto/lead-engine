@@ -37,22 +37,22 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     from .config import DATA_DIR, DB_PATH, load_env, load_settings
-    from .db import Database
+    from .db import open_db
 
     load_env()
     settings = load_settings()
 
     if args.cmd == "init":
         DATA_DIR.mkdir(exist_ok=True)
-        db = Database(DB_PATH)
+        db = open_db()
         from .registry import Registry
 
         Registry(db).seed_if_empty()
-        print(f"database ready at {DB_PATH}")
+        print(f"database ready ({getattr(db, 'dialect', 'sqlite')} backend)")
         return 0
 
     if args.cmd == "providers":
-        db = Database(DB_PATH)
+        db = open_db()
         from .registry import Registry
 
         Registry(db).seed_if_empty()
@@ -76,7 +76,7 @@ def main(argv=None):
         return 0
 
     if args.cmd == "verify-email":
-        db = Database(DB_PATH)
+        db = open_db()
         from .cache import CacheLayer
         from .config import load_cache_policy
         from .providers.email import VerificationPipeline
@@ -88,7 +88,7 @@ def main(argv=None):
         return 0
 
     if args.cmd == "resume":
-        db = Database(DB_PATH)
+        db = open_db()
         from .jobs import JobManager
         from .pipeline.orchestrator import PipelineOrchestrator
 

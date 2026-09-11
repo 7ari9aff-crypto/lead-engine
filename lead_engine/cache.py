@@ -45,9 +45,12 @@ class CacheLayer:
     def put_request(self, task, payload, result, data_type="search_results"):
         key = self.make_key(task, payload)
         self.db.execute(
-            "INSERT OR REPLACE INTO cache (level, cache_key, payload, data_type, created_at, expires_at)"
-            " VALUES (1,?,?,?,?,?)",
-            (key, json.dumps(result, ensure_ascii=False), data_type, utcnow(),
+            "INSERT INTO cache (level, cache_key, payload, data_type, created_at, expires_at)"
+            " VALUES (?,?,?,?,?,?)"
+            " ON CONFLICT (level, cache_key) DO UPDATE SET payload = excluded.payload,"
+            " data_type = excluded.data_type, created_at = excluded.created_at,"
+            " expires_at = excluded.expires_at",
+            (1, key, json.dumps(result, ensure_ascii=False), data_type, utcnow(),
              _now_plus(ttl_seconds(self.policy, data_type))),
         )
 

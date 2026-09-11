@@ -4,3 +4,4 @@ PyYAML>=6.0
 dnspython>=2.4
 fastapi>=0.110
 uvicorn>=0.29
+psycopg[binary]>=3.2

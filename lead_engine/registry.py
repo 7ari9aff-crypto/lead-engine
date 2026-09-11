@@ -48,10 +48,11 @@ class Registry:
         now = utcnow()
         for name, ptype, task, prio, kind, limit, period, rpm, env_key in SEED:
             self.db.execute(
-                "INSERT OR REPLACE INTO providers"
+                "INSERT INTO providers"
                 " (name, task, type, priority, quota_kind, quota_limit, quota_used,"
                 "  period, period_start, rpm_limit, status, env_key, notes)"
-                " VALUES (?,?,?,?,?,?,0,?,?,?,'active',?,NULL)",
+                " VALUES (?,?,?,?,?,?,0,?,?,?,'active',?,NULL)"
+                " ON CONFLICT (name, task) DO NOTHING",
                 (name, task, ptype, prio, kind, limit, period, now, rpm, env_key),
             )
 

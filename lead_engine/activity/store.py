@@ -1,18 +1,26 @@
-"""Platform-wide activity feed: SQLite-backed event store.
+"""Platform-wide activity feed: event store over the engine Database interface.
 
-The activity feed is the unified timeline of platform events (job runs,
-agent runs, approvals, provider events). The schema lives in this module
-instead of lead_engine/db.py so we don't touch the core schema migrations.
+The schema lives in this module instead of lead_engine/db.py so we don't touch
+the core schema migrations. Both backends carry the same table: SQLite keeps it
+in data/lead_engine.sqlite3, Postgres keeps it in the `engine` schema.
 """
 import json
 from datetime import datetime, timezone
 
-_SCHEMA = """CREATE TABLE IF NOT EXISTS activity_events (
+_SCHEMA_SQLITE = """CREATE TABLE IF NOT EXISTS activity_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts TEXT NOT NULL,
     kind TEXT NOT NULL,
     payload_json TEXT,
     correlation_id TEXT
+)"""
+
+_SCHEMA_PG = """CREATE TABLE IF NOT EXISTS activity_events (
+    id bigint generated always as identity primary key,
+    ts timestamptz not null default now(),
+    kind text not null,
+    payload_json jsonb,
+    correlation_id text
 )"""
 
 
@@ -26,20 +34,21 @@ class ActivityStore:
 
     def __init__(self, db):
         self.db = db
-        self.db.conn.executescript(_SCHEMA)
-        self.db.conn.commit()
+        self.db.execute(
+            _SCHEMA_PG if getattr(db, "dialect", "sqlite") == "postgres"
+            else _SCHEMA_SQLITE
+        )
 
     def record(self, kind: str, payload: dict,
                correlation_id: str | None = None) -> dict:
         ts = _utcnow()
         payload_json = json.dumps(payload or {}, ensure_ascii=False, default=str)
-        cur = self.db.conn.execute(
+        cur = self.db.execute(
             "INSERT INTO activity_events (ts, kind, payload_json, correlation_id)"
             " VALUES (?, ?, ?, ?)",
             (ts, kind, payload_json, correlation_id),
         )
-        self.db.conn.commit()
-        row_id = cur.lastrowid
+        row_id = getattr(cur, "lastrowid", None)
         return self._row_to_dict({
             "id": row_id,
             "ts": ts,
@@ -52,16 +61,16 @@ class ActivityStore:
         if limit < 1:
             limit = 1
         if kind:
-            rows = self.db.conn.execute(
+            rows = self.db.query(
                 "SELECT * FROM activity_events WHERE kind = ?"
                 " ORDER BY id DESC LIMIT ?",
                 (kind, limit),
-            ).fetchall()
+            )
         else:
-            rows = self.db.conn.execute(
+            rows = self.db.query(
                 "SELECT * FROM activity_events ORDER BY id DESC LIMIT ?",
                 (limit,),
-            ).fetchall()
+            )
         return [self._row_to_dict(r) for r in rows]
 
     @staticmethod

@@ -1,11 +1,29 @@
-"""SQLite persistence: providers, usage ledger, jobs, leads, evidence, cache."""
+"""SQLite + Postgres persistence: providers, usage ledger, jobs, leads, evidence, cache.
+
+open_db() picks the backend: Postgres (Supabase) when SUPABASE_DB_URL /
+DATABASE_URL is set — the production path — else the local SQLite store
+used for dev and tests. Both implement the same Database interface.
+"""
 import json
+import os
 import sqlite3
 from datetime import datetime, timezone
+
+from .config import DB_PATH  # single source of truth for the SQLite path
 
 
 def utcnow() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def open_db():
+    """Backend factory. Production: Supabase Postgres. Dev/tests: SQLite."""
+    dsn = os.environ.get("SUPABASE_DB_URL") or os.environ.get("DATABASE_URL")
+    if dsn:
+        from .db_pg import PgDatabase
+
+        return PgDatabase(dsn, org_id=os.environ.get("LEAD_ENGINE_ORG_ID"))
+    return Database(DB_PATH)
 
 
 SCHEMA = """
@@ -199,6 +217,9 @@ CREATE TABLE IF NOT EXISTS approvals (
 
 
 class Database:
+
+    dialect = "sqlite"
+
     def __init__(self, path):
         # check_same_thread=False: FastAPI sync dependencies run in a worker
         # thread while async endpoints run in the loop thread; connections are
@@ -286,10 +307,12 @@ class Database:
                 row[key] = json.dumps(row[key], ensure_ascii=False)
         if row["requires_review"] is True:
             row["requires_review"] = 1
-        cols = ", ".join(row.keys())
-        marks = ", ".join("?" for _ in row)
+        cols = list(row.keys())
+        updates = ", ".join(f"{c} = excluded.{c}" for c in cols if c != "lead_id")
         self.execute(
-            f"INSERT OR REPLACE INTO leads ({cols}) VALUES ({marks})",
+            f"INSERT INTO leads ({', '.join(cols)}) "
+            f"VALUES ({', '.join('?' for _ in cols)}) "
+            f"ON CONFLICT (lead_id) DO UPDATE SET {updates}",
             list(row.values()),
         )
 

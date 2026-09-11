@@ -11,8 +11,7 @@ can fan out to this store).
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from ..config import DB_PATH
-from ..db import Database
+from ..db import open_db
 from .store import ActivityStore
 
 router = APIRouter(tags=["activity"])
@@ -29,14 +28,14 @@ def get_db():
 
     Keeping the dependency local avoids a circular import with app.py while
     still letting FastAPI inject a fresh per-request Database handle."""
-    db = Database(DB_PATH)
+    db = open_db()
     try:
         yield db
     finally:
         db.conn.close()
 
 
-def get_store(db: Database = Depends(get_db)) -> ActivityStore:
+def get_store(db = Depends(get_db)) -> ActivityStore:
     return ActivityStore(db)
 
 

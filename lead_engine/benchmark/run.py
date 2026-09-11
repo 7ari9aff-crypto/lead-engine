@@ -1,8 +1,8 @@
 """Benchmark runner + seed-list loader (manual CSV path for V0)."""
 import csv
 
-from ..config import DATA_DIR, DB_PATH, OUTPUTS_DIR, load_env, load_icp, load_settings
-from ..db import Database
+from ..config import DATA_DIR, OUTPUTS_DIR, load_env, load_icp, load_settings
+from ..db import open_db
 from ..pipeline.orchestrator import PipelineOrchestrator
 from .metrics import compute_metrics, write_outputs
 
@@ -34,7 +34,7 @@ def run_benchmark(icp="v0_saudi_dental",
 
     load_env()
     DATA_DIR.mkdir(exist_ok=True)
-    db = Database(DB_PATH)
+    db = open_db()
     settings = load_settings()
     icp_dict = icp if isinstance(icp, dict) else load_icp(icp)
     orchestrator = PipelineOrchestrator(db, settings, agent_run_id=agent_run_id)
