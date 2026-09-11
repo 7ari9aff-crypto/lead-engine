@@ -93,6 +93,7 @@ create index if not exists idx_audit_org_time
 create or replace function public.touch_updated_at()
 returns trigger
 language plpgsql
+set search_path = ''
 as $$
 begin
   new.updated_at = now();
@@ -143,6 +144,9 @@ drop trigger if exists trg_auth_user_org on auth.users;
 create trigger trg_auth_user_org
   after insert on auth.users
   for each row execute function public.handle_new_user_org();
+
+-- advisors: the definer trigger function must not be callable via RPC
+revoke execute on function public.handle_new_user_org() from anon, authenticated, public;
 
 -- ------------------------------------------------------------
 -- RLS — enabled on every table above
