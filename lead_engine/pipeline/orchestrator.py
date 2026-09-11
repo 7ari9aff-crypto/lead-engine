@@ -162,7 +162,7 @@ class PipelineOrchestrator:
                 self.jobs.transition(job_id, DEGRADED, "local LLM used for some tasks")
             self.jobs.transition(job_id, COMPLETED)
             summary["state"] = COMPLETED
-            self._emit(db, "job.completed", {"job_id": job_id, "icp": icp["icp_id"],
+            self._emit(self.db, "job.completed", {"job_id": job_id, "icp": icp["icp_id"],
                                              "leads": summary.get("final_leads", 0)})
             self._store_summary(job_id, summary)
             self._sync_to_supabase(job_id, summary)
@@ -173,7 +173,7 @@ class PipelineOrchestrator:
             resume_at = (datetime.now(timezone.utc) + timedelta(seconds=seconds)).strftime(
                 "%Y-%m-%dT%H:%M:%SZ")
             self.jobs.pause(job_id, f"NO_AVAILABLE_PROVIDER:{exc.task}", resume_at)
-            self._emit(db, "job.paused", {"job_id": job_id,
+            self._emit(self.db, "job.paused", {"job_id": job_id,
                                           "reason": f"NO_AVAILABLE_PROVIDER:{exc.task}"})
             self._store_summary(job_id, summary)
             summary["state"] = PAUSED

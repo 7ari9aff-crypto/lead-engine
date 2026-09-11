@@ -445,6 +445,13 @@ def run_benchmark_endpoint(req: RunRequest, background: BackgroundTasks,
     }
 
 
+@app.get("/api/v1/jobs/{job_id}")
+@app.get("/api/jobs/{job_id}")
+@app.get("/jobs/{job_id}")
+def get_job_v1(job_id: str, db: Database = Depends(get_db)):
+    return get_job(job_id, db)
+
+
 @app.get("/api/v1/jobs")
 @app.get("/api/jobs")
 @app.get("/jobs")

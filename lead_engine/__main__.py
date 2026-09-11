@@ -9,6 +9,7 @@
 """
 import argparse
 import json
+import os
 import sys
 
 
@@ -118,9 +119,11 @@ def main(argv=None):
         from .benchmark.run import run_benchmark
 
         worker_id = f"worker-{socket.gethostname()}-{os.getpid()}"
-        db = open_db()
         print(f"worker {worker_id} polling every {args.poll}s")
         while True:
+            # fresh connection per iteration: poolers/servers drop long-held
+            # sessions and a job run takes minutes between queue operations
+            db = open_db()
             queue.reclaim_expired(db)
             job = queue.lease_next(db, worker_id)
             if not job:
@@ -132,6 +135,8 @@ def main(argv=None):
             job_id, icp_id = job["job_id"], job["icp_id"]
             print(f"leased {job_id} (icp={icp_id}, attempt={job['attempts']})")
             try:
+                from .config import load_icp
+
                 summary, _metrics, _outputs = run_benchmark(
                     load_icp(icp_id), job_id=job_id)
                 state = summary.get("state") or "COMPLETED"
