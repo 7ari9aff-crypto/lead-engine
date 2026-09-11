@@ -2,12 +2,13 @@ import { useState } from "react";
 import {
   Activity, Check, CheckCircle2, Clipboard, Code2, Database, ExternalLink,
   Globe2, Link2, Plug, RefreshCw, Webhook, Workflow, XCircle, Copy, Boxes,
+  ShieldBan, Plus, Trash2,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { useLiveData } from "@/hooks/useLiveData";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
 import { toast } from "sonner";
 import { cn, formatNumber } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -29,6 +30,10 @@ export function IntegrationsPage() {
   const [mcpOnline, setMcpOnline] = useState<boolean | null>(null);
 
   const supabaseReady = Boolean(data?.system?.supabase_configured);
+  const integrations = useLiveData(() => apiGet.integrations(), 10000);
+  const suppression = useLiveData(() => apiGet.suppression(), 10000);
+  const entitlements = useLiveData(() => apiGet.entitlements(), 15000);
+  const [newEntry, setNewEntry] = useState({ channel: "email", value: "", reason: "manual" });
   const calls = (data?.usage_totals ?? []).reduce((sum, r) => sum + (r.units || 0), 0);
 
   async function copy(text: string, label: string) {
@@ -55,6 +60,38 @@ export function IntegrationsPage() {
     null,
     2
   );
+
+  async function connect(provider: string) {
+    try {
+      const { authorize_url } = await apiPost.integrationConnect(provider);
+      window.location.href = authorize_url;
+    } catch (e: any) {
+      toast.error(e.message || "فشل بدء الربط");
+    }
+  }
+
+  async function revoke(provider: string) {
+    if (!confirm("فصل الاتصال وإلغاء التوكنات؟")) return;
+    try {
+      await apiPost.integrationRevoke(provider);
+      toast.success("تم الفصل");
+      integrations.refresh();
+    } catch (e: any) {
+      toast.error(e.message || "فشل الفصل");
+    }
+  }
+
+  async function addSuppression() {
+    if (!newEntry.value.trim()) return;
+    try {
+      await apiPost.suppressionAdd(newEntry.channel, newEntry.value.trim(), newEntry.reason);
+      toast.success("تمت الإضافة لقائمة الحجب");
+      setNewEntry({ ...newEntry, value: "" });
+      suppression.refresh();
+    } catch (e: any) {
+      toast.error(e.message || "فشلت الإضافة");
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -136,6 +173,112 @@ export function IntegrationsPage() {
             </div>
           </div>
         </div>
+      </Card>
+
+      {/* ===== Platform connections (OAuth) ===== */}
+      <Card className="p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <Link2 className="h-4 w-4 text-[var(--accent)]" />
+          <h2 className="text-sm font-bold">اتصالات المنصات</h2>
+          <span className="text-[11px] text-[var(--fg-soft)]">اربط حساب Gmail أو CRM بحساب مؤسستك — التوكنات مشفرة ولا تُعرض أبدًا</span>
+          <Button size="icon-sm" variant="ghost" className="ms-auto" onClick={() => integrations.refresh()} title="تحديث">
+            <RefreshCw className={cn("h-3.5 w-3.5", integrations.loading && "animate-spin")} />
+          </Button>
+        </div>
+        <div className="grid md:grid-cols-2 gap-3">
+          {(integrations.data?.integrations ?? []).map((row) => (
+            <div key={row.provider} className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] p-3.5">
+              <div className="h-9 w-9 rounded-lg bg-[var(--bg-elev)] border border-[var(--border-soft)] flex items-center justify-center text-[var(--accent)] shrink-0">
+                <Link2 className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-[13px] capitalize">{row.provider}</span>
+                  {row.connected ? (
+                    <Badge variant="success" className="text-[10px]"><CheckCircle2 className="h-3 w-3" /> متصل</Badge>
+                  ) : row.configured ? (
+                    <Badge variant="default" className="text-[10px]">غير متصل</Badge>
+                  ) : (
+                    <Badge variant="warn" className="text-[10px]">يحتاج إعداد OAuth</Badge>
+                  )}
+                </div>
+                <div className="text-[10px] text-[var(--fg-soft)] mt-0.5 truncate" dir="ltr">
+                  {row.connected ? (row.scopes || []).join(" ") : row.provider === "linkedin" ? "لا يوجد API معتمد حاليًا" : "OAuth 2.0 — موافقة عند المزود"}
+                </div>
+              </div>
+              {row.connected ? (
+                <Button size="sm" variant="outline" onClick={() => revoke(row.provider)}>فصل</Button>
+              ) : (
+                <Button size="sm" variant="primary" disabled={!row.configured} onClick={() => connect(row.provider)}>ربط</Button>
+              )}
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* ===== Suppression list ===== */}
+      <Card className="p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <ShieldBan className="h-4 w-4 text-[var(--danger)]" />
+          <h2 className="text-sm font-bold">قائمة الحجب</h2>
+          <span className="text-[11px] text-[var(--fg-soft)]">مين ممنوع التواصل معاه — أي إرسال مستقبلي يمر عليها إلزاميًا</span>
+        </div>
+        <div className="flex flex-wrap gap-2 mb-4">
+          <select
+            value={newEntry.channel}
+            onChange={(e) => setNewEntry({ ...newEntry, channel: e.target.value })}
+            className="h-9 rounded-lg border border-[var(--border)] bg-[var(--bg-soft)] px-2.5 text-[13px]"
+          >
+            <option value="email">إيميل</option>
+            <option value="sms">SMS</option>
+            <option value="whatsapp">واتساب</option>
+            <option value="all">كل القنوات</option>
+          </select>
+          <input
+            value={newEntry.value}
+            onChange={(e) => setNewEntry({ ...newEntry, value: e.target.value })}
+            onKeyDown={(e) => { if (e.key === "Enter") addSuppression(); }}
+            placeholder="الإيميل أو الرقم"
+            dir="ltr"
+            className="flex-1 min-w-40 h-9 rounded-lg border border-[var(--border)] bg-[var(--bg-soft)] px-3 text-[13px] font-mono"
+          />
+          <select
+            value={newEntry.reason}
+            onChange={(e) => setNewEntry({ ...newEntry, reason: e.target.value })}
+            className="h-9 rounded-lg border border-[var(--border)] bg-[var(--bg-soft)] px-2.5 text-[13px]"
+          >
+            <option value="manual">حظر يدوي</option>
+            <option value="unsubscribed">إلغاء اشتراك</option>
+            <option value="bounced">فشل توصيل</option>
+            <option value="complained">شكوى</option>
+            <option value="legal">قانوني</option>
+          </select>
+          <Button size="sm" variant="primary" onClick={addSuppression} disabled={!newEntry.value.trim()}>
+            <Plus className="h-3.5 w-3.5" />
+            إضافة
+          </Button>
+        </div>
+        {(suppression.data?.entries ?? []).length === 0 ? (
+          <div className="text-center py-5 text-xs text-[var(--fg-muted)]">القائمة فاضية — أضِف من النموذج أعلاه أو تلقائيًا من نتائج فحص الإيميل</div>
+        ) : (
+          <div className="rounded-xl border border-[var(--border)] divide-y divide-[var(--border-soft)] overflow-hidden">
+            {(suppression.data?.entries ?? []).map((entry) => (
+              <div key={entry.id} className="flex items-center gap-3 px-3.5 py-2">
+                <XCircle className="h-3.5 w-3.5 text-[var(--danger)] shrink-0" />
+                <span className="font-mono text-xs" dir="ltr">{entry.value}</span>
+                <Badge variant="outline" className="text-[10px]">{entry.channel}</Badge>
+                <span className="text-[10px] text-[var(--fg-soft)]">{entry.reason}</span>
+                <button
+                  onClick={async () => { await apiPost.suppressionRemove(entry.id); suppression.refresh(); }}
+                  className="ms-auto p-1 rounded hover:bg-[var(--danger)]/15 hover:text-[var(--danger)] text-[var(--fg-soft)] transition-colors"
+                  title="إزالة"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
 
       {/* ===== Other integrations ===== */}

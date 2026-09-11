@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS providers (
 );
 CREATE TABLE IF NOT EXISTS usage_ledger (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  organization_id TEXT,
   ts TEXT NOT NULL,
   provider TEXT NOT NULL,
   task TEXT NOT NULL,
@@ -63,6 +64,7 @@ CREATE TABLE IF NOT EXISTS usage_ledger (
 );
 CREATE TABLE IF NOT EXISTS jobs (
   job_id TEXT PRIMARY KEY,
+  organization_id TEXT,
   icp_id TEXT,
   state TEXT NOT NULL,
   pause_reason TEXT,
@@ -82,6 +84,7 @@ CREATE TABLE IF NOT EXISTS job_events (
 );
 CREATE TABLE IF NOT EXISTS leads (
   lead_id TEXT PRIMARY KEY,
+  organization_id TEXT,
   job_id TEXT,
   name TEXT,
   domain TEXT,
@@ -157,6 +160,7 @@ CREATE TABLE IF NOT EXISTS agent_versions (
 );
 CREATE TABLE IF NOT EXISTS agent_runs (
     run_id TEXT PRIMARY KEY,
+    organization_id TEXT,
     agent_id TEXT NOT NULL,
     version TEXT NOT NULL,
     status TEXT NOT NULL,
@@ -205,6 +209,7 @@ CREATE TABLE IF NOT EXISTS connections (
 );
 CREATE TABLE IF NOT EXISTS approvals (
     approval_id TEXT PRIMARY KEY,
+    organization_id TEXT,
     run_id TEXT NOT NULL,
     step_id INTEGER,
     action TEXT NOT NULL,

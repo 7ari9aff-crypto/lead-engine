@@ -160,6 +160,29 @@ export type ActivityEvent = {
   correlation_id: string | null;
 };
 
+export type IntegrationRow = {
+  provider: string;
+  configured: boolean;
+  connected: boolean;
+  status: string | null;
+  scopes: string[];
+  expires_at: string | null;
+};
+
+export type SuppressionEntry = {
+  id: string;
+  channel: string;
+  value: string;
+  reason: string;
+  source: string;
+  created_at: string;
+};
+
+export type Entitlements = {
+  organization_id: string | null;
+  limits: Record<string, unknown>;
+};
+
 export type StatusResponse = {
   version: string;
   providers: ProviderRow[];
@@ -239,6 +262,12 @@ export const apiGet = {
     usage_over_time: { date: string; units: number; calls: number }[];
   }>("/api/analytics"),
   keysUsage: () => api.get<KeyUsageResponse>("/api/keys/usage"),
+  integrations: () => api.get<{ integrations: IntegrationRow[] }>("/api/v1/integrations"),
+  suppression: (channel?: string) =>
+    api.get<{ entries: SuppressionEntry[] }>(
+      `/api/v1/suppression${channel ? `?channel=${encodeURIComponent(channel)}` : ""}`
+    ),
+  entitlements: () => api.get<Entitlements>("/api/v1/entitlements"),
   keys: () => api.get<{
     env_path: string;
     groups: Record<string, string>;
@@ -305,4 +334,12 @@ export const apiPost = {
     api.post<{ version: any; activated: any }>(`/api/agents/${encodeURIComponent(slug)}/versions`, body),
   recordActivity: (body: {kind: string, payload: any, correlation_id?: string}) =>
     api.post<{event: ActivityEvent}>("/api/activity", body),
+  integrationConnect: (provider: string) =>
+    api.post<{ authorize_url: string }>(`/api/v1/integrations/${encodeURIComponent(provider)}/connect`, {}),
+  integrationRevoke: (provider: string) =>
+    api.post<{ ok: boolean }>(`/api/v1/integrations/${encodeURIComponent(provider)}/revoke`, {}),
+  suppressionAdd: (channel: string, value: string, reason: string) =>
+    api.post<{ id?: string }>("/api/v1/suppression", { channel, value, reason }),
+  suppressionRemove: (id: string) =>
+    api.delete<{ ok: boolean }>(`/api/v1/suppression/${encodeURIComponent(id)}`),
 };

@@ -33,6 +33,7 @@ from ..config import (
 )
 from ..db import open_db, Database
 from ..agent_registry import AgentRegistry
+from .policy_api import router as policy_router
 from ..jobs import PAUSED, JobManager
 from ..providers.email import VerificationPipeline
 from ..registry import Registry
@@ -799,8 +800,18 @@ def api_jobs_start(req: RunRequest, background: BackgroundTasks,
         raise HTTPException(status_code=404, detail=f"ICP غير موجود: {req.icp}")
     with RUN_LOCK:  # one engine run at a time (sqlite + provider sanity)
         job_id = JobManager(db).create_job(req.icp)
-    background.add_task(_run_background_job, req.icp, job_id, req.seed_csv)
-    return {"job_id": job_id, "state": "QUEUED"}
+    from ..queue import enqueue, platform_mode
+    from ..entitlements import check_job_start
+
+    org_id = os.environ.get("LEAD_ENGINE_ORG_ID")
+    allowed, reason = check_job_start(db, org_id)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=reason)
+    if platform_mode():
+        enqueue(db, job_id)  # the worker fleet executes it
+    else:
+        background.add_task(_run_background_job, req.icp, job_id, req.seed_csv)
+    return {"job_id": job_id, "state": "QUEUED", "mode": "queue" if platform_mode() else "inline"}
 
 
 def _run_background_job(icp_name: str, job_id: str, seed_csv: str | None):
@@ -1107,6 +1118,8 @@ def api_data_reset(db: Database = Depends(get_db)):
     return {"ok": True}
 
 
+app.include_router(policy_router)
+
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 # React build assets live under /assets/ (relative to root) for the modern
 # dashboard served from the same origin as the API.
@@ -1133,6 +1146,10 @@ def dashboard():
 # ===== Mount feature routers (added by multi-domain refactor) =====
 from ..activity import get_router as _activity_router
 app.include_router(_activity_router())
+
+# OAuth Integration Platform (Phase 2) — connect/callback/revoke per provider
+from .integrations_api import router as integrations_router
+app.include_router(integrations_router)
 
 
 # SPA fallback — any non-API path that didn't match above returns the SPA
