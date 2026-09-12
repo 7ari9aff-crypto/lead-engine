@@ -53,7 +53,14 @@ def validate_supabase_jwt(token: str) -> dict | None:
         return jwt.decode(
             token, signing_key.key, algorithms=["ES256", "RS256", "EdDSA"],
             audience="authenticated")
+    except jwt.InvalidTokenError:
+        return None  # bad/expired/foreign token -> reject this session
     except Exception:
+        # JWKS/network/infra failure is NOT a rejection: surface it loudly
+        # instead of silently treating a possibly-valid token as absent.
+        import logging
+
+        logging.getLogger("lead_engine.auth").exception("jwt validation infra failure")
         return None
 
 
@@ -83,12 +90,20 @@ def resolve_org_id(claims: dict, db) -> str | None:
 
 
 def auth_mode() -> str:
-    """Which login surface the dashboard should show."""
+    """Which login surface the dashboard should show.
+
+    Fail-closed: with no auth backend configured the default is "closed"
+    (every protected request 401s). An explicit LEAD_ENGINE_DEV_OPEN=1 is
+    required to run open — and is ignored when the environment is flagged
+    as production."""
     if supabase_url():
         return "supabase"
     if os.environ.get("LEAD_ENGINE_ADMIN_PASSWORD"):
         return "password"
-    return "open"
+    if (os.environ.get("LEAD_ENGINE_DEV_OPEN") == "1"
+            and os.environ.get("LEAD_ENGINE_ENV") != "production"):
+        return "open"
+    return "closed"
 
 
 def token_expired(claims: dict) -> bool:

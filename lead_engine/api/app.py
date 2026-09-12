@@ -105,11 +105,19 @@ async def admin_session_guard(request: Request, call_next):
         # Legacy cookie sessions are valid ONLY in non-Supabase modes. With
         # Supabase configured, an anonymous request must never fall through
         # just because no admin password is set (valid_session would say ok).
+        mode = auth_jwt.auth_mode()
+        if mode == "closed":
+            return JSONResponse({"detail": "authentication required"}, status_code=401)
+        # MCP machine clients authenticate with a dedicated static token
+        # (LEAD_ENGINE_MCP_TOKEN) instead of a user session.
+        mcp_ok = bool(path.startswith("/mcp")
+                      and os.environ.get("LEAD_ENGINE_MCP_TOKEN")
+                      and token == os.environ.get("LEAD_ENGINE_MCP_TOKEN"))
         legacy_ok = (
-            auth_jwt.auth_mode() != "supabase"
+            mode in ("open", "password")
             and valid_session(request.cookies.get(COOKIE_NAME))
         )
-        if claims is None and not legacy_ok:
+        if claims is None and not mcp_ok and not legacy_ok:
             return JSONResponse({"detail": "authentication required"}, status_code=401)
         # Request-scoped tenant context: downstream handlers resolve the org
         # from the verified token subject instead of the env bridge.
