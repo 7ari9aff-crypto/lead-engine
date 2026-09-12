@@ -189,7 +189,7 @@ export function OverviewPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <MetricCard
           icon={<CheckCircle2 className="h-5 w-5" />}
-          label="Leads مقبولة"
+          label="عملاء مقبولون"
           value={formatNumber(leadsAccepted)}
           color="success"
           trend={leadsTrend}
@@ -209,7 +209,7 @@ export function OverviewPage() {
         />
         <MetricCard
           icon={<Cpu className="h-5 w-5" />}
-          label="استهلاك الـunits"
+          label="وحدات مستهلكة"
           value={formatNumber(totalUnits)}
           color="accent"
           trend={usageTrend}
@@ -222,7 +222,7 @@ export function OverviewPage() {
           <CardHeader>
             <CardTitle>
               <TrendingUp className="h-4 w-4 text-[var(--accent)]" />
-              الـLeads عبر الوقت
+              العملاء المحتملون عبر الوقت
             </CardTitle>
             <CardDescription>آخر 30 يوم</CardDescription>
           </CardHeader>
@@ -242,7 +242,7 @@ export function OverviewPage() {
               <Activity className="h-4 w-4 text-[var(--accent)]" />
               استهلاك المزوّدين
             </CardTitle>
-            <CardDescription>أعلى المزوّدين استهلاكًا للـunits</CardDescription>
+            <CardDescription>أعلى المزوّدين استهلاكًا للوحدات</CardDescription>
           </CardHeader>
           <CardContent>
             <UsageBarChart data={usage} />
@@ -536,7 +536,7 @@ function LeadsAreaChart({ data }: { data: { date: string; count: number }[] }) {
             stroke="var(--accent)"
             strokeWidth={2}
             fill="url(#leadsGradient)"
-            name="Leads"
+            name="عملاء"
           />
         </AreaChart>
       </ResponsiveContainer>

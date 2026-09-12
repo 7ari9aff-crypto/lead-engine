@@ -9,7 +9,7 @@ export function Footer() {
           <div className="h-5 w-5 rounded bg-[image:var(--gradient)] flex items-center justify-center">
             <Zap className="h-3 w-3 text-white" />
           </div>
-          <span className="font-medium gradient-text">محرّك الـLeads</span>
+          <span className="font-medium gradient-text">Lead Engine</span>
           <span className="text-[var(--fg-soft)]">v1.0</span>
         </div>
 

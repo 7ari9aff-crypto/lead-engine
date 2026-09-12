@@ -1,0 +1,54 @@
+name: sync-frontend-static
+
+# The FastAPI (and the Vercel Python runtime) serve the dashboard from
+# lead_engine/static. This workflow rebuilds the frontend on every main push
+# and commits the refreshed build, so production can never serve a stale UI.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "lead_engine/static/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install and build frontend
+        working-directory: web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Copy build into served static folder
+        run: |
+          rm -rf lead_engine/static/assets
+          cp -r web/dist/assets lead_engine/static/assets
+          cp web/dist/index.html lead_engine/static/index.html
+
+      - name: Commit refreshed static build
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [[ -n "$(git status --porcelain lead_engine/static)" ]]; then
+            git add lead_engine/static
+            git commit -m "chore: sync frontend build into lead_engine/static [skip ci]"
+            git push
+          else
+            echo "static already up to date"
+          fi
