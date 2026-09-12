@@ -118,6 +118,13 @@ class PgDatabase:
             dsn, row_factory=dict_row, autocommit=False,
             options="-c search_path=engine", prepare_threshold=None,
         )
+        # Database-layer tenant isolation (RLS): declare the tenant for this
+        # connection; policies on engine.* enforce it even if app code errs.
+        if self.org_id and not str(self.org_id).startswith("__"):
+            with self.conn.cursor() as cur:
+                cur.execute("select set_config('app.current_org', %s, false)",
+                            (str(self.org_id),))
+            self.conn.commit()
 
     # -- low level ------------------------------------------------------
     def execute(self, sql: str, params=()):

@@ -125,6 +125,22 @@ async def admin_session_guard(request: Request, call_next):
     return await call_next(request)
 
 
+def require_admin(request: Request = None, db: Database = None):
+    """RBAC guard for mutating management endpoints. Token-less contexts
+    (worker/n8n) pass through on the env bridge; token'd callers must be
+    owner/admin of their active organization."""
+    if request is None or db is None:
+        return
+    claims = getattr(request.state, "claims", None)
+    if not claims:
+        return
+    from . import auth_jwt
+
+    if not auth_jwt.is_admin(claims, db):
+        raise HTTPException(status_code=403,
+                            detail="العملية دي محتاجة صلاحية مالك أو مشرف")
+
+
 def _org_clause(db, column: str = "organization_id") -> tuple[str, list]:
     """SQL predicate limiting reads to the caller's tenant. Rows without an
     org (platform/legacy) are excluded once a tenant context exists."""
@@ -149,6 +165,10 @@ def get_db(request: Request = None):
                 resolved = auth_jwt.resolve_org_id(claims, db)
                 if resolved:
                     db.org_id = resolved
+                else:
+                    # Authenticated but belongs to no organization: never let
+                    # the env bridge act as their tenant.
+                    db.org_id = "__no_org__"
         yield db
     finally:
         db.conn.close()
@@ -842,7 +862,8 @@ def api_provider_status(name: str, task: str, req: ProviderStatusRequest,
 
 
 @app.post("/api/providers/{name}/{task}/reset")
-def api_provider_reset(name: str, task: str, db: Database = Depends(get_db)):
+def api_provider_reset(name: str, task: str, request: Request, db: Database = Depends(get_db)):
+    require_admin(request, db)
     """Clear quota usage + cooldown for a provider (e.g. after a monthly
     reset that the engine missed, or for testing)."""
     cur = db.execute(
@@ -879,7 +900,8 @@ def _deep_merge(base: dict, patch: dict) -> dict:
 
 
 @app.put("/api/config/{key}")
-def api_config_update(key: str, req: dict, db: Database = Depends(get_db)):
+def api_config_update(key: str, req: dict, request: Request, db: Database = Depends(get_db)):
+    require_admin(request, db)
     path = CONFIG_FILES.get(key)
     if not path:
         raise HTTPException(status_code=404, detail="unknown config key")
@@ -1017,7 +1039,8 @@ def api_keys_list():
 
 
 @app.post("/api/keys")
-def api_keys_save(req: dict, db: Database = Depends(get_db)):
+def api_keys_save(req: dict, request: Request, db: Database = Depends(get_db)):
+    require_admin(request, db)
     """Save provided keys to .env + activate them in the running process.
     Empty string clears a key. Response contains masked values only."""
     updates = {}
@@ -1237,7 +1260,8 @@ def api_keys_usage(db: Database = Depends(get_db)):
 
 
 @app.post("/api/data/reset")
-def api_data_reset(db: Database = Depends(get_db)):
+def api_data_reset(request: Request, db: Database = Depends(get_db)):
+    require_admin(request, db)
     """Wipe generated data (jobs, leads, evidence, cache, usage) for the
     CALLING tenant only. The provider registry is kept. With no tenant
     context (single-org dev), only unscoped rows are removed — never other

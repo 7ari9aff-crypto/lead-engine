@@ -74,19 +74,27 @@ def bearer_token(request_headers) -> str | None:
 
 def resolve_org_id(claims: dict, db) -> str | None:
     """Active organization for the token subject (first membership)."""
+    return (resolve_membership(claims, db) or {}).get("organization_id")
+
+
+def resolve_membership(claims: dict, db) -> dict | None:
+    """First membership for the token subject: organization_id + role."""
     sub = (claims or {}).get("sub")
-    if not sub or not claims.get("email"):
-        # anonymous/mobile tokens carry no email — still allow sub lookup
-        sub = sub or (claims or {}).get("sub")
     if not sub:
         return None
     try:
         row = db.one(
-            "SELECT organization_id FROM public.organization_members WHERE user_id = ?"
-            " ORDER BY created_at LIMIT 1", (sub,))
+            "SELECT organization_id, role FROM public.organization_members"
+            " WHERE user_id = ? ORDER BY created_at LIMIT 1", (sub,))
     except Exception:
         return None
-    return row["organization_id"] if row else None
+    return dict(row) if row else None
+
+
+def is_admin(claims: dict, db) -> bool:
+    """Owner or admin for the token's active organization."""
+    m = resolve_membership(claims, db) or {}
+    return m.get("role") in ("owner", "admin")
 
 
 def auth_mode() -> str:
