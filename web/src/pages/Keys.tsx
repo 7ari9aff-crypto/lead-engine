@@ -254,6 +254,8 @@ function ProviderCard({ row, statusRows, onChanged }: {
       await apiPost.saveKeys({ [row.env_key]: "" });
       toast.success("تمت إزالة المفاتيح");
       onChanged();
+    } catch (e) {
+      toast.error(friendlyError(e));
     } finally {
       setSaving(false);
     }
@@ -367,9 +369,13 @@ function ProviderCard({ row, statusRows, onChanged }: {
                 <Switch
                   checked={enabled}
                   onCheckedChange={async (checked) => {
-                    await apiPost.providerSetStatus(main.name, main.task, checked ? "active" : "disabled");
-                    toast.success(checked ? "تم التفعيل" : "تم التعطيل — الروتر سيتخطاه");
-                    onChanged();
+                    try {
+                      await apiPost.providerSetStatus(main.name, main.task, checked ? "active" : "disabled");
+                      toast.success(checked ? "تم التفعيل" : "تم التعطيل — الروتر سيتخطاه");
+                      onChanged();
+                    } catch (e) {
+                      toast.error(friendlyError(e));
+                    }
                   }}
                 />
               </div>
@@ -392,11 +398,15 @@ function ProviderCard({ row, statusRows, onChanged }: {
                   <Button
                     size="sm" variant="outline"
                     onClick={async () => {
-                      const base = (document.getElementById(`base-${row.provider}`) as HTMLInputElement)?.value ?? "";
-                      const model = (document.getElementById(`model-${row.provider}`) as HTMLInputElement)?.value ?? "";
-                      await apiPost.providerConfig(main.name, main.task, { base_url: base, model_name: model });
-                      toast.success("تم حفظ إعدادات المزود");
-                      onChanged();
+                      try {
+                        const base = (document.getElementById(`base-${row.provider}`) as HTMLInputElement)?.value ?? "";
+                        const model = (document.getElementById(`model-${row.provider}`) as HTMLInputElement)?.value ?? "";
+                        await apiPost.providerConfig(main.name, main.task, { base_url: base, model_name: model });
+                        toast.success("تم حفظ إعدادات المزود");
+                        onChanged();
+                      } catch (e) {
+                        toast.error(friendlyError(e));
+                      }
                     }}
                   >
                     <Save className="h-3 w-3" /> حفظ الإعدادات
@@ -404,9 +414,13 @@ function ProviderCard({ row, statusRows, onChanged }: {
                   <Button
                     size="sm" variant="ghost"
                     onClick={async () => {
-                      await apiPost.providerReset(main.name, main.task);
-                      toast.success("تم تصفير الاستهلاك والحالة");
-                      onChanged();
+                      try {
+                        await apiPost.providerReset(main.name, main.task);
+                        toast.success("تم تصفير الاستهلاك والحالة");
+                        onChanged();
+                      } catch (e) {
+                        toast.error(friendlyError(e));
+                      }
                     }}
                   >
                     <RotateCcw className="h-3 w-3" /> تصفير الحصة

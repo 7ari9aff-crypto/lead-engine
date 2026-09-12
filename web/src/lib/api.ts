@@ -243,6 +243,7 @@ export const apiGet = {
     const q = new URLSearchParams();
     if (params.job_id) q.set("job_id", params.job_id);
     if (params.stage) q.set("stage", params.stage);
+    if (params.limit) q.set("limit", String(params.limit));
     return api.get<LeadRow[]>(`/api/leads?${q.toString()}`);
   },
   config: async (): Promise<{ files: Record<string, { path: string; text: string; parsed: any }> }> => {

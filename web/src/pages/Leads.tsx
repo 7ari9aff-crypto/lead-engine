@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import {
   Database,
   Download,
@@ -56,12 +56,18 @@ export function LeadsPage() {
   const [saved, setSaved] = useState<SavedSearch[]>(loadSaved);
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
-  const [selected, setSelected] = useState<Set<number>>(new Set());
+  // Selection is keyed by stable lead identity (NOT row index) so polling
+  // refetches or filter changes can never re-point a selection at another row.
+  const leadKey = (l: LeadRow, i: number) => l.lead_id || `${l.name}|${l.job_id}|${i}`;
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [drawerLead, setDrawerLead] = useState<LeadRow | null>(null);
   const [bulkBusy, setBulkBusy] = useState<string | null>(null);
+  const [bulkProgress, setBulkProgress] = useState<string | null>(null);
 
   const leads = data ?? [];
   const jobs = Array.from(new Set(leads.map((l) => l.job_id).filter(Boolean))) as string[];
+
+  useEffect(() => { setSelected(new Set()); }, [search, stage, jobId]);
 
   const filtered = useMemo(() => {
     return leads.filter((l) => {
@@ -126,27 +132,33 @@ export function LeadsPage() {
     downloadFile(`leads${suffix}_${Date.now()}.csv`, csv, "text/csv;charset=utf-8");
   }
 
-  const selectedRows = filtered.filter((_, i) => selected.has(i));
+  const selectedRows = filtered.filter((l, i) => selected.has(leadKey(l, i)));
 
   function toggleAll() {
-    if (selected.size === filtered.length) setSelected(new Set());
-    else setSelected(new Set(filtered.map((_, i) => i)));
+    if (selectedRows.length === filtered.length && filtered.length > 0) setSelected(new Set());
+    else setSelected(new Set(filtered.map((l, i) => leadKey(l, i))));
   }
 
   async function bulkVerify() {
     setBulkBusy("verify");
+    const targets = selectedRows.filter((l) => l.email);
     let ok = 0, bad = 0;
-    for (const l of selectedRows) {
-      if (!l.email) continue;
+    for (const l of targets) {
       try {
-        await apiPost.verifyEmail(l.email);
+        await apiPost.verifyEmail(l.email!);
         ok += 1;
       } catch {
         bad += 1;
       }
+      setBulkProgress(`${ok + bad}/${targets.length}`);
     }
     setBulkBusy(null);
-    toast.success(`تم فحص ${ok} إيميل${bad ? ` — وفشل ${bad}` : ""}، والنتائج بتتحدث في القايمة`);
+    setBulkProgress(null);
+    if (ok === 0 && targets.length > 0) {
+      toast.error("كل محاولات الفحص فشلت — راجع مفاتيح مزود التحقق أو جرّب تاني");
+    } else {
+      toast.success(`تم فحص ${ok} إيميل${bad ? ` — وفشل ${bad}` : ""}، والنتائج بتتحدث في القايمة`);
+    }
     refresh();
   }
 
@@ -200,7 +212,7 @@ export function LeadsPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="ابحث بالاسم، المدينة، الإيميل…"
-                className="pe-10"
+                className="ps-10"
               />
             </div>
             <Select value={stage} onChange={(e) => setStage(e.target.value)} className="w-40">
@@ -293,7 +305,7 @@ export function LeadsPage() {
               title="فحص إيميلات العملاء المحددة واحدًا واحدًا"
             >
               {bulkBusy === "verify" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MailCheck className="h-3.5 w-3.5" />}
-              فحص المحدد
+              فحص المحدد{bulkProgress ? ` ${bulkProgress}` : ""}
             </Button>
             <Button
               variant="ghost"
@@ -333,7 +345,7 @@ export function LeadsPage() {
                     <th className="w-8">
                       <input
                         type="checkbox"
-                        checked={selected.size === filtered.length && filtered.length > 0}
+                        checked={selectedRows.length === filtered.length && filtered.length > 0}
                         onChange={toggleAll}
                         className="accent-[var(--accent)]"
                         title="تحديد الكل"
@@ -352,13 +364,14 @@ export function LeadsPage() {
                 <tbody>
                   {filtered.map((l, i) => (
                     <LeadRowBlock
-                      key={l.lead_id || i}
+                      key={leadKey(l, i)}
                       lead={l}
-                      selected={selected.has(i)}
+                      selected={selected.has(leadKey(l, i))}
                       onToggleSelect={() => {
                         const next = new Set(selected);
-                        if (next.has(i)) next.delete(i);
-                        else next.add(i);
+                        const k = leadKey(l, i);
+                        if (next.has(k)) next.delete(k);
+                        else next.add(k);
                         setSelected(next);
                       }}
                       onOpenDrawer={() => setDrawerLead(l)}

@@ -62,7 +62,9 @@ export function copy(text: string) {
 }
 
 export function downloadFile(filename: string, content: string, mime = "text/csv") {
-  const blob = new Blob([content], { type: mime });
+  // BOM so Excel opens Arabic CSV without mojibake
+  const payload = mime.includes("csv") ? "﻿" + content : content;
+  const blob = new Blob([payload], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

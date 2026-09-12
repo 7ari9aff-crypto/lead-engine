@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   Zap, Mail, Lock, Eye, EyeOff, User as UserIcon, ArrowRight,
@@ -87,12 +87,15 @@ export function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [resetSent, setResetSent] = useState(false);
 
-  useState(() => {
+  useEffect(() => {
+    let alive = true;
     apiGet.authSession().then((r) => {
+      if (!alive) return;
       setMode((r.mode as any) || "open");
       if (r.authenticated) navigate("/");
-    }).catch(() => setMode("open"));
-  });
+    }).catch(() => { if (alive) setMode("open"); });
+    return () => { alive = false; };
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -169,7 +172,7 @@ export function LoginPage() {
                 <Mail className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--fg-soft)]" />
                 <Input
                   type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@company.com" dir="ltr" className="pe-10" required autoFocus
+                  placeholder="name@company.com" dir="ltr" className="ps-10" required autoFocus
                 />
               </div>
             </div>
@@ -266,7 +269,7 @@ export function SignupPage() {
               <UserIcon className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--fg-soft)]" />
               <Input
                 value={name} onChange={(e) => setName(e.target.value)}
-                placeholder="اسمك الكامل" className="pe-10" required autoFocus
+                placeholder="اسمك الكامل" className="ps-10" required autoFocus
               />
             </div>
           </div>
@@ -276,7 +279,7 @@ export function SignupPage() {
               <Mail className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--fg-soft)]" />
               <Input
                 type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                placeholder="name@company.com" dir="ltr" className="pe-10" required
+                placeholder="name@company.com" dir="ltr" className="ps-10" required
               />
             </div>
           </div>
