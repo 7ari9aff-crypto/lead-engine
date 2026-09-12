@@ -7,6 +7,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/utils";
+import { friendlyError, toolLabel, describeToolArgs } from "@/lib/friendly";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import ReactMarkdown from "react-markdown";
@@ -272,7 +273,7 @@ export function ChatPage() {
       updateMsg(session.id, pendingId, {
         content: "",
         pending: false,
-        error: e.message || "حدث خطأ",
+        error: friendlyError(e),
       });
       toast.error("فشل الاتصال بالمساعد");
     } finally {
@@ -511,7 +512,7 @@ export function ChatPage() {
                                   {selected && <Check className="h-3.5 w-3.5 text-[var(--accent)]" />}
                                 </span>
                                 <span className="block text-[11px] text-[var(--fg-muted)] mt-0.5 truncate">
-                                  {a.description || `slug: ${a.slug}`}
+                                  {a.description || "وكيل مخصص من إعداداتك"}
                                 </span>
                               </span>
                             </button>
@@ -742,13 +743,17 @@ function MessageBubble({ msg }: { msg: Msg }) {
                     ) : (
                       <XCircle className="h-3.5 w-3.5 text-[var(--danger)]" />
                     )}
-                    <span dir="ltr" className="font-mono">{t.name}</span>
+                    <span>{toolLabel(t.name)}</span>
                   </div>
-                  {Object.keys(t.args || {}).length > 0 && (
-                    <pre className="mt-1.5 text-[11px] text-[var(--fg-muted)] whitespace-pre-wrap">{JSON.stringify(t.args, null, 2)}</pre>
+                  {describeToolArgs(t.args).length > 0 && (
+                    <div className="mt-1.5 text-[11px] text-[var(--fg-muted)] space-y-0.5">
+                      {describeToolArgs(t.args).map((line, j) => (
+                        <div key={j}>{line}</div>
+                      ))}
+                    </div>
                   )}
                   {t.summary && (
-                    <pre className="mt-1.5 text-[11px] text-[var(--fg-muted)] whitespace-pre-wrap max-h-32 overflow-auto">{t.summary}</pre>
+                    <div className="mt-1.5 text-[11px] text-[var(--fg-muted)] whitespace-pre-wrap max-h-32 overflow-auto">{t.summary}</div>
                   )}
                 </div>
               ))}

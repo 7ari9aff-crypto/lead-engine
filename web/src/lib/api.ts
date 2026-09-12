@@ -244,14 +244,9 @@ export const apiGet = {
     if (params.stage) q.set("stage", params.stage);
     return api.get<LeadRow[]>(`/api/leads?${q.toString()}`);
   },
-  config: async (): Promise<{ files: { path: string; content: string }[] }> => {
-    const r = await api.get<Record<string, { path: string; text: string }>>("/api/config");
-    return {
-      files: Object.entries(r).map(([key, val]) => ({
-        path: val.path,
-        content: val.text,
-      })),
-    };
+  config: async (): Promise<{ files: Record<string, { path: string; text: string; parsed: any }> }> => {
+    const r = await api.get<Record<string, { path: string; text: string; parsed: any }>>("/api/config");
+    return { files: r };
   },
   report: (id: string) => api.get<{ job_id: string; metrics: any; report_markdown: string }>(`/report/${encodeURIComponent(id)}`),
   health: () => api.get<any>("/health"),
@@ -308,6 +303,8 @@ export const apiPost = {
   saveKeys: (keys: Record<string, string>) => api.post<{ ok: boolean; saved: string[] }>(`/api/keys`, keys),
   saveConfig: (key: string, text: string) =>
     api.put<{ ok: boolean; backup: string }>(`/api/config/${key}`, { text }),
+  saveConfigValues: (key: string, values: Record<string, any>) =>
+    api.put<{ ok: boolean; backup: string }>(`/api/config/${key}`, { values }),
   providerSetStatus: (name: string, task: string, status: "active" | "disabled") =>
     api.post<{ ok: boolean }>(`/api/providers/${encodeURIComponent(name)}/${encodeURIComponent(task)}/status`, { status }),
   providerReset: (name: string, task: string) =>

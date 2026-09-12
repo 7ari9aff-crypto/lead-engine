@@ -22,6 +22,7 @@ import { Input, Select } from "@/components/ui/Input";
 import { useLiveData } from "@/hooks/useLiveData";
 import { apiGet } from "@/lib/api";
 import { downloadFile, formatNumber, truncate, cn } from "@/lib/utils";
+import { ICP_LABELS } from "@/lib/friendly";
 import { Spinner, EmptyState } from "@/components/ui/EmptyState";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatCard } from "@/components/ui/FilterPills";
@@ -78,7 +79,7 @@ export function LeadsPage() {
     <div className="space-y-6">
       <PageHeader
         icon={<Database className="h-4 w-4 text-[var(--accent)]" />}
-        title="الـLeads"
+        title="العملاء المحتملون"
         description={`${formatNumber(stats.total)} إجمالي · ${formatNumber(stats.accepted)} مقبولة · ${formatNumber(stats.review)} مراجعة · ${formatNumber(stats.rejected)} مرفوضة`}
         action={
           <Button variant="primary" onClick={exportCSV} disabled={filtered.length === 0}>
@@ -119,7 +120,7 @@ export function LeadsPage() {
               <option value="">كل المهام</option>
               {jobs.map((j) => (
                 <option key={j} value={j!}>
-                  {truncate(j!, 30)}
+                  {ICP_LABELS[j!] ?? "مهمة توليد عملاء"}
                 </option>
               ))}
             </Select>
@@ -137,8 +138,8 @@ export function LeadsPage() {
           ) : filtered.length === 0 ? (
             <EmptyState
               icon={<Database className="h-8 w-8" />}
-              title="لا توجد leads"
-              description="شغّل مهمة من تبويب المهام لتوليد leads"
+              title="لا يوجد عملاء محتملون بعد"
+              description="شغّل مهمة من صفحة المهام وستظهر النتائج هنا تلقائيًا"
             />
           ) : (
             <div className="overflow-x-auto">
@@ -202,7 +203,7 @@ export function LeadsPage() {
                             </a>
                             {l.email_status && (
                               <Badge variant={l.email_status === "DELIVERABLE" ? "success" : "warn"} className="text-[9px] w-fit">
-                                {l.email_status}
+                                {l.email_status === "DELIVERABLE" ? "صالح" : l.email_status === "INVALID" ? "غير صالح" : "محتاج مراجعة"}
                               </Badge>
                             )}
                           </div>
@@ -226,7 +227,7 @@ export function LeadsPage() {
                             <span className="font-bold tabular-nums text-sm">{l.score.toFixed(0)}</span>
                             {l.tier && (
                               <Badge variant="outline" className="text-[9px]">
-                                {l.tier}
+                                {l.tier.toUpperCase().startsWith("A") ? "ممتاز" : l.tier.toUpperCase().startsWith("B") ? "جيد" : "عادي"}
                               </Badge>
                             )}
                           </div>
@@ -239,11 +240,11 @@ export function LeadsPage() {
                           variant={l.stage === "ACCEPTED" ? "success" : l.stage === "REVIEW" ? "warn" : "danger"}
                         >
                           <StatusDot status={l.stage} />
-                          {l.stage}
+                          {l.stage === "ACCEPTED" ? "مقبول" : l.stage === "REVIEW" ? "مراجعة" : "مرفوض"}
                         </Badge>
                       </td>
                       <td className="text-xs text-[var(--fg-muted)]">
-                        {l.legal_status || "—"}
+                        {l.legal_status === "ALLOWED" ? "مسموح" : l.legal_status === "BLOCKED" ? "محجوب" : "خلال الحدود المسموحة"}
                       </td>
                     </tr>
                   ))}

@@ -52,7 +52,6 @@ const NAV_SECTIONS = [
 const EXTERNAL = [
   { href: "/welcome", label: "صفحة الترحيب", icon: Sparkles },
   { href: "/pricing", label: "الأسعار", icon: KeyRound },
-  { href: "/docs", label: "التوثيق", icon: BookOpen },
 ];
 
 export function Sidebar() {

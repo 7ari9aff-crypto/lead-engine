@@ -54,8 +54,8 @@ const PILLARS: Pillar[] = [
   },
   {
     icon: Check,
-    title: "APIs حقيقية 100%",
-    desc: "كل البيانات والتكاملات من APIs مدفوعة فعلاً — لا placeholders ولا mocks في الـ demos.",
+    title: "بيانات حقيقية 100%",
+    desc: "كل البيانات والتكاملات من مصادر حقيقية مدفوعة — لا بيانات وهمية في أي عرض.",
     color: "var(--warn)",
   },
 ];
@@ -170,7 +170,7 @@ export function WelcomePage() {
             </span>
           </h1>
           <p className="text-lg sm:text-xl text-[var(--fg-muted)] max-w-2xl mx-auto mb-10 leading-relaxed">
-            وصّل، اضبط، شغّل. بدون كود، بدون فريق تقني — وكلاء حقيقيين على APIs
+            وصّل، اضبط، شغّل. بدون كود وبدون فريق تقني — وكلاء حقيقيين يعملون بمفاتيحك
             حقيقية تشتغل بالنيابة عنك.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3">

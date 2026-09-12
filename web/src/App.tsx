@@ -15,7 +15,6 @@ import { IntegrationsPage } from "@/pages/Integrations";
 import { AgentsPage } from "@/pages/Agents";
 import { WelcomePage } from "@/pages/Welcome";
 import { PricingPage } from "@/pages/Pricing";
-import { DocsPage } from "@/pages/Docs";
 import { ActivityPage } from "@/pages/Activity";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/Button";
@@ -24,6 +23,7 @@ import { Footer } from "@/components/layout/Footer";
 import { BackToTop } from "@/components/layout/BackToTop";
 import { Input } from "@/components/ui/Input";
 import { apiGet, apiPost } from "@/lib/api";
+import { friendlyError } from "@/lib/friendly";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 
@@ -41,7 +41,6 @@ export default function App() {
         {/* Public marketing pages — no sidebar */}
         <Route path="/welcome" component={WelcomePage} />
         <Route path="/pricing" component={PricingPage} />
-        <Route path="/docs" component={DocsPage} />
 
         {/* Dashboard layout with sidebar */}
         <Route>
@@ -124,8 +123,8 @@ function AuthGate({ children }: { children: ReactNode }) {
       if (error) throw error;
       const result = await apiGet.authSession();
       setAuthenticated(result.authenticated);
-    } catch (error: any) {
-      toast.error(error.message || "بيانات الدخول غير صحيحة");
+    } catch (error: unknown) {
+      toast.error(friendlyError(error));
     } finally {
       setLoading(false);
     }
@@ -138,8 +137,8 @@ function AuthGate({ children }: { children: ReactNode }) {
       await apiPost.login(password);
       setAuthenticated(true);
       setPassword("");
-    } catch (error: any) {
-      toast.error(error.message || "بيانات الدخول غير صحيحة");
+    } catch (error: unknown) {
+      toast.error(friendlyError(error));
     } finally {
       setLoading(false);
     }
@@ -150,7 +149,7 @@ function AuthGate({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-[60vh] flex items-center justify-center">
       <form onSubmit={isSupabase ? supabaseLogin : login} className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-6 shadow-[var(--shadow)]">
-        <div className="text-xs font-semibold text-[var(--accent)] mb-2">Lead Engine Control Plane</div>
+        <div className="text-xs font-semibold text-[var(--accent)] mb-2">Lead Engine</div>
         <h1 className="text-xl font-bold mb-2">تسجيل الدخول</h1>
         <p className="text-sm text-[var(--fg-muted)] mb-5">
           {isSupabase ? "ادخل بحساب المنصة — لكل مستأجر مساحته الخاصة." : "أدخل كلمة مرور لوحة التحكم للمتابعة."}
@@ -221,7 +220,7 @@ class ErrorBoundary extends Component<
             </div>
             <h1 className="text-2xl font-bold mb-2">حدث خطأ غير متوقع</h1>
             <p className="text-sm text-[var(--fg-muted)] mb-6">
-              {this.state.error?.message || "حصل خطأ في التطبيق. حاول تحدّث الصفحة."}
+              حصل خطأ في التطبيق — جرّب تحدّث الصفحة، ولو تكرر جرّب من تاني بعد لحظات.
             </p>
             <div className="flex gap-2 justify-center">
               <Button

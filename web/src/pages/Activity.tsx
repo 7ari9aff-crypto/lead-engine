@@ -18,6 +18,7 @@ import { apiGet, type ActivityEvent } from "@/lib/api";
 import { useLiveData } from "@/hooks/useLiveData";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { describePayload } from "@/lib/friendly";
 
 type FilterMode = "all" | "job." | "agent." | "approval.";
 
@@ -42,25 +43,31 @@ function toneForKind(kind: string): "info" | "accent" | "warn" | "default" {
   return "default";
 }
 
+const KIND_LABELS: Record<string, string> = {
+  "job.started": "بدأت مهمة",
+  "job.completed": "اكتملت مهمة",
+  "job.paused": "توقفت مهمة مؤقتًا",
+  "job.failed": "فشلت مهمة",
+  "agent.started": "بدأ الوكيل",
+  "agent.finished": "أنهى الوكيل",
+  "agent.failed": "فشل الوكيل",
+  "approval.requested": "طلب موافقة",
+  "approval.approved": "تمت الموافقة",
+  "approval.rejected": "تم الرفض",
+  "lead.accepted": "قُبل عميل محتمل",
+  "lead.rejected": "رُفض عميل محتمل",
+};
+
 function displayLabel(kind: string): string {
-  // job.started → Job · started
-  return kind
-    .split(".")
-    .map((seg) => (seg ? seg.charAt(0).toUpperCase() + seg.slice(1) : seg))
-    .join(" · ");
+  return KIND_LABELS[kind] ?? kind.replace(/[._]/g, " ");
 }
 
 function summarizePayload(payload: any): string {
   if (!payload || typeof payload !== "object") return "";
-  const entries = Object.entries(payload).slice(0, 2);
-  if (entries.length === 0) return "";
-  return entries
-    .map(([k, v]) => {
-      const s = typeof v === "string" ? v : JSON.stringify(v);
-      const trimmed = s.length > 60 ? s.slice(0, 59) + "…" : s;
-      return `${k}: ${trimmed}`;
-    })
-    .join(" · ");
+  if (typeof payload === "string") { try { payload = JSON.parse(payload); } catch { return ""; } }
+  const rows = describePayload(payload);
+  if (!rows.length) return "";
+  return rows.map((r) => `${r.label}: ${r.value}`).join(" · ");
 }
 
 function formatTs(ts: string): string {
@@ -164,23 +171,10 @@ export function ActivityPage() {
                       <Badge variant={toneForKind(ev.kind)} className="text-[10px]">
                         {displayLabel(ev.kind)}
                       </Badge>
-                      {ev.correlation_id && (
-                        <code
-                          dir="ltr"
-                          className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-soft)] border border-[var(--border-soft)] text-[var(--fg-muted)]"
-                          title={ev.correlation_id}
-                        >
-                          {ev.correlation_id.length > 14
-                            ? ev.correlation_id.slice(0, 13) + "…"
-                            : ev.correlation_id}
-                        </code>
-                      )}
+
                     </div>
                     {summarizePayload(ev.payload) && (
-                      <div
-                        dir="ltr"
-                        className="text-xs text-[var(--fg-muted)] mt-1 truncate font-mono"
-                      >
+                      <div className="text-xs text-[var(--fg-muted)] mt-1 truncate">
                         {summarizePayload(ev.payload)}
                       </div>
                     )}

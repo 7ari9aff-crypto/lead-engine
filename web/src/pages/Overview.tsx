@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { apiGet, apiPost, type ProviderRow } from "@/lib/api";
 import { formatNumber, relativeTime, truncate } from "@/lib/utils";
+import { friendlyError, ICP_LABELS } from "@/lib/friendly";
 import { toast } from "sonner";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import {
@@ -168,7 +169,7 @@ export function OverviewPage() {
                   <div className="flex items-center gap-2.5 min-w-0">
                     <StatusDot status={j.state} />
                     <div className="min-w-0">
-                      <div className="font-medium text-sm truncate" dir="ltr">{truncate(j.job_id, 14)}</div>
+                      <div className="font-medium text-sm truncate">{ICP_LABELS[j.icp_id] ?? "مهمة توليد عملاء"}</div>
                       <div className="text-xs text-[var(--fg-soft)]">
                         {j.created_at ? relativeTime(j.created_at) : "—"}
                       </div>
@@ -279,8 +280,8 @@ export function OverviewPage() {
                 await apiPost.purgeCache();
                 toast.success("تم مسح الكاش");
                 refetch();
-              } catch (e: any) {
-                toast.error("فشل: " + e.message);
+              } catch (e) {
+                toast.error(friendlyError(e));
               }
             }}
           >
@@ -290,13 +291,13 @@ export function OverviewPage() {
           <Button
             variant="danger"
             onClick={async () => {
-              if (!confirm("سيتم مسح المهام والـleads والكاش وسجل الاستهلاك — لا رجعة فيه. متأكد؟")) return;
+              if (!confirm("هيتم مسح كل المهام وكل العملاء المحتملين والبيانات المخزنة — مفيش رجعة بعد المسح. متأكد؟")) return;
               try {
                 await apiPost.wipeData();
                 toast.success("تم مسح البيانات");
                 refetch();
-              } catch (e: any) {
-                toast.error("فشل: " + e.message);
+              } catch (e) {
+                toast.error(friendlyError(e));
               }
             }}
           >

@@ -14,6 +14,7 @@ import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useLiveData } from "@/hooks/useLiveData";
 import { apiGet, apiPost, type KeyUsageResponse, type ProviderUsageRow, type StatusResponse } from "@/lib/api";
 import { toast } from "sonner";
+import { friendlyError, TASK_LABELS } from "@/lib/friendly";
 import { cn } from "@/lib/utils";
 
 const DISPLAY: Record<string, string> = {
@@ -122,7 +123,7 @@ export function KeysPage() {
                 />
               ))}
               {extras.map((k) => (
-                <PlainKeyCard key={k.name} field={k} envPath={keys.data?.env_path ?? ""} onChanged={keys.refresh} />
+                <PlainKeyCard key={k.name} field={k} onChanged={keys.refresh} />
               ))}
             </div>
           </section>
@@ -177,7 +178,7 @@ function ProviderCard({ row, statusRows, onChanged }: {
       setValue("");
       onChanged();
     } catch (e: any) {
-      toast.error(e.message || "فشل الحفظ");
+      toast.error(friendlyError(e));
     } finally {
       setSaving(false);
     }
@@ -313,7 +314,7 @@ function ProviderCard({ row, statusRows, onChanged }: {
                 <Input
                   dir="ltr"
                   defaultValue={main.base_url ?? ""}
-                  placeholder="Base URL مخصص (اختياري)"
+                  placeholder="رابط خاص للمزود — متقدم (اختياري)"
                   className="font-mono text-xs h-8"
                   id={`base-${row.provider}`}
                 />
@@ -351,7 +352,7 @@ function ProviderCard({ row, statusRows, onChanged }: {
               </div>
               {statusRows.length > 1 && (
                 <div className="text-[10px] text-[var(--fg-soft)]">
-                  مهام إضافية لهذا المزود: {statusRows.slice(1).map((r) => r.task).join(" · ")} — نفس المفتاح
+                  يُستخدم أيضًا في: {statusRows.slice(1).map((r) => TASK_LABELS[r.task] ?? r.task).join(" · ")} — بنفس المفتاح
                 </div>
               )}
             </div>
@@ -375,9 +376,8 @@ function UsageMini({ icon, value, label }: { icon: React.ReactNode; value: strin
 }
 
 // ===== Plain key card (Supabase / Ollama) =====
-function PlainKeyCard({ field, envPath, onChanged }: {
+function PlainKeyCard({ field, onChanged }: {
   field: { name: string; group: string; configured: boolean; masked: string; plain?: boolean };
-  envPath: string;
   onChanged: () => void;
 }) {
   const [value, setValue] = useState("");
@@ -396,7 +396,7 @@ function PlainKeyCard({ field, envPath, onChanged }: {
       setValue("");
       onChanged();
     } catch (e: any) {
-      toast.error(e.message || "فشل الحفظ");
+      toast.error(friendlyError(e));
     } finally {
       setSaving(false);
     }
@@ -436,7 +436,6 @@ function PlainKeyCard({ field, envPath, onChanged }: {
           حفظ
         </Button>
       </div>
-      <div className="text-[10px] text-[var(--fg-soft)]" dir="ltr">{envPath}</div>
     </Card>
   );
 }

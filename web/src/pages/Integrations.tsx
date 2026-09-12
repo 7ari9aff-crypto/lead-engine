@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/Badge";
 import { useLiveData } from "@/hooks/useLiveData";
 import { apiGet, apiPost } from "@/lib/api";
 import { toast } from "sonner";
+import { friendlyError } from "@/lib/friendly";
 import { cn, formatNumber } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/PageHeader";
 
@@ -65,8 +66,8 @@ export function IntegrationsPage() {
     try {
       const { authorize_url } = await apiPost.integrationConnect(provider);
       window.location.href = authorize_url;
-    } catch (e: any) {
-      toast.error(e.message || "فشل بدء الربط");
+    } catch (e) {
+      toast.error(friendlyError(e));
     }
   }
 
@@ -76,8 +77,8 @@ export function IntegrationsPage() {
       await apiPost.integrationRevoke(provider);
       toast.success("تم الفصل");
       integrations.refresh();
-    } catch (e: any) {
-      toast.error(e.message || "فشل الفصل");
+    } catch (e) {
+      toast.error(friendlyError(e));
     }
   }
 
@@ -88,8 +89,8 @@ export function IntegrationsPage() {
       toast.success("تمت الإضافة لقائمة الحجب");
       setNewEntry({ ...newEntry, value: "" });
       suppression.refresh();
-    } catch (e: any) {
-      toast.error(e.message || "فشلت الإضافة");
+    } catch (e) {
+      toast.error(friendlyError(e));
     }
   }
 
@@ -144,16 +145,24 @@ export function IntegrationsPage() {
           </div>
 
           <div className="grid lg:grid-cols-2 gap-4">
-            {/* Config snippet */}
+            {/* Config snippet — advanced, collapsed */}
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-[var(--fg-muted)]">إعداد جاهز للصق في أي عميل MCP</span>
-                <Button variant="outline" size="sm" onClick={() => copy(mcpConfig, "الإعداد")}>
-                  <Clipboard className="h-3 w-3" />
-                  نسخ
-                </Button>
-              </div>
-              <pre className="text-[11.5px] leading-5 rounded-lg border border-[var(--border)] bg-[var(--bg-soft)] p-3.5 overflow-x-auto" dir="ltr">{mcpConfig}</pre>
+              <details className="rounded-xl border border-[var(--border-soft)] overflow-hidden">
+                <summary className="cursor-pointer px-3.5 py-2.5 text-xs font-semibold text-[var(--fg-muted)] flex items-center justify-between gap-2 hover:bg-[var(--bg-hover)]">
+                  إعداد متقدم — لربط أدوات المطورين
+                  <span className="text-[10px] font-normal text-[var(--fg-soft)]">اضغط للعرض</span>
+                </summary>
+                <div className="px-3.5 pb-3.5 space-y-2">
+                  <p className="text-[11px] text-[var(--fg-soft)]">
+                    لو بتستخدم أداة ربط خارجية، انسخ الإعداد ده وحطه عندها — محتاجش تعمل أي حاجة تانية.
+                  </p>
+                  <Button variant="outline" size="sm" onClick={() => copy(mcpConfig, "الإعداد")}>
+                    <Clipboard className="h-3 w-3" />
+                    نسخ الإعداد
+                  </Button>
+                  <pre className="text-[11.5px] leading-5 rounded-lg border border-[var(--border)] bg-[var(--bg-soft)] p-3.5 overflow-x-auto" dir="ltr">{mcpConfig}</pre>
+                </div>
+              </details>
             </div>
 
             {/* Tools */}
@@ -303,12 +312,12 @@ export function IntegrationsPage() {
         />
         <IntegrationCard
           icon={Code2}
-          title="REST API"
-          description="كل وظائف المحرك مكشوفة REST — موثقة بالكامل مع أمثلة تفاعلية."
+          title="واجهة الربط البرمجية"
+          description="فريق التطوير يقدر يربط أنظمته بكل وظائف المنصة — التوثيق متاح عند الطلب."
           state={data ? "connected" : "down"}
           stateLabel="يعمل"
-          actionLabel="فتح التوثيق التفاعلي"
-          onAction={() => window.open("/docs", "_blank")}
+          actionLabel="طلب التوثيق"
+          disabled
         />
         <IntegrationCard
           icon={Link2}

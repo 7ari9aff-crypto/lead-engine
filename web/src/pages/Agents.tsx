@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/Dialog";
 import { apiGet, apiPost } from "@/lib/api";
 import { toast } from "sonner";
+import { friendlyError, ACTION_LABELS, describePayload, toolLabel } from "@/lib/friendly";
 import { cn, formatNumber, relativeTime } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Spinner, EmptyState } from "@/components/ui/EmptyState";
@@ -41,8 +42,8 @@ export function AgentsPage() {
       setRuns(runData.runs);
       setTools(toolData.tools);
       setApprovals(approvalData.approvals);
-    } catch (error: any) {
-      toast.error(error.message || "تعذر تحميل بيانات الوكلاء");
+    } catch (error: unknown) {
+      toast.error(friendlyError(error));
     } finally {
       setLoading(false);
     }
@@ -56,8 +57,8 @@ export function AgentsPage() {
       await apiPost.runBenchmark({ icp: "v0_saudi_dental" });
       toast.success("بدأ تشغيل الوكيل — تابع حالته من صفحة المهام");
       await load();
-    } catch (error: any) {
-      toast.error(error.message || "فشل تشغيل الوكيل");
+    } catch (error: unknown) {
+      toast.error(friendlyError(error));
     } finally {
       setRunning(false);
     }
@@ -69,8 +70,8 @@ export function AgentsPage() {
       await apiPost.resolveApproval(id, status);
       toast.success(status === "APPROVED" ? "تمت الموافقة — التشغيل هيكمل" : "تم الرفض");
       await load();
-    } catch (e: any) {
-      toast.error(e.message || "فشل التنفيذ");
+    } catch (e) {
+      toast.error(friendlyError(e));
     } finally {
       setBusyApproval(null);
     }
@@ -134,10 +135,23 @@ export function AgentsPage() {
                 <div key={a.approval_id} className="rounded-xl border border-[var(--warn)]/40 bg-[var(--warn)]/5 p-4">
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="min-w-0">
-                      <div className="font-mono text-[13px] font-semibold" dir="ltr">{a.action}</div>
-                      {a.payload_json && (
-                        <pre className="mt-1.5 text-[11px] text-[var(--fg-muted)] max-h-20 overflow-auto rounded-lg bg-[var(--bg-soft)] border border-[var(--border-soft)] p-2" dir="ltr">{a.payload_json}</pre>
-                      )}
+                      <div className="text-[13px] font-semibold">{ACTION_LABELS[a.action] ?? a.action.replace(/_/g, " ")}</div>
+                      {(() => {
+                        let payload: unknown = a.payload_json;
+                        if (typeof payload === "string") { try { payload = JSON.parse(payload); } catch { /* keep raw */ } }
+                        const rows = describePayload(payload);
+                        if (!rows.length) return null;
+                        return (
+                          <div className="mt-1.5 rounded-lg bg-[var(--bg-soft)] border border-[var(--border-soft)] p-2.5 space-y-1">
+                            {rows.map((r, i) => (
+                              <div key={i} className="flex items-center justify-between gap-3 text-[12px]">
+                                <span className="text-[var(--fg-muted)]">{r.label}</span>
+                                <span className="font-medium truncate max-w-[60%]">{r.value}</span>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
                       <div className="text-[11px] text-[var(--fg-soft)] mt-2">
                         مطلوبة {a.requested_at ? `منذ ${relativeTime(a.requested_at)}` : "الآن"}
                       </div>
@@ -192,8 +206,7 @@ export function AgentsPage() {
                     </Badge>
                   </div>
                   <div className="flex items-center gap-2 mt-2.5 text-[11px] text-[var(--fg-muted)]">
-                    <span>الإصدار</span>
-                    <code dir="ltr" className="px-1.5 rounded bg-[var(--bg-elev)] border border-[var(--border-soft)]">v{agent.current_version}</code>
+                    <span>الإصدار {agent.current_version}</span>
                   </div>
                 </div>
               ))}
@@ -225,8 +238,8 @@ export function AgentsPage() {
                   {runs.map((run) => (
                     <tr key={run.run_id}>
                       <td>
-                        <div className="font-medium text-[13px]">{run.name || run.slug}</div>
-                        <code className="text-[10px] text-[var(--fg-soft)]" dir="ltr">v{run.version}</code>
+                        <div className="font-medium text-[13px]">{run.name || "وكيل المنصة"}</div>
+                        <span className="text-[10px] text-[var(--fg-soft)]">إصدار {run.version}</span>
                       </td>
                       <td><RunBadge status={run.status} /></td>
                       <td className="tnum text-xs" dir="ltr">{formatNumber((run.prompt_tokens || 0) + (run.completion_tokens || 0))}</td>
@@ -251,7 +264,7 @@ export function AgentsPage() {
           {tools.map((tool) => (
             <div key={tool.name} className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border-soft)] bg-[var(--bg-soft)] p-3">
               <div className="min-w-0">
-                <code className="text-xs font-semibold text-[var(--accent)]" dir="ltr">{tool.name}</code>
+                <span className="text-[13px] font-semibold text-[var(--accent)]">{toolLabel(tool.name)}</span>
                 <div className="text-[11px] text-[var(--fg-muted)] mt-1 truncate">{tool.description}</div>
               </div>
               {tool.requires_approval
@@ -287,9 +300,9 @@ function Metric({ icon: Icon, label, value, detail }: { icon: typeof Bot; label:
 
 function RunBadge({ status }: { status: string }) {
   const normalized = status.toUpperCase();
-  if (["COMPLETED", "ACCEPTED"].includes(normalized)) return <Badge variant="success" className="text-[10px]"><CheckCircle2 className="h-3 w-3" /> {status}</Badge>;
-  if (["FAILED", "REJECTED"].includes(normalized)) return <Badge variant="danger" className="text-[10px]"><XCircle className="h-3 w-3" /> {status}</Badge>;
-  return <Badge variant="warn" className="text-[10px]"><Clock3 className="h-3 w-3" /> {status}</Badge>;
+  if (["COMPLETED", "ACCEPTED"].includes(normalized)) return <Badge variant="success" className="text-[10px]"><CheckCircle2 className="h-3 w-3" /> مكتمل</Badge>;
+  if (["FAILED", "REJECTED"].includes(normalized)) return <Badge variant="danger" className="text-[10px]"><XCircle className="h-3 w-3" /> فاشل</Badge>;
+  return <Badge variant="warn" className="text-[10px]"><Clock3 className="h-3 w-3" /> جاري</Badge>;
 }
 
 const MODEL_PROVIDERS = [
@@ -309,12 +322,14 @@ const EFFORT_LEVELS = [
 ] as const;
 
 function slugify(name: string): string {
-  // Arabic-friendly: keep the name as-is, only sanitize ASCII noise
-  return name
+  // Hidden from the user — generated internally, ASCII-safe for the API.
+  const base = name
     .toLowerCase()
-    .replace(/[^a-z0-9\u0600-\u06FF_-]+/g, "-")
+    .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 64);
+    .slice(0, 40);
+  const suffix = Math.random().toString(36).slice(2, 6);
+  return (base.length >= 2 ? base : "agent") + "-" + suffix;
 }
 
 function CreateAgentDialog({
@@ -327,7 +342,6 @@ function CreateAgentDialog({
 }) {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
-  const [slugTouched, setSlugTouched] = useState(false);
   const [description, setDescription] = useState("");
   const [instructions, setInstructions] = useState("");
   const [modelProvider, setModelProvider] = useState<string>("router");
@@ -336,15 +350,15 @@ function CreateAgentDialog({
   const [selectedScopes, setSelectedScopes] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
 
-  // Auto-fill slug from name until user edits it manually
+  // Slug is generated internally at submit time — users only pick a name.
   useEffect(() => {
-    if (!slugTouched) setSlug(slugify(name));
-  }, [name, slugTouched]);
+    if (open && name.trim()) setSlug(slugify(name));
+  }, [open, name]);
 
   // Reset form when dialog closes
   useEffect(() => {
     if (!open) {
-      setName(""); setSlug(""); setSlugTouched(false);
+      setName(""); setSlug("");
       setDescription(""); setInstructions("");
       setModelProvider("router"); setModelName("");
       setThinkingEffort(""); setSelectedScopes(new Set());
@@ -376,7 +390,7 @@ function CreateAgentDialog({
         tool_policy: selectedScopes.size > 0 ? { scopes: Array.from(selectedScopes) } : undefined,
         activate: true,
       });
-      toast.success(`تم إنشاء الوكيل "${name.trim}" وتفعيل الإصدار 1.0.0`);
+      toast.success(`تم إنشاء الوكيل "${name.trim()}" وتفعيله`);
       onOpenChange(false);
       onCreated();
     } catch (err: any) {
@@ -409,32 +423,16 @@ function CreateAgentDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4 mt-2">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="agent-name">اسم الوكيل</Label>
-              <Input
-                id="agent-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="مثل: وكيل تأهيل العملاء المحتملين"
-                autoFocus
-                dir="rtl"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="agent-slug">
-                المعرف
-                <span className="text-[10px] text-[var(--fg-soft)] mr-1">(يستخدم في API)</span>
-              </Label>
-              <Input
-                id="agent-slug"
-                value={slug}
-                onChange={(e) => { setSlug(e.target.value); setSlugTouched(true); }}
-                placeholder="lead-qualifier"
-                dir="ltr"
-                className="font-mono text-xs"
-              />
-            </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="agent-name">اسم الوكيل</Label>
+            <Input
+              id="agent-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="مثل: وكيل تأهيل العملاء المحتملين"
+              autoFocus
+              dir="rtl"
+            />
           </div>
 
           <div className="space-y-1.5">
@@ -449,9 +447,9 @@ function CreateAgentDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="agent-instructions">
+              <Label htmlFor="agent-instructions">
               التعليمات
-              <span className="text-[10px] text-[var(--fg-soft)] mr-1">(system prompt — اختياري)</span>
+              <span className="text-[10px] text-[var(--fg-soft)] mr-1">(اختياري — بتحدد شخصية الوكيل وطريقة كلامه)</span>
             </Label>
             <Textarea
               id="agent-instructions"
@@ -510,7 +508,7 @@ function CreateAgentDialog({
 
           {scopes.length > 0 && (
             <div className="space-y-2">
-              <Label>الصلاحيات (scopes)</Label>
+              <Label>الأدوات المسموحة للوكيل</Label>
               <div className="flex flex-wrap gap-1.5">
                 {scopes.map((s) => {
                   const active = selectedScopes.has(s);
@@ -528,7 +526,7 @@ function CreateAgentDialog({
                       )}
                     >
                       {active && <Check className="inline h-3 w-3 ml-1" />}
-                      {s}
+                      {toolLabel(s)}
                     </button>
                   );
                 })}

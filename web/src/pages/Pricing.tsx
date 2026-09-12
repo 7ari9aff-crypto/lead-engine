@@ -75,7 +75,7 @@ const PLANS = [
       { text: "كل المزوّدين + مخصص", ok: true },
       { text: "Multi-tenant + RBAC", ok: true },
       { text: "SSO + audit logs", ok: true },
-      { text: "API access (unlimited)", ok: true },
+      { text: "استخدام غير محدود لكل الوظائف", ok: true },
       { text: "Self-hosted option", ok: true },
       { text: "SLA 99.9%", ok: true },
       { text: "دعم 24/7 + account manager", ok: true },
@@ -87,7 +87,7 @@ const PLANS = [
 const FAQ = [
   {
     q: "هل أحتاج بطاقة بنكية للتجربة؟",
-    a: "لا. الـ 30 lead مجاناً بدون أي بطاقة بنكية. كل اللي تحتاجه مفاتيح API للمزوّدين (معظمها في طبقة مجانية).",
+    a: "لا. العملاء الثلاثين الأوائل مجانًا وبدون أي بطاقة بنكية. كل اللي تحتاجه مفاتيح المزوّدين اللي بتختارهم — ومعظمها ليها طبقة مجانية.",
   },
   {
     q: "هل يدعم PDPL السعودي؟",

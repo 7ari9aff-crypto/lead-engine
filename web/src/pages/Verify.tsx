@@ -15,6 +15,7 @@ import { Badge, StatusDot } from "@/components/ui/Badge";
 import { Input, Label } from "@/components/ui/Input";
 import { apiPost } from "@/lib/api";
 import { toast } from "sonner";
+import { friendlyError } from "@/lib/friendly";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/PageHeader";
 
@@ -34,9 +35,9 @@ const STATUS_META: Record<Status, { label: string; color: string; description: s
     icon: AlertTriangle,
   },
   CATCH_ALL: {
-    label: "Catch-All",
+    label: "دومين مفتوح",
     color: "var(--warn)",
-    description: "الدومين يستقبل كل الإيميلات — لا يمكن التأكد من وجود عنوان محدد.",
+    description: "الدومين يستقبل كل الإيميلات — لا يمكن التأكد من وجود عنوان محدد عليه.",
     icon: ShieldAlert,
   },
   INVALID: {
@@ -53,6 +54,36 @@ const STATUS_META: Record<Status, { label: string; color: string; description: s
   },
 };
 
+
+const DETAIL_LABELS: Record<string, string> = {
+  mx: "سجل استلام البريد",
+  smtp: "اتصال سيرفر البريد",
+  catch_all: "دومين يقبل كل الرسائل",
+  disposable: "بريد مؤقت",
+  role_account: "بريد وظيفي عام",
+  free_provider: "مزود مجاني",
+  reason: "ملاحظة",
+  error: "سبب الفحص",
+  provider: "المزود",
+  score: "درجة الثقة",
+};
+
+function friendlyDetails(details: Record<string, unknown>) {
+  return Object.entries(details)
+    .filter(([, v]) => v != null && v !== "")
+    .map(([k, v]) => {
+      const label = DETAIL_LABELS[k] ?? k.replace(/_/g, " ");
+      let value = typeof v === "boolean" ? (v ? "نعم" : "لا") : String(v);
+      if (value.length > 80) value = value.slice(0, 79) + "…";
+      return (
+        <div key={k} className="flex items-center justify-between gap-3 text-[12px]">
+          <span className="text-[var(--fg-muted)]">{label}</span>
+          <span className="font-medium tnum">{value}</span>
+        </div>
+      );
+    });
+}
+
 export function VerifyPage() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
@@ -68,8 +99,8 @@ export function VerifyPage() {
     try {
       const r = await apiPost.verifyEmail(email.trim());
       setResult(r);
-    } catch (e: any) {
-      toast.error("فشل الفحص: " + e.message);
+    } catch (e) {
+      toast.error(friendlyError(e));
     } finally {
       setLoading(false);
     }
@@ -84,13 +115,13 @@ export function VerifyPage() {
       <PageHeader
         icon={<MailCheck className="h-4 w-4 text-[var(--accent)]" />}
         title="فحص الإيميل"
-        description={<>تحقّق 5-حالات: <b>DELIVERABLE</b> · <b>RISKY</b> · <b>CATCH_ALL</b> · <b>INVALID</b> · <b>UNKNOWN</b> — مع كشف catch-all بشكل صريح.</>}
+        description="نتيجة واحدة واضحة من خمس احتمالات — العنوان موجود، موجود مع مخاطر، مش متأكد، غير موجود، أو تعذّر الفحص."
       />
 
       <Card>
         <CardHeader>
           <CardTitle>فحص جديد</CardTitle>
-          <CardDescription>الفحص يستخدم مزوّديك الحقيقيين (Hunter, AbstractAPI, SMTP).</CardDescription>
+          <CardDescription>الفحص بيتم عبر مزودات التحقق اللي ضبطتها في صفحة المفاتيح.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-end">
@@ -139,7 +170,7 @@ export function VerifyPage() {
                 }
               >
                 <StatusDot status={status!} />
-                {status}
+                {meta.label}
               </Badge>
             </CardTitle>
             <CardDescription className="font-mono" dir="ltr">
@@ -164,14 +195,14 @@ export function VerifyPage() {
               />
             </div>
 
-            {result.details && (
+            {result.details && Object.keys(result.details).length > 0 && (
               <details className="rounded-lg border border-[var(--border)] bg-[var(--bg-soft)] overflow-hidden">
                 <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-[var(--fg-muted)] hover:bg-[var(--bg-hover)]">
-                  تفاصيل تقنية
+                  تفاصيل الفحص
                 </summary>
-                <pre className="p-3 text-[11px] overflow-auto max-h-64" dir="ltr">
-                  {JSON.stringify(result.details, null, 2)}
-                </pre>
+                <div className="px-3 py-2 space-y-1.5">
+                  {friendlyDetails(result.details)}
+                </div>
               </details>
             )}
           </CardContent>
@@ -191,7 +222,6 @@ export function VerifyPage() {
                   <I className="h-4 w-4 shrink-0 mt-0.5" style={{ color: m.color }} />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium flex items-center gap-2">
-                      <code className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-soft)]" dir="ltr">{k}</code>
                       <span style={{ color: m.color }}>{m.label}</span>
                     </div>
                     <p className="text-xs text-[var(--fg-muted)] mt-0.5">{m.description}</p>

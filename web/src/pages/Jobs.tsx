@@ -12,7 +12,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { useLiveData } from "@/hooks/useLiveData";
 import { apiGet, apiPost, type JobRow } from "@/lib/api";
 import { toast } from "sonner";
-import { formatDate, relativeTime, truncate, cn } from "@/lib/utils";
+import { formatDate, relativeTime, cn } from "@/lib/utils";
+import { friendlyError, ICP_LABELS } from "@/lib/friendly";
 import { Spinner, EmptyState } from "@/components/ui/EmptyState";
 import { PageHeader } from "@/components/layout/PageHeader";
 import ReactMarkdown from "react-markdown";
@@ -41,10 +42,10 @@ export function JobsPage() {
     setRunning(true);
     try {
       const res = await apiPost.runBenchmark({ icp });
-      toast.success(`بدأت المهمة: ${res.job_id}${res.pause_reason ? ` — ${res.pause_reason}` : ""}`);
+      toast.success(`بدأت المهمة${res.pause_reason ? ` — ${res.pause_reason}` : ""} — تابعها من القايمة تحت`);
       refresh();
-    } catch (e: any) {
-      toast.error("فشل التشغيل: " + e.message);
+    } catch (e) {
+      toast.error(friendlyError(e));
     } finally {
       setRunning(false);
     }
@@ -56,8 +57,8 @@ export function JobsPage() {
       await apiPost.resumeJob(id);
       toast.success("تم استئناف المهمة");
       refresh();
-    } catch (e: any) {
-      toast.error("فشل: " + e.message);
+    } catch (e) {
+      toast.error(friendlyError(e));
     } finally {
       setBusy(null);
     }
@@ -67,10 +68,10 @@ export function JobsPage() {
     setBusy(`sync:${id}`);
     try {
       const res = await apiPost.syncSupabase(id);
-      toast.success(`تمت مزامنة ${res?.synced ?? res?.n ?? 0} ليد`);
+      toast.success(`تمت مزامنة ${res?.synced ?? res?.n ?? 0} عميل محتمل`);
       refresh();
-    } catch (e: any) {
-      toast.error("فشل: " + e.message);
+    } catch (e) {
+      toast.error(friendlyError(e));
     } finally {
       setBusy(null);
     }
@@ -82,8 +83,8 @@ export function JobsPage() {
       const r = await apiGet.report(id);
       setReport(r);
       setReportOpen(true);
-    } catch (e: any) {
-      toast.error("فشل جلب التقرير: " + e.message);
+    } catch (e) {
+      toast.error(friendlyError(e));
     } finally {
       setBusy(null);
     }
@@ -112,13 +113,13 @@ export function JobsPage() {
         description="شغّل خط التوليد الحقيقي، تابع الحالة لحظة بلحظة، واستأنف الموقوف — والمزامنة لـSupabase تلقائية"
         action={
           <div className="flex items-center gap-2">
-            <Input
+            <select
               value={icp}
               onChange={(e) => setIcp(e.target.value)}
-              dir="ltr"
-              placeholder="v0_saudi_dental"
-              className="h-8 w-44 font-mono text-xs"
-            />
+              className="h-8 rounded-lg border border-[var(--border)] bg-[var(--bg-soft)] px-2.5 text-[13px] focus:outline-none focus:border-[var(--accent)]"
+            >
+              <option value="v0_saudi_dental">{ICP_LABELS["v0_saudi_dental"]}</option>
+            </select>
             <Button variant="primary" size="sm" onClick={run} loading={running}>
               <Play className="h-3.5 w-3.5" />
               تشغيل جديد
@@ -175,16 +176,16 @@ export function JobsPage() {
               <FileText className="h-4 w-4" />
               تقرير المهمة
             </DialogTitle>
-            <DialogDescription className="font-mono" dir="ltr">{report?.job_id}</DialogDescription>
+            <DialogDescription>ملخص ما أنجزته المهمة بالأرقام والنتائج</DialogDescription>
           </DialogHeader>
           {report?.report_markdown ? (
             <div className="md-body text-[13px] rounded-lg border border-[var(--border)] bg-[var(--bg-elev)] p-5 max-h-[65vh] overflow-auto">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{report.report_markdown}</ReactMarkdown>
             </div>
           ) : (
-            <pre className="text-xs bg-[var(--bg-soft)] p-3 rounded-lg border border-[var(--border)] max-h-[60vh] overflow-auto" dir="ltr">
-              {JSON.stringify(report, null, 2)}
-            </pre>
+            <div className="text-sm text-[var(--fg-muted)] rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] p-5 text-center">
+              التقرير التفصيلي لسه بيتجهز — افتح الصفحة تاني بعد شوية وهتلاقيه جاهز.
+            </div>
           )}
         </DialogContent>
       </Dialog>
@@ -227,12 +228,11 @@ function JobRowCard({ job, busy, onResume, onSync, onReport }: {
         {/* Identity */}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-mono text-xs font-semibold" dir="ltr">{truncate(job.job_id, 22)}</span>
+            <span className="text-[13px] font-semibold">{ICP_LABELS[job.icp_id] ?? "مهمة توليد عملاء"}</span>
             <Badge variant={meta.variant} className="text-[10px]">
               <StatusDot status={job.state} />
               {meta.label}
             </Badge>
-            <Badge variant="outline" className="text-[10px]">{job.icp_id}</Badge>
           </div>
           <div className="text-[11px] text-[var(--fg-soft)] mt-1 flex items-center gap-2">
             <span>{job.created_at ? formatDate(job.created_at, false) : "—"}</span>

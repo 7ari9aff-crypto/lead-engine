@@ -768,7 +768,24 @@ def api_provider_reset(name: str, task: str, db: Database = Depends(get_db)):
 def api_config_list():
     out = {}
     for key, path in CONFIG_FILES.items():
-        out[key] = {"path": str(path.relative_to(ROOT)), "text": path.read_text(encoding="utf-8")}
+        text = path.read_text(encoding="utf-8")
+        parsed = None
+        try:
+            parsed = yaml.safe_load(text)
+        except yaml.YAMLError:
+            pass
+        out[key] = {"path": str(path.relative_to(ROOT)), "text": text, "parsed": parsed}
+    return out
+
+
+def _deep_merge(base: dict, patch: dict) -> dict:
+    """Recursively merge patch into a copy of base (patch wins on scalars)."""
+    out = dict(base)
+    for k, v in patch.items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = v
     return out
 
 
@@ -777,9 +794,20 @@ def api_config_update(key: str, req: dict, db: Database = Depends(get_db)):
     path = CONFIG_FILES.get(key)
     if not path:
         raise HTTPException(status_code=404, detail="unknown config key")
-    text = req.get("text")
-    if not isinstance(text, str) or not text.strip():
-        raise HTTPException(status_code=422, detail="text is required")
+    values = req.get("values")
+    if isinstance(values, dict):
+        # Structured update from the friendly settings form: merge into the
+        # existing YAML so untouched sections survive.
+        try:
+            current = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except yaml.YAMLError:
+            current = {}
+        text = yaml.safe_dump(_deep_merge(current, values),
+                              allow_unicode=True, sort_keys=False)
+    else:
+        text = req.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise HTTPException(status_code=422, detail="text is required")
     try:
         yaml.safe_load(text)
     except yaml.YAMLError as exc:
