@@ -104,11 +104,28 @@ async def admin_session_guard(request: Request, call_next):
         claims = auth_jwt.validate_supabase_jwt(token) if token else None
         if claims is None and not valid_session(request.cookies.get(COOKIE_NAME)):
             return JSONResponse({"detail": "authentication required"}, status_code=401)
+        # Request-scoped tenant context: downstream handlers resolve the org
+        # from the verified token subject instead of the env bridge.
+        request.state.claims = claims
     return await call_next(request)
 
 
-def get_db():
-    db = open_db()
+def get_db(request: Request = None):
+    """Per-request DB handle. The tenant org comes from the verified JWT
+    (membership lookup) and falls back to the LEAD_ENGINE_ORG_ID bridge for
+    worker/n8n/service contexts."""
+    org_id = None
+    if request is not None:
+        claims = getattr(request.state, "claims", None)
+        if claims:
+            from . import auth_jwt
+
+            probe = open_db()
+            try:
+                org_id = auth_jwt.resolve_org_id(claims, probe)
+            finally:
+                probe.conn.close()
+    db = open_db(org_id=org_id)
     try:
         yield db
     finally:

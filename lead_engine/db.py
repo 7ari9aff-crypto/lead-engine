@@ -16,13 +16,16 @@ def utcnow() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def open_db():
-    """Backend factory. Production: Supabase Postgres. Dev/tests: SQLite."""
+def open_db(org_id: str | None = None):
+    """Backend factory. Production: Supabase Postgres. Dev/tests: SQLite.
+
+    org_id wins over the LEAD_ENGINE_ORG_ID env bridge so request-scoped
+    handlers can pin the tenant explicitly."""
     dsn = os.environ.get("SUPABASE_DB_URL") or os.environ.get("DATABASE_URL")
     if dsn:
         from .db_pg import PgDatabase
 
-        return PgDatabase(dsn, org_id=os.environ.get("LEAD_ENGINE_ORG_ID"))
+        return PgDatabase(dsn, org_id=org_id or os.environ.get("LEAD_ENGINE_ORG_ID"))
     return Database(DB_PATH)
 
 
