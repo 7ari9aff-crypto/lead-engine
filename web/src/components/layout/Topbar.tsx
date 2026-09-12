@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import {
-  Sun, Moon, RefreshCw, Activity, Wifi, WifiOff, Menu, Search, Zap,
+  Sun, Moon, RefreshCw, Activity, Wifi, WifiOff, Menu, Search, Zap, LogOut,
   LayoutDashboard, MessageSquare, KeyRound, PlayCircle, Database,
   MailCheck, Settings, Bot, Plug,
 } from "lucide-react";
@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { useUI } from "@/hooks/useTheme";
 import { useLiveData } from "@/hooks/useLiveData";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 
@@ -196,6 +197,18 @@ export function Topbar() {
         </Button>
         <Button size="icon-sm" variant="ghost" onClick={toggleTheme} title={theme === "dark" ? "وضع نهاري" : "وضع ليلي"}>
           {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </Button>
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          title="تسجيل الخروج"
+          onClick={async () => {
+            try { await supabase.auth.signOut(); } catch { /* local mode */ }
+            try { await apiPost.logout(); } catch { /* best effort */ }
+            window.location.assign("/login");
+          }}
+        >
+          <LogOut className="h-4 w-4" />
         </Button>
       </div>
     </header>

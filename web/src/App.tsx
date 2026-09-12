@@ -13,19 +13,16 @@ import { VerifyPage } from "@/pages/Verify";
 import { ConfigPage } from "@/pages/Config";
 import { IntegrationsPage } from "@/pages/Integrations";
 import { AgentsPage } from "@/pages/Agents";
-import { WelcomePage } from "@/pages/Welcome";
+import { LandingPage } from "@/pages/Landing";
 import { PricingPage } from "@/pages/Pricing";
+import { LoginPage, SignupPage } from "@/pages/Auth";
 import { ActivityPage } from "@/pages/Activity";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/Button";
-import { AlertTriangle, Home, RotateCcw } from "lucide-react";
+import { AlertTriangle, Home, RotateCcw, Zap } from "lucide-react";
 import { Footer } from "@/components/layout/Footer";
 import { BackToTop } from "@/components/layout/BackToTop";
-import { Input } from "@/components/ui/Input";
-import { apiGet, apiPost } from "@/lib/api";
-import { friendlyError } from "@/lib/friendly";
-import { supabase } from "@/lib/supabase";
-import { toast } from "sonner";
+import { apiGet } from "@/lib/api";
 
 export default function App() {
   const { theme } = useUI();
@@ -38,18 +35,23 @@ export default function App() {
   return (
     <ErrorBoundary>
       <Switch>
-        {/* Public marketing pages — no sidebar */}
-        <Route path="/welcome" component={WelcomePage} />
+        {/* Public pages — full-viewport, no sidebar */}
+        <Route path="/login" component={LoginPage} />
+        <Route path="/signup" component={SignupPage} />
         <Route path="/pricing" component={PricingPage} />
+        <Route path="/welcome" component={LandingPage} />
 
-        {/* Dashboard layout with sidebar */}
+        {/* Root: dashboard for signed-in users, landing for visitors */}
+        <Route path="/">
+          <RootGate />
+        </Route>
+
+        {/* Dashboard layout */}
         <Route>
           <DashboardLayout>
             <Switch>
-              <Route path="/" component={OverviewPage} />
               <Route path="/chat" component={ChatPage} />
               <Route path="/keys" component={KeysPage} />
-              {/* Providers merged into the Keys page */}
               <Route path="/providers" component={() => <Redirect to="/keys" />} />
               <Route path="/jobs" component={JobsPage} />
               <Route path="/leads" component={LeadsPage} />
@@ -66,6 +68,33 @@ export default function App() {
         </Route>
       </Switch>
     </ErrorBoundary>
+  );
+}
+
+function RootGate() {
+  const [state, setState] = useState<"loading" | "authed" | "guest">("loading");
+
+  useEffect(() => {
+    apiGet.authSession()
+      .then((r) => setState(r.authenticated ? "authed" : "guest"))
+      .catch(() => setState("guest"));
+  }, []);
+
+  if (state === "loading") {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-[var(--bg)]">
+        <span className="h-12 w-12 rounded-2xl bg-[image:var(--gradient)] flex items-center justify-center shadow-[var(--shadow-lg)]">
+          <Zap className="h-5 w-5 text-white" />
+        </span>
+        <span className="text-[12px] text-[var(--fg-muted)]">جارٍ التحقق من جلستك…</span>
+      </div>
+    );
+  }
+  if (state === "guest") return <LandingPage />;
+  return (
+    <DashboardLayout>
+      <OverviewPage />
+    </DashboardLayout>
   );
 }
 
@@ -98,72 +127,19 @@ function DashboardLayout({ children }: { children: ReactNode }) {
 
 function AuthGate({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
-  const [mode, setMode] = useState<"supabase" | "password" | "open">("open");
   const [authenticated, setAuthenticated] = useState(false);
-  const [password, setPassword] = useState("");
-  const [email, setEmail] = useState("");
-  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     apiGet.authSession().then((result) => {
       setAuthenticated(result.authenticated);
-      setMode(result.mode || "open");
       setReady(true);
     }).catch(() => setReady(true));
   }, []);
 
   if (!ready) return <div className="py-20 text-center text-sm text-[var(--fg-muted)]">جارٍ التحقق من الجلسة…</div>;
   if (authenticated) return <>{children}</>;
-
-  async function supabaseLogin(event: React.FormEvent) {
-    event.preventDefault();
-    setLoading(true);
-    try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
-      const result = await apiGet.authSession();
-      setAuthenticated(result.authenticated);
-    } catch (error: unknown) {
-      toast.error(friendlyError(error));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function login(event: React.FormEvent) {
-    event.preventDefault();
-    setLoading(true);
-    try {
-      await apiPost.login(password);
-      setAuthenticated(true);
-      setPassword("");
-    } catch (error: unknown) {
-      toast.error(friendlyError(error));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  const isSupabase = mode === "supabase";
-
-  return (
-    <div className="min-h-[60vh] flex items-center justify-center">
-      <form onSubmit={isSupabase ? supabaseLogin : login} className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-6 shadow-[var(--shadow)]">
-        <div className="text-xs font-semibold text-[var(--accent)] mb-2">Lead Engine</div>
-        <h1 className="text-xl font-bold mb-2">تسجيل الدخول</h1>
-        <p className="text-sm text-[var(--fg-muted)] mb-5">
-          {isSupabase ? "ادخل بحساب المنصة — لكل مستأجر مساحته الخاصة." : "أدخل كلمة مرور لوحة التحكم للمتابعة."}
-        </p>
-        {isSupabase && (
-          <Input type="email" value={email} onChange={(event) => setEmail(event.target.value)}
-                 placeholder="البريد الإلكتروني" dir="ltr" autoFocus className="mb-3" />
-        )}
-        <Input type="password" value={password} onChange={(event) => setPassword(event.target.value)}
-               placeholder="كلمة المرور" dir="ltr" autoFocus={!isSupabase} />
-        <Button type="submit" variant="primary" loading={loading} className="w-full mt-4">دخول</Button>
-      </form>
-    </div>
-  );
+  // Not signed in → the dedicated login page (never raw dashboard content).
+  return <Redirect to="/login" />;
 }
 
 function NotFound() {
@@ -182,7 +158,7 @@ function NotFound() {
           </Link>
         </Button>
         <Button variant="outline" asChild>
-          <Link href="/welcome">صفحة الترحيب</Link>
+          <Link href="/welcome">الصفحة الرئيسية</Link>
         </Button>
       </div>
     </div>
