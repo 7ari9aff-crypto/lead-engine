@@ -11,3 +11,9 @@ venv/
 .vercel
 .pnpm-store/
 .freebuff/
+
+# secrets — never commit
+.env
+.env.*
+!.env.example
+*.bootstrap
