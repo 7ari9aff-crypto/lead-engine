@@ -67,8 +67,11 @@ class CacheLayer:
     def put_entity(self, entity_type, identity, data, data_type="company_name"):
         key = self.make_key("entity:" + entity_type, identity)
         self.db.execute(
-            "INSERT OR REPLACE INTO cache (level, cache_key, payload, data_type, created_at, expires_at)"
-            " VALUES (2,?,?,?,?,?)",
+            "INSERT INTO cache (level, cache_key, payload, data_type, created_at, expires_at)"
+            " VALUES (2,?,?,?,?,?)"
+            " ON CONFLICT (level, cache_key) DO UPDATE SET payload=excluded.payload,"
+            " data_type=excluded.data_type, created_at=excluded.created_at,"
+            " expires_at=excluded.expires_at",
             (key, json.dumps(data, ensure_ascii=False), data_type, utcnow(),
              _now_plus(ttl_seconds(self.policy, data_type))),
         )

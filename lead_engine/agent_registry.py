@@ -42,8 +42,8 @@ class AgentRegistry:
         for slug, item in AGENT_SEED.items():
             agent_id = f"agent:{slug}"
             self.db.execute(
-                "INSERT OR IGNORE INTO agents (agent_id, slug, name, description, status, current_version, created_at, updated_at)"
-                " VALUES (?,?,?,?,?,?,?,?)",
+                "INSERT INTO agents (agent_id, slug, name, description, status, current_version, created_at, updated_at)"
+                " VALUES (?,?,?,?,?,?,?,?) ON CONFLICT (agent_id) DO NOTHING",
                 (agent_id, slug, item["name"], item["description"], "active", item["version"], now, now),
             )
             self.db.execute(
@@ -55,13 +55,13 @@ class AgentRegistry:
             )
         for name, description, scopes, approval in TOOL_SEED:
             self.db.execute(
-                "INSERT OR IGNORE INTO tools (name, description, scopes, requires_approval, enabled, created_at)"
-                " VALUES (?,?,?,?,?,?)",
+                "INSERT INTO tools (name, description, scopes, requires_approval, enabled, created_at)"
+                " VALUES (?,?,?,?,?,?) ON CONFLICT (name) DO NOTHING",
                 (name, description, json.dumps(scopes), int(approval), 1, now),
             )
         for row in self.db.query("SELECT name, MIN(env_key) AS env_key, MIN(base_url) AS base_url FROM providers GROUP BY name"):
             self.db.execute(
-                "INSERT OR IGNORE INTO connections (connection_id, provider, kind, base_url, status, created_at) VALUES (?,?,?,?,?,?)",
+                "INSERT INTO connections (connection_id, provider, kind, base_url, status, created_at) VALUES (?,?,?,?,?,?) ON CONFLICT (connection_id) DO NOTHING",
                 (f"provider:{row['name']}", row["name"], "provider", row.get("base_url"),
                  "configured" if row.get("env_key") is None or os.environ.get(row["env_key"]) else "missing_key", now),
             )
@@ -190,7 +190,8 @@ class AgentRegistry:
         existing = self.db.one("SELECT slug FROM agents WHERE slug=?", (slug,))
         if existing:
             raise ValueError(f"agent slug '{slug}' already exists")
-        agent_id = f"agent:{slug}"
+        # Org-scoped id: same slug can exist per tenant without PK collisions.
+        agent_id = f"agent:{getattr(self.db, 'org_id', None) or 'platform'}:{slug}"
         now = utcnow()
         self.db.execute(
             "INSERT INTO agents (agent_id, slug, name, description, status, current_version, created_at, updated_at)"

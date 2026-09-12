@@ -3,9 +3,20 @@ import json
 
 from fastapi.testclient import TestClient
 
+import pytest
+
 from lead_engine.api.app import app
+from lead_engine.api import auth_jwt
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def open_auth_mode(monkeypatch):
+    """MCP clients (n8n, IDEs) authenticate with API keys later (audit §28);
+    these tests exercise the JSON-RPC protocol itself, not the auth layer,
+    so force the local open mode regardless of the .env on this machine."""
+    monkeypatch.setattr(auth_jwt, "auth_mode", lambda: "open")
 
 
 def test_initialize():

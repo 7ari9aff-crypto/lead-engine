@@ -102,7 +102,14 @@ async def admin_session_guard(request: Request, call_next):
     if protected and not public:
         token = auth_jwt.bearer_token(request.headers)
         claims = auth_jwt.validate_supabase_jwt(token) if token else None
-        if claims is None and not valid_session(request.cookies.get(COOKIE_NAME)):
+        # Legacy cookie sessions are valid ONLY in non-Supabase modes. With
+        # Supabase configured, an anonymous request must never fall through
+        # just because no admin password is set (valid_session would say ok).
+        legacy_ok = (
+            auth_jwt.auth_mode() != "supabase"
+            and valid_session(request.cookies.get(COOKIE_NAME))
+        )
+        if claims is None and not legacy_ok:
             return JSONResponse({"detail": "authentication required"}, status_code=401)
         # Request-scoped tenant context: downstream handlers resolve the org
         # from the verified token subject instead of the env bridge.
@@ -110,23 +117,30 @@ async def admin_session_guard(request: Request, call_next):
     return await call_next(request)
 
 
+def _org_clause(db, column: str = "organization_id") -> tuple[str, list]:
+    """SQL predicate limiting reads to the caller's tenant. Rows without an
+    org (platform/legacy) are excluded once a tenant context exists."""
+    org = getattr(db, "org_id", None)
+    if not org:
+        return "", []
+    return f" AND {column} = ?", [org]
+
+
 def get_db(request: Request = None):
     """Per-request DB handle. The tenant org comes from the verified JWT
     (membership lookup) and falls back to the LEAD_ENGINE_ORG_ID bridge for
-    worker/n8n/service contexts."""
-    org_id = None
-    if request is not None:
-        claims = getattr(request.state, "claims", None)
-        if claims:
-            from . import auth_jwt
-
-            probe = open_db()
-            try:
-                org_id = auth_jwt.resolve_org_id(claims, probe)
-            finally:
-                probe.conn.close()
-    db = open_db(org_id=org_id)
+    worker/n8n/service contexts. One connection per request: the membership
+    lookup reuses the same handle (org_id is a plain attribute)."""
+    db = open_db()
     try:
+        if request is not None:
+            claims = getattr(request.state, "claims", None)
+            if claims:
+                from . import auth_jwt
+
+                resolved = auth_jwt.resolve_org_id(claims, db)
+                if resolved:
+                    db.org_id = resolved
         yield db
     finally:
         db.conn.close()
@@ -489,13 +503,16 @@ def get_job_v1(job_id: str, db: Database = Depends(get_db)):
 @app.get("/api/jobs")
 @app.get("/jobs")
 def list_jobs(db: Database = Depends(get_db)):
+    clause, params = _org_clause(db)
     return db.query("SELECT job_id, icp_id, state, pause_reason, resume_at, created_at,"
-                    " updated_at FROM jobs ORDER BY created_at DESC LIMIT 50")
+                    f" updated_at FROM jobs WHERE 1=1{clause}"
+                    " ORDER BY created_at DESC LIMIT 50", params)
 
 
 @app.get("/jobs/{job_id}")
 def get_job(job_id: str, db: Database = Depends(get_db)):
-    job = db.one("SELECT * FROM jobs WHERE job_id=?", (job_id,))
+    org_clause, org_params = _org_clause(db)
+    job = db.one(f"SELECT * FROM jobs WHERE job_id=?{org_clause}", (job_id, *org_params))
     if not job:
         raise HTTPException(status_code=404, detail="job not found")
     events = JobManager(db).events(job_id)
@@ -508,7 +525,9 @@ def resume_job(job_id: str, req: ResumeRequest, background: BackgroundTasks,
     from ..benchmark.run import run_benchmark as _run
 
     jobs = JobManager(db)
-    job = db.one("SELECT icp_id, state, params FROM jobs WHERE job_id=?", (job_id,))
+    org_clause, org_params = _org_clause(db)
+    job = db.one(f"SELECT icp_id, state, params FROM jobs WHERE job_id=?{org_clause}",
+                 (job_id, *org_params))
     if not job:
         raise HTTPException(status_code=404, detail="job not found")
     if job["state"] != PAUSED:
@@ -529,6 +548,9 @@ def leads(job_id: str | None = Query(default=None), stage: str | None = Query(de
           db: Database = Depends(get_db)):
     sql = "SELECT * FROM leads WHERE 1=1"
     params: list = []
+    org_clause, org_params = _org_clause(db)
+    sql += org_clause
+    params.extend(org_params)
     if job_id:
         sql += " AND job_id=?"
         params.append(job_id)
@@ -550,7 +572,9 @@ def verify_email(req: VerifyRequest, db: Database = Depends(get_db)):
 @app.get("/api/v1/report/{job_id}")
 @app.get("/report/{job_id}")
 def report(job_id: str, db: Database = Depends(get_db)):
-    job = db.one("SELECT icp_id, params FROM jobs WHERE job_id=?", (job_id,))
+    org_clause, org_params = _org_clause(db)
+    job = db.one(f"SELECT icp_id, params FROM jobs WHERE job_id=?{org_clause}",
+                 (job_id, *org_params))
     if not job:
         raise HTTPException(status_code=404, detail="job not found")
     leads = db.leads_for_job(job_id)
@@ -726,27 +750,28 @@ def api_analytics(db: Database = Depends(get_db)):
     cutoff = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=30)
               ).strftime("%Y-%m-%d")
 
+    org_clause, org_params = _org_clause(db)
     leads_over_time = db.query(
-        """SELECT date(created_at) AS date, COUNT(*) AS count
-           FROM leads WHERE created_at >= ? GROUP BY date(created_at)
+        f"""SELECT date(created_at) AS date, COUNT(*) AS count
+           FROM leads WHERE created_at >= ?{org_clause} GROUP BY date(created_at)
            ORDER BY date ASC""",
-        (cutoff,),
+        (cutoff, *org_params),
     )
     jobs_over_time = db.query(
         """SELECT date(created_at) AS date, COUNT(*) AS total,
                   SUM(CASE WHEN state='COMPLETED' THEN 1 ELSE 0 END) AS completed,
                   SUM(CASE WHEN state='PAUSED' THEN 1 ELSE 0 END) AS paused,
                   SUM(CASE WHEN state='FAILED' THEN 1 ELSE 0 END) AS failed
-           FROM jobs WHERE created_at >= ? GROUP BY date(created_at)
+           FROM jobs WHERE created_at >= ?{org_clause} GROUP BY date(created_at)
            ORDER BY date ASC""",
-        (cutoff,),
+        (cutoff, *org_params),
     )
     usage_over_time = db.query(
-        """SELECT date(ts) AS date, COALESCE(SUM(units),0) AS units,
+        f"""SELECT date(ts) AS date, COALESCE(SUM(units),0) AS units,
                   COUNT(*) AS calls
-           FROM usage_ledger WHERE ts >= ? GROUP BY date(ts)
+           FROM usage_ledger WHERE ts >= ?{org_clause} GROUP BY date(ts)
            ORDER BY date ASC""",
-        (cutoff,),
+        (cutoff, *org_params),
     )
     return {
         "leads_over_time": leads_over_time,
@@ -1205,11 +1230,16 @@ def api_keys_usage(db: Database = Depends(get_db)):
 
 @app.post("/api/data/reset")
 def api_data_reset(db: Database = Depends(get_db)):
-    """Wipe all locally generated data (jobs, leads, evidence, cache, usage).
-    The provider registry is kept."""
+    """Wipe generated data (jobs, leads, evidence, cache, usage) for the
+    CALLING tenant only. The provider registry is kept. With no tenant
+    context (single-org dev), only unscoped rows are removed — never other
+    tenants' data."""
+    org_id = getattr(db, "org_id", None)
+    scope = "WHERE organization_id = ?" if org_id else "WHERE organization_id IS NULL"
+    params = (org_id,) if org_id else ()
     for table in ("leads", "evidence", "cache", "usage_ledger", "job_events", "jobs"):
-        db.execute(f"DELETE FROM {table}")
-    return {"ok": True}
+        db.execute(f"DELETE FROM {table} {scope}", params)
+    return {"ok": True, "scope": org_id or "unscoped"}
 
 
 app.include_router(policy_router)

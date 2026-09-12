@@ -3,7 +3,7 @@ reconciliation. Events themselves dispatch from the event-worker."""
 import base64
 import os
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import Request, APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from ..config import load_env
@@ -15,9 +15,21 @@ load_env()
 router = APIRouter(tags=["events"])
 
 
-def get_db():
+def get_db(request=None):
+    """Request-scoped handle: resolves the tenant org from verified JWT
+    claims (set by the app middleware) and falls back to the env bridge."""
+    from ..db import open_db
+
     db = open_db()
     try:
+        if request is not None:
+            claims = getattr(request.state, "claims", None)
+            if claims:
+                from .. import auth_jwt
+
+                resolved = auth_jwt.resolve_org_id(claims, db)
+                if resolved:
+                    db.org_id = resolved
         yield db
     finally:
         db.conn.close()
