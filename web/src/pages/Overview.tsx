@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import {
   Users,
   Briefcase,
@@ -16,6 +17,11 @@ import {
   ArrowUpRight,
   Clock,
   Zap,
+  ListChecks,
+  X,
+  KeyRound,
+  PlayCircle,
+  Plug,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Badge, StatusDot } from "@/components/ui/Badge";
@@ -32,6 +38,8 @@ import {
 } from "recharts";
 import { cn } from "@/lib/utils";
 
+const CHECKLIST_DONE_KEY = "leadEngine.checklistDismissed";
+
 export function OverviewPage() {
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["status"],
@@ -44,6 +52,16 @@ export function OverviewPage() {
     queryFn: apiGet.analytics,
     refetchInterval: 15000,
   });
+
+  const { data: integrationsData } = useQuery({
+    queryKey: ["integrations"],
+    queryFn: apiGet.integrations,
+    refetchInterval: 60000,
+  });
+
+  const [checklistHidden, setChecklistHidden] = useState(
+    () => localStorage.getItem(CHECKLIST_DONE_KEY) === "1"
+  );
 
   if (isLoading && !data) return <PageSkeleton />;
 
@@ -68,6 +86,20 @@ export function OverviewPage() {
   const leadsTrend = calcTrend(analytics?.leads_over_time ?? []);
   const usageTrend = calcTrend(analytics?.usage_over_time ?? []);
 
+  // Setup checklist — the Apollo-style "Next steps for you"
+  const hasKey = providers.some((p) => p.key_state === "set" || p.key_state === "local");
+  const hasJob = recentJobs.length > 0 || leadsTotal > 0;
+  const hasLead = leadsTotal > 0;
+  const hasIntegration = (integrationsData?.integrations ?? []).some((i: any) => i.connected);
+  const checklistSteps = [
+    { done: hasKey, label: "اربط أول مفتاح مزود", desc: "بدون مفتاح المحرك بيمشي على الوضع المحلي فقط", href: "/keys", icon: KeyRound },
+    { done: hasJob, label: "شغّل أول مهمة توليد", desc: "جولة كاملة تستغرق دقائق وبتحدّث كل شئ تلقائيًا", href: "/jobs", icon: PlayCircle },
+    { done: hasLead, label: "استلم أول عميل محتمل", desc: "النتائج المقبولة تظهر في صفحة النتائج", href: "/leads", icon: Users },
+    { done: hasIntegration, label: "اربط تكامل خارجي — اختياري", desc: "جيميل أو هاب سبوت للمتابعة المباشرة", href: "/integrations", icon: Plug },
+  ];
+  const checklistDone = checklistSteps.filter((s) => s.done).length;
+  const checklistComplete = checklistDone === checklistSteps.length;
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -84,6 +116,74 @@ export function OverviewPage() {
           </p>
         </div>
       </div>
+
+      {/* Setup checklist */}
+      {!checklistHidden && !checklistComplete && (
+        <Card className="border-[var(--accent)]/40">
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between gap-3 mb-3.5">
+              <div className="flex items-center gap-2.5">
+                <span className="h-8 w-8 rounded-lg bg-[var(--accent-soft)] text-[var(--accent)] flex items-center justify-center">
+                  <ListChecks className="h-4 w-4" />
+                </span>
+                <div>
+                  <div className="text-sm font-bold">خطوات البدء</div>
+                  <div className="text-[11px] text-[var(--fg-soft)]">
+                    خلصت {checklistDone} من {checklistSteps.length} — المنصة بتشتغل كاملة لما تخلص القايمة
+                  </div>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                title="إخفاء القايمة"
+                onClick={() => {
+                  localStorage.setItem(CHECKLIST_DONE_KEY, "1");
+                  setChecklistHidden(true);
+                }}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="h-1.5 rounded-full bg-[var(--bg-soft)] overflow-hidden mb-3.5">
+              <div
+                className="h-full rounded-full bg-[var(--accent)] transition-all"
+                style={{ width: `${(checklistDone / checklistSteps.length) * 100}%` }}
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2.5">
+              {checklistSteps.map((s) => {
+                const Icon = s.icon;
+                return (
+                  <button
+                    key={s.label}
+                    onClick={() => { if (!s.done) window.location.assign(s.href); }}
+                    className={cn(
+                      "text-right rounded-xl border p-3.5 transition-all group",
+                      s.done
+                        ? "border-[var(--success)]/40 bg-[color-mix(in_srgb,var(--success)_6%,transparent)]"
+                        : "border-[var(--border)] hover:border-[var(--accent)] hover:shadow-[var(--shadow)]"
+                    )}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <Icon className={cn("h-4 w-4", s.done ? "text-[var(--success)]" : "text-[var(--accent)]")} />
+                      {s.done ? (
+                        <CheckCircle2 className="h-4 w-4 text-[var(--success)]" />
+                      ) : (
+                        <ArrowUpRight className="h-3.5 w-3.5 text-[var(--fg-soft)] opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
+                    </div>
+                    <div className={cn("text-[13px] font-medium", s.done && "text-[var(--fg-muted)] line-through")}>
+                      {s.label}
+                    </div>
+                    {!s.done && <div className="text-[11px] text-[var(--fg-soft)] mt-1 leading-4">{s.desc}</div>}
+                  </button>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Metric cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

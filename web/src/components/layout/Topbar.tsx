@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import {
-  Sun, Moon, RefreshCw, Activity, Wifi, WifiOff, Menu, Search,
+  Sun, Moon, RefreshCw, Activity, Wifi, WifiOff, Menu, Search, Zap,
   LayoutDashboard, MessageSquare, KeyRound, PlayCircle, Database,
   MailCheck, Settings, Bot, Plug,
 } from "lucide-react";
@@ -30,6 +30,7 @@ export function Topbar() {
   const qc = useQueryClient();
   const [, navigate] = useLocation();
   const { data, error, loading } = useLiveData(() => apiGet.status(), 5000);
+  const { data: usage } = useLiveData<any>(() => apiGet.keysUsage(), 60000);
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -38,6 +39,18 @@ export function Topbar() {
   const activeJobs = data?.recent_jobs?.filter((j) => ["RUNNING", "QUEUED", "RESUMING"].includes(j.state)).length ?? 0;
   const healthy = (data?.providers ?? []).filter((p) => p.status === "active").length;
   const totalProviders = (data?.providers ?? []).length || 0;
+
+  // Persistent usage meter (Apollo-style topbar counter)
+  const usageRows: any[] = usage?.providers ?? [];
+  const activeKeys = usageRows.reduce((n: number, p: any) => n + (p.keys_configured || 0), 0);
+  const quotaPercents = usageRows
+    .map((p: any) => p.live?.percent ?? p.quota?.percent)
+    .filter((x: any): x is number => x != null);
+  const maxQuota = quotaPercents.length ? Math.max(...quotaPercents) : null;
+  const quotaTone =
+    maxQuota == null ? "var(--fg-muted)" :
+    maxQuota >= 85 ? "var(--danger)" :
+    maxQuota >= 60 ? "var(--warn)" : "var(--success)";
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -136,13 +149,29 @@ export function Topbar() {
           <span className="text-[var(--border)]">·</span>
           <span className="flex items-center gap-1.5 tnum">
             <span className="font-semibold text-[var(--fg)]">{totalLeads}</span>
-            <span>ليد</span>
+            <span>عميل محتمل</span>
           </span>
           <span className="text-[var(--border)]">·</span>
           <span className="flex items-center gap-1.5 tnum">
             <span className="font-semibold text-[var(--success)]">{healthy}</span>
             <span>من {totalProviders} مزوّد</span>
           </span>
+          {maxQuota != null && (
+            <>
+              <span className="text-[var(--border)]">·</span>
+              <button
+                onClick={() => navigate("/keys")}
+                className="flex items-center gap-1.5 tnum hover:text-[var(--fg)] transition-colors"
+                title="أعلى استهلاك حصة بين المزودين — اضغط للتفاصيل"
+              >
+                <Zap className="h-3.5 w-3.5" style={{ color: quotaTone }} />
+                <span className="font-semibold" style={{ color: quotaTone }}>{maxQuota}%</span>
+                <span>من الحصص</span>
+                <span className="text-[var(--border)]">·</span>
+                <span className="tnum">{activeKeys} مفتاح</span>
+              </button>
+            </>
+          )}
         </div>
 
         {loading ? (

@@ -99,6 +99,7 @@ export type JobRow = {
 };
 
 export type LeadRow = {
+  lead_id?: string | null;
   name: string;
   city?: string | null;
   domain?: string | null;
@@ -279,7 +280,7 @@ export const apiGet = {
 export const apiPost = {
   login: (password: string) => api.post<{ authenticated: boolean }>("/api/auth/login", { password }),
   logout: () => api.post<{ authenticated: boolean }>("/api/auth/logout"),
-  runBenchmark: (body: { icp?: string; seed_csv?: string }) =>
+  runBenchmark: (body: { icp?: string; seed_csv?: string; overrides?: { v0_limits?: Record<string, number> } }) =>
     api.post<{ job_id: string; state: string; pause_reason?: string; metrics?: any }>(
       "/benchmark/run",
       body
@@ -312,6 +313,8 @@ export const apiPost = {
   providerConfig: (name: string, task: string, config: { base_url?: string; model_name?: string }) =>
     api.put<{ ok: boolean }>(`/api/providers/${encodeURIComponent(name)}/${encodeURIComponent(task)}/config`, config),
   wipeData: () => api.post<{ ok: boolean }>(`/api/data/reset`),
+  deleteLead: (id: string) =>
+    api.delete<{ ok: boolean }>(`/api/v1/leads/${encodeURIComponent(id)}`),
   purgeCache: () => api.post<{ ok: boolean }>(`/api/cache/purge`),
   resolveApproval: (id: string, status: "APPROVED" | "REJECTED") =>
     api.post<{ ok: boolean }>(`/api/approvals/${encodeURIComponent(id)}/resolve`, { status }),

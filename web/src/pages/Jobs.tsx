@@ -29,6 +29,30 @@ const STATE_META: Record<string, { label: string; variant: "success" | "info" | 
   FAILED: { label: "فاشلة", variant: "danger", filter: "failed" },
 };
 
+// One-click run templates — parameterized scopes of the same targeting file.
+const TEMPLATES: { id: string; title: string; desc: string; limits: string; overrides?: { v0_limits: Record<string, number> } }[] = [
+  {
+    id: "full",
+    title: "جولة كاملة",
+    desc: "الإعدادات القياسية بأوسع تغطية — الخيار الافتراضي للتشغيل اليومي.",
+    limits: "8 عمليات بحث · 8 نتائج لكل بحث",
+  },
+  {
+    id: "quick",
+    title: "استكشاف سريع",
+    desc: "جولة خفيفة وأوفر في الحصص — مثالية لأول تجربة أو لاختبار ملف استهداف جديد.",
+    limits: "4 عمليات بحث · 6 نتائج لكل بحث",
+    overrides: { v0_limits: { max_search_queries: 4, search_results_per_query: 6 } },
+  },
+  {
+    id: "deep",
+    title: "جولة موسعة",
+    desc: "بحث أعمق بنطاق أوسع للوصول لأكبر عدد ممكن — تستهلك حصص أكثر.",
+    limits: "12 عملية بحث · 10 نتائج لكل بحث",
+    overrides: { v0_limits: { max_search_queries: 12, search_results_per_query: 10 } },
+  },
+];
+
 export function JobsPage() {
   const { data, loading, refresh } = useLiveData(() => apiGet.jobs(), 4000);
   const [icp, setIcp] = useState("v0_saudi_dental");
@@ -38,10 +62,10 @@ export function JobsPage() {
   const [reportOpen, setReportOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
 
-  async function run() {
+  async function run(overrides?: { v0_limits: Record<string, number> }) {
     setRunning(true);
     try {
-      const res = await apiPost.runBenchmark({ icp });
+      const res = await apiPost.runBenchmark(overrides ? { icp, overrides } : { icp });
       toast.success(`بدأت المهمة${res.pause_reason ? ` — ${res.pause_reason}` : ""} — تابعها من القايمة تحت`);
       refresh();
     } catch (e) {
@@ -120,13 +144,35 @@ export function JobsPage() {
             >
               <option value="v0_saudi_dental">{ICP_LABELS["v0_saudi_dental"]}</option>
             </select>
-            <Button variant="primary" size="sm" onClick={run} loading={running}>
+            <Button variant="primary" size="sm" onClick={() => run()} loading={running}>
               <Play className="h-3.5 w-3.5" />
               تشغيل جديد
             </Button>
           </div>
         }
       />
+
+      {/* Run templates gallery */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {TEMPLATES.map((t) => (
+          <Card key={t.id} className="p-4 flex flex-col hover:border-[var(--accent)] transition-colors">
+            <div className="text-[14px] font-bold">{t.title}</div>
+            <p className="text-[12px] text-[var(--fg-muted)] mt-1 leading-4 flex-1">{t.desc}</p>
+            <div className="flex items-center justify-between gap-2 mt-3">
+              <span className="text-[11px] text-[var(--fg-soft)]">{t.limits}</span>
+              <Button
+                variant={t.overrides ? "outline" : "primary"}
+                size="sm"
+                loading={running}
+                onClick={() => run(t.overrides)}
+              >
+                <Play className="h-3.5 w-3.5" />
+                شغّل
+              </Button>
+            </div>
+          </Card>
+        ))}
+      </div>
 
       <div className="flex items-center gap-3 flex-wrap">
         <FilterPills

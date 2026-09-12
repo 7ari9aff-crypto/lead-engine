@@ -129,6 +129,69 @@ export function KeysPage() {
           </section>
         );
       })}
+
+      {/* Consumption transparency — Hunter-style honest credit rules */}
+      <Card className="p-5">
+        <div className="flex items-center gap-2.5 mb-1">
+          <Coins className="h-4 w-4 text-[var(--accent)]" />
+          <h2 className="text-sm font-bold">كيف بيتحسب الاستهلاك؟</h2>
+        </div>
+        <p className="text-[12px] text-[var(--fg-muted)] mb-4">
+          قواعد ثابتة ومعلنة — مفيش خصومات مفاجئة، وكل استدعاء مسجل في سجل النشاط.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+          <TransparencyRule
+            icon={<Check className="h-4 w-4" />}
+            tone="success"
+            title="الفشل ببلاش"
+            desc="الاستدعاءات اللي تفشل أو ترفض بسبب الحصص بتتسجل بصفر — الحصة بتخصم بس على النتائج اللي رجعت فعليًا."
+          />
+          <TransparencyRule
+            icon={<Zap className="h-4 w-4" />}
+            tone="accent"
+            title="الكاش ببلاش"
+            desc="لو البيانات موجودة عندنا ضمن مدة الاحتفاظ، بترجع فورًا بدون أي استدعاء جديد للمزود — يعني بدون أي استهلاك."
+          />
+          <TransparencyRule
+            icon={<RefreshCw className="h-4 w-4" />}
+            tone="info"
+            title="التدوير بيحمي مفاتيحك"
+            desc="لما مفتاح يوصل حده، المفاتيح التانية بنفس المزود بتدخل تلقائيًا — والمهمة تكمل من غير ما تحس."
+          />
+          <TransparencyRule
+            icon={<Hash className="h-4 w-4" />}
+            tone="default"
+            title="كل حاجة مكتوبة"
+            desc="كل استدعاء ناجح أو فاشل بيتسجل بالتوكنز والمدة والمزود — تقدر تراجع أي رقم ظهر في الصفحة من سجل النشاط."
+          />
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function TransparencyRule({ icon, tone, title, desc }: {
+  icon: React.ReactNode; tone: "success" | "accent" | "info" | "default"; title: string; desc: string;
+}) {
+  const colorMap = {
+    success: "var(--success)",
+    accent: "var(--accent)",
+    info: "var(--info)",
+    default: "var(--fg-muted)",
+  } as const;
+  return (
+    <div className="rounded-xl border border-[var(--border-soft)] bg-[var(--bg-soft)] p-3.5">
+      <div
+        className="h-7 w-7 rounded-lg flex items-center justify-center mb-2"
+        style={{
+          background: `color-mix(in srgb, ${colorMap[tone]} 12%, transparent)`,
+          color: colorMap[tone],
+        }}
+      >
+        {icon}
+      </div>
+      <div className="text-[13px] font-semibold">{title}</div>
+      <p className="text-[11px] text-[var(--fg-muted)] mt-1 leading-4">{desc}</p>
     </div>
   );
 }

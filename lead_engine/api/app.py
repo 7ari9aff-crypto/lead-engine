@@ -118,6 +118,7 @@ def get_db():
 class RunRequest(BaseModel):
     icp: str = "v0_saudi_dental"
     seed_csv: str | None = None
+    overrides: dict | None = None  # v0_limits tweaks for one-off template runs
 
 
 class ResumeRequest(BaseModel):
@@ -414,6 +415,7 @@ def run_benchmark_endpoint(req: RunRequest, background: BackgroundTasks,
     is updated continuously, so n8n can poll /jobs/{id} from a second workflow
     if needed."""
     from ..benchmark.run import run_benchmark
+    from ..config import load_icp
 
     registry = AgentRegistry(db)
     run_id = registry.create_run("lead-generation", {
@@ -421,8 +423,13 @@ def run_benchmark_endpoint(req: RunRequest, background: BackgroundTasks,
     })
     step_id = registry.start_step(run_id, "pipeline", input_data={"icp": req.icp})
     try:
+        icp_payload: str | dict = req.icp
+        if req.overrides:
+            base = load_icp(req.icp)
+            merged_limits = {**base.get("v0_limits", {}), **req.overrides.get("v0_limits", {})}
+            icp_payload = {**base, "v0_limits": merged_limits}
         summary, metrics, outputs = run_benchmark(
-            req.icp, seed_csv=req.seed_csv, agent_run_id=run_id)
+            icp_payload, seed_csv=req.seed_csv, agent_run_id=run_id)
     except Exception as exc:  # surface config errors to the caller
         registry.finish_step(step_id, "FAILED", error=f"{type(exc).__name__}: {exc}")
         registry.finish_run(run_id, "FAILED", error=f"{type(exc).__name__}: {exc}")
