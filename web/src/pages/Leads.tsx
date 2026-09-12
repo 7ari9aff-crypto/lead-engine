@@ -20,6 +20,8 @@ import {
   Trash2,
   Loader2,
   ChevronDown,
+  Briefcase,
+  ShieldCheck,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -55,7 +57,7 @@ export function LeadsPage() {
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [expanded, setExpanded] = useState<number | null>(null);
+  const [drawerLead, setDrawerLead] = useState<LeadRow | null>(null);
   const [bulkBusy, setBulkBusy] = useState<string | null>(null);
 
   const leads = data ?? [];
@@ -348,25 +350,20 @@ export function LeadsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((l, i) => {
-                    const isOpen = expanded === i;
-                    return (
-                      <LeadRowBlock
-                        key={l.lead_id || i}
-                        lead={l}
-                        index={i}
-                        selected={selected.has(i)}
-                        expanded={isOpen}
-                        onToggleSelect={() => {
-                          const next = new Set(selected);
-                          if (next.has(i)) next.delete(i);
-                          else next.add(i);
-                          setSelected(next);
-                        }}
-                        onToggleExpand={() => setExpanded(isOpen ? null : i)}
-                      />
-                    );
-                  })}
+                  {filtered.map((l, i) => (
+                    <LeadRowBlock
+                      key={l.lead_id || i}
+                      lead={l}
+                      selected={selected.has(i)}
+                      onToggleSelect={() => {
+                        const next = new Set(selected);
+                        if (next.has(i)) next.delete(i);
+                        else next.add(i);
+                        setSelected(next);
+                      }}
+                      onOpenDrawer={() => setDrawerLead(l)}
+                    />
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -377,18 +374,15 @@ export function LeadsPage() {
   );
 }
 
-function LeadRowBlock({ lead, index, selected, expanded, onToggleSelect, onToggleExpand }: {
+function LeadRowBlock({ lead, selected, onToggleSelect, onOpenDrawer }: {
   lead: LeadRow;
-  index: number;
   selected: boolean;
-  expanded: boolean;
   onToggleSelect: () => void;
-  onToggleExpand: () => void;
+  onOpenDrawer: () => void;
 }) {
   const l = lead;
   return (
-    <>
-      <tr className={cn(selected && "bg-[var(--accent-soft)]/50", expanded && "bg-[var(--bg-soft)]")}>
+    <tr className={cn(selected && "bg-[var(--accent-soft)]/50")}>
         <td>
           <input
             type="checkbox"
@@ -398,7 +392,7 @@ function LeadRowBlock({ lead, index, selected, expanded, onToggleSelect, onToggl
           />
         </td>
         <td>
-          <button onClick={onToggleExpand} className="flex items-center gap-2 text-right group" title="اعرض التفاصيل الكاملة">
+          <button onClick={onOpenDrawer} className="flex items-center gap-2 text-right group" title="اعرض التفاصيل الكاملة">
             <Building2 className="h-3.5 w-3.5 text-[var(--fg-soft)] shrink-0" />
             <span>
               <span className="font-medium group-hover:text-[var(--accent)] transition-colors block">{l.name || "—"}</span>
@@ -483,31 +477,14 @@ function LeadRowBlock({ lead, index, selected, expanded, onToggleSelect, onToggl
         </td>
         <td>
           <button
-            onClick={onToggleExpand}
+            onClick={onOpenDrawer}
             className="p-1 rounded hover:bg-[var(--bg-hover)] text-[var(--fg-soft)]"
-            title={expanded ? "إخفاء التفاصيل" : "عرض التفاصيل"}
+            title="عرض التفاصيل"
           >
-            <ChevronDown className={cn("h-4 w-4 transition-transform", expanded && "rotate-180")} />
+            <ChevronDown className="h-4 w-4 -rotate-90" />
           </button>
         </td>
       </tr>
-      {expanded && (
-        <tr className="bg-[var(--bg-soft)]">
-          <td colSpan={9} className="px-4 py-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[12px]">
-              <Detail label="الموقع الكامل" value={l.website} ltr />
-              <Detail label="الإيميل الكامل" value={l.email} ltr />
-              <Detail label="الهاتف" value={l.phone} ltr />
-              <Detail label="صانع القرار" value={l.decision_maker} />
-              <Detail label="الدرجة التفصيلية" value={l.score != null ? `${l.score.toFixed(1)} من 100` : undefined} />
-              <Detail label="حالة القوانين" value={l.legal_status === "ALLOWED" ? "مسموح" : l.legal_status === "BLOCKED" ? "محجوب" : "خلال الحدود المسموحة"} />
-              <Detail label="المهمة المصدر" value={l.job_id ? (ICP_LABELS[l.job_id] ?? "مهمة توليد عملاء") : undefined} />
-              <Detail label="الفئة" value={l.tier ? (l.tier.toUpperCase().startsWith("A") ? "ممتاز" : l.tier.toUpperCase().startsWith("B") ? "جيد" : "عادي") : undefined} />
-            </div>
-          </td>
-        </tr>
-      )}
-    </>
   );
 }
 
@@ -518,6 +495,104 @@ function Detail({ label, value, ltr }: { label: string; value?: string | null; l
       <div className={cn("font-medium truncate", ltr && "dir-ltr text-left")} dir={ltr ? "ltr" : undefined}>
         {value || "—"}
       </div>
+    </div>
+  );
+}
+
+function LeadDrawer({ lead, onClose }: { lead: LeadRow; onClose: () => void }) {
+  const l = lead;
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/50 z-40 animate-fade-in" onClick={onClose} />
+      <aside
+        className="fixed inset-y-0 left-0 w-full max-w-md bg-[var(--bg-elev)] border-e border-[var(--border)] shadow-[var(--shadow-lg)] z-50 overflow-y-auto animate-slide-up"
+        dir="rtl"
+      >
+        <div className="sticky top-0 bg-[var(--bg-elev)] border-b border-[var(--border)] px-5 py-4 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[16px] font-bold truncate flex items-center gap-2">
+              <Building2 className="h-4.5 w-4.5 text-[var(--accent)] shrink-0" />
+              {l.name || "—"}
+            </div>
+            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+              <Badge variant={l.stage === "ACCEPTED" ? "success" : l.stage === "REVIEW" ? "warn" : "danger"} className="text-[10px]">
+                {l.stage === "ACCEPTED" ? "مقبول" : l.stage === "REVIEW" ? "مراجعة" : "مرفوض"}
+              </Badge>
+              {l.score != null && (
+                <span className="text-[12px] tnum font-bold">
+                  الدرجة {l.score.toFixed(0)}
+                  {l.tier && <span className="text-[var(--fg-soft)] font-medium"> · {l.tier.toUpperCase().startsWith("A") ? "ممتاز" : l.tier.toUpperCase().startsWith("B") ? "جيد" : "عادي"}</span>}
+                </span>
+              )}
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)] transition-colors" title="إغلاق">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-5">
+          <section>
+            <h3 className="text-[12px] font-semibold text-[var(--fg-soft)] mb-2">التواصل</h3>
+            <div className="space-y-1.5">
+              <DrawerRow icon={<Mail className="h-3.5 w-3.5" />} label="البريد" value={l.email} ltr
+                href={l.email ? `mailto:${l.email}` : undefined} />
+              <DrawerRow icon={<Phone className="h-3.5 w-3.5" />} label="الهاتف" value={l.phone} ltr
+                href={l.phone ? `tel:${l.phone}` : undefined} />
+              <DrawerRow icon={<Globe className="h-3.5 w-3.5" />} label="الموقع" value={l.website || l.domain} ltr
+                href={l.domain ? `https://${l.domain}` : undefined} />
+            </div>
+          </section>
+
+          <section>
+            <h3 className="text-[12px] font-semibold text-[var(--fg-soft)] mb-2">تفاصيل الشركة</h3>
+            <div className="space-y-1.5">
+              <DrawerRow icon={<Building2 className="h-3.5 w-3.5" />} label="المدينة" value={l.city} />
+              <DrawerRow icon={<User className="h-3.5 w-3.5" />} label="صانع القرار" value={l.decision_maker} />
+              <DrawerRow icon={<CheckCircle2 className="h-3.5 w-3.5" />} label="حالة البريد"
+                value={l.email_status === "DELIVERABLE" ? "صالح" : l.email_status === "INVALID" ? "غير صالح" : l.email_status ? "محتاج مراجعة" : undefined} />
+              <DrawerRow icon={<ShieldCheck className="h-3.5 w-3.5" />} label="القوانين"
+                value={l.legal_status === "ALLOWED" ? "مسموح" : l.legal_status === "BLOCKED" ? "محجوب" : "خلال الحدود المسموحة"} />
+            </div>
+          </section>
+
+          <section>
+            <h3 className="text-[12px] font-semibold text-[var(--fg-soft)] mb-2">المصدر</h3>
+            <div className="space-y-1.5">
+              <DrawerRow icon={<Briefcase className="h-3.5 w-3.5" />} label="الحملة"
+                value={l.job_id ? (ICP_LABELS[l.job_id] ?? "حملة توليد عملاء") : undefined} />
+            </div>
+          </section>
+
+          {l.email && (
+            <Button variant="primary" className="w-full" onClick={() => { window.location.href = `mailto:${l.email}`; }}>
+              <Mail className="h-4 w-4" />
+              راسلهم الآن
+            </Button>
+          )}
+        </div>
+      </aside>
+    </>
+  );
+}
+
+function DrawerRow({ icon, label, value, ltr, href }: {
+  icon: React.ReactNode;
+  label: string;
+  value?: string | null;
+  ltr?: boolean;
+  href?: string;
+}) {
+  return (
+    <div className="flex items-center gap-2.5 rounded-lg border border-[var(--border-soft)] bg-[var(--bg-soft)] px-3 py-2">
+      <span className="text-[var(--fg-soft)] shrink-0">{icon}</span>
+      <span className="text-[12px] text-[var(--fg-muted)] shrink-0">{label}</span>
+      <span className="ms-auto text-[13px] font-medium truncate" dir={ltr ? "ltr" : undefined}>
+        {href && value ? (
+          <a href={href} target={href.startsWith("http") ? "_blank" : undefined} rel="noopener"
+            className="text-[var(--accent)] hover:underline">{value}</a>
+        ) : (value || "—")}
+      </span>
     </div>
   );
 }

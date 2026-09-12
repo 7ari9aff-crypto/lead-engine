@@ -298,8 +298,12 @@ class Database:
     )
 
     def insert_lead(self, lead: dict) -> None:
+        # Identity is tenant-global, NOT per-job: the same real-world company
+        # keeps one row across campaigns (later runs refresh it via upsert).
+        # org prefix keeps tenants isolated; job_id must never be part of it.
+        scope = getattr(self, "org_id", None) or "shared"
         lead["lead_id"] = lead.get("lead_id") or (
-            f"{lead.get('job_id','job')}:{lead.get('domain') or lead.get('name')}")
+            f"{scope}:{lead.get('domain') or lead.get('name')}")
         now = utcnow()
         lead.setdefault("created_at", now)
         lead["updated_at"] = now

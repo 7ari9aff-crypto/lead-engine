@@ -13,6 +13,7 @@ import { VerifyPage } from "@/pages/Verify";
 import { ConfigPage } from "@/pages/Config";
 import { IntegrationsPage } from "@/pages/Integrations";
 import { AgentsPage } from "@/pages/Agents";
+import { CampaignDetailsPage } from "@/pages/CampaignDetails";
 import { LandingPage } from "@/pages/Landing";
 import { PricingPage } from "@/pages/Pricing";
 import { LoginPage, SignupPage } from "@/pages/Auth";
@@ -54,6 +55,7 @@ export default function App() {
               <Route path="/keys" component={KeysPage} />
               <Route path="/providers" component={() => <Redirect to="/keys" />} />
               <Route path="/jobs" component={JobsPage} />
+              <Route path="/jobs/:id" component={CampaignDetailsPage} />
               <Route path="/leads" component={LeadsPage} />
               <Route path="/verify" component={VerifyPage} />
               <Route path="/config" component={ConfigPage} />

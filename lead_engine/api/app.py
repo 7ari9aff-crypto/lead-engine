@@ -644,10 +644,33 @@ def mcp_hint():
 RUN_LOCK = threading.Lock()
 
 
+_STATUS_TTL_SECONDS = 4
+_status_cache: dict = {"at": 0.0, "data": None, "key": None}
+
+
 @app.get("/api/status")
 def api_status(db: Database = Depends(get_db)):
     """Everything the dashboard needs in one call: real registry state,
-    real usage from the ledger, real job states, cache and leads counts."""
+    real usage from the ledger, real job states, cache and leads counts.
+
+    Short in-process cache: the dashboard polls this every few seconds and
+    the aggregate runs ~a dozen queries; 4s staleness is invisible there
+    but cuts DB pressure sharply."""
+    import time
+
+    cache_key = getattr(db, "org_id", None) or "shared"
+    now = time.time()
+    if (_status_cache["data"] is not None
+            and _status_cache["key"] == cache_key
+            and now - _status_cache["at"] < _STATUS_TTL_SECONDS):
+        return _status_cache["data"]
+    _status_cache["data"] = _build_status(db)
+    _status_cache["at"] = now
+    _status_cache["key"] = cache_key
+    return _status_cache["data"]
+
+
+def _build_status(db: Database) -> dict:
     registry = Registry(db)
     registry.seed_if_empty()
     providers = []
