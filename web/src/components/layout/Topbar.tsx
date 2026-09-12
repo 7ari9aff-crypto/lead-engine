@@ -1,12 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import {
-  Sun, Moon, RefreshCw, Activity, Wifi, WifiOff, Menu, Search, Zap, LogOut,
-  LayoutDashboard, MessageSquare, KeyRound, PlayCircle, Database,
-  MailCheck, Settings, Bot, Plug,
+  Sun, Moon, RefreshCw, WifiOff, Menu, Search, Zap, LogOut,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
 import { useUI } from "@/hooks/useTheme";
 import { useLiveData } from "@/hooks/useLiveData";
 import { apiGet, apiPost } from "@/lib/api";
@@ -14,36 +11,36 @@ import { supabase } from "@/lib/supabase";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 
-const PAGES = [
-  { href: "/", label: "نظرة عامة", icon: LayoutDashboard },
-  { href: "/chat", label: "المساعد الذكي", icon: MessageSquare },
-  { href: "/jobs", label: "المهام", icon: PlayCircle },
-  { href: "/leads", label: "النتائج", icon: Database },
-  { href: "/verify", label: "فحص إيميل", icon: MailCheck },
-  { href: "/keys", label: "المفاتيح والمزودون", icon: KeyRound },
-  { href: "/integrations", label: "التكاملات و MCP", icon: Plug },
-  { href: "/agents", label: "الوكلاء", icon: Bot },
-  { href: "/config", label: "الإعدادات", icon: Settings },
+const PAGE_TITLES: Record<string, string> = {
+  "/": "نظرة عامة",
+  "/chat": "المساعد الذكي",
+  "/jobs": "الحملات",
+  "/leads": "العملاء المحتملون",
+  "/verify": "فحص الإيميل",
+  "/keys": "الاستهلاك والمفاتيح",
+  "/integrations": "التكاملات",
+  "/agents": "الوكلاء",
+  "/activity": "سجل النشاط",
+  "/config": "الإعدادات",
+};
+
+const NAV_PATHS = [
+  "/", "/chat", "/jobs", "/leads", "/verify", "/keys",
+  "/integrations", "/agents", "/activity", "/config",
 ];
 
 export function Topbar() {
   const { theme, toggleTheme, sidebar, setSidebar } = useUI();
   const qc = useQueryClient();
-  const [, navigate] = useLocation();
-  const { data, error, loading } = useLiveData(() => apiGet.status(), 5000);
+  const [location] = useLocation();
   const { data: usage } = useLiveData<any>(() => apiGet.keysUsage(), 60000);
+  const { error } = useLiveData(() => apiGet.status(), 15000);
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const totalLeads = data?.leads_total ?? 0;
-  const activeJobs = data?.recent_jobs?.filter((j) => ["RUNNING", "QUEUED", "RESUMING"].includes(j.state)).length ?? 0;
-  const healthy = (data?.providers ?? []).filter((p) => p.status === "active").length;
-  const totalProviders = (data?.providers ?? []).length || 0;
-
-  // Persistent usage meter (Apollo-style topbar counter)
+  // One quiet usage chip — the details live in the Consumption page.
   const usageRows: any[] = usage?.providers ?? [];
-  const activeKeys = usageRows.reduce((n: number, p: any) => n + (p.keys_configured || 0), 0);
   const quotaPercents = usageRows
     .map((p: any) => p.live?.percent ?? p.quota?.percent)
     .filter((x: any): x is number => x != null);
@@ -55,8 +52,8 @@ export function Topbar() {
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return PAGES;
-    return PAGES.filter((p) => p.label.toLowerCase().includes(q) || p.href.includes(q));
+    if (!q) return NAV_PATHS;
+    return NAV_PATHS.filter((p) => (PAGE_TITLES[p] ?? "").toLowerCase().includes(q));
   }, [query]);
 
   useEffect(() => {
@@ -75,7 +72,7 @@ export function Topbar() {
   function go(href: string) {
     setOpen(false);
     setQuery("");
-    navigate(href);
+    window.location.assign(href);
   }
 
   return (
@@ -90,8 +87,13 @@ export function Topbar() {
         <Menu className="h-5 w-5" />
       </Button>
 
-      {/* Command search — navigates anywhere */}
-      <div className="relative hidden sm:block w-full max-w-sm mx-auto" dir="rtl">
+      {/* Page title */}
+      <h2 className="text-[15px] font-bold shrink-0 hidden sm:block">
+        {PAGE_TITLES[location] ?? "Lead Engine"}
+      </h2>
+
+      {/* Command search — centered */}
+      <div className="relative hidden md:block w-full max-w-sm mx-auto" dir="rtl">
         <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--fg-soft)] pointer-events-none" />
         <input
           ref={searchRef}
@@ -100,7 +102,7 @@ export function Topbar() {
           onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && results[0]) go(results[0].href);
+            if (e.key === "Enter" && results[0]) go(results[0]);
           }}
           placeholder="ابحث عن صفحة…  Ctrl K"
           className="w-full h-8.5 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-soft)] pr-9 pl-12 text-[13px] text-[var(--fg)] placeholder:text-[var(--fg-soft)] focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] transition-colors"
@@ -116,20 +118,17 @@ export function Topbar() {
                 <div className="px-4 py-6 text-center text-sm text-[var(--fg-muted)]">لا نتائج مطابقة</div>
               ) : (
                 <ul className="py-1.5 max-h-72 overflow-y-auto">
-                  {results.map((p) => {
-                    const Icon = p.icon;
-                    return (
-                      <li key={p.href}>
-                        <button
-                          onClick={() => go(p.href)}
-                          className="w-full flex items-center gap-2.5 px-3.5 h-9 text-[13px] text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)] transition-colors"
-                        >
-                          <Icon className="h-4 w-4 text-[var(--fg-soft)]" />
-                          {p.label}
-                        </button>
-                      </li>
-                    );
-                  })}
+                  {results.map((p) => (
+                    <li key={p}>
+                      <button
+                        onClick={() => go(p)}
+                        className="w-full flex items-center gap-2.5 px-3.5 h-9 text-[13px] text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)] transition-colors"
+                      >
+                        <Zap className="h-3.5 w-3.5 text-[var(--fg-soft)]" />
+                        {PAGE_TITLES[p]}
+                      </button>
+                    </li>
+                  ))}
                 </ul>
               )}
             </div>
@@ -137,60 +136,24 @@ export function Topbar() {
         )}
       </div>
 
-      {/* Live stats */}
-      <div className={cn(
-        "ms-auto flex items-center gap-2.5",
-        loading ? "opacity-60" : ""
-      )}>
-        <div className="hidden md:flex items-center gap-2.5 text-xs text-[var(--fg-muted)]">
-          <span className="flex items-center gap-1.5 tnum">
-            <Activity className="h-3.5 w-3.5 text-[var(--accent)]" />
-            {activeJobs} <span>مهام نشطة</span>
-          </span>
-          <span className="text-[var(--border)]">·</span>
-          <span className="flex items-center gap-1.5 tnum">
-            <span className="font-semibold text-[var(--fg)]">{totalLeads}</span>
-            <span>عميل محتمل</span>
-          </span>
-          <span className="text-[var(--border)]">·</span>
-          <span className="flex items-center gap-1.5 tnum">
-            <span className="font-semibold text-[var(--success)]">{healthy}</span>
-            <span>من {totalProviders} مزوّد</span>
-          </span>
-          {maxQuota != null && (
-            <>
-              <span className="text-[var(--border)]">·</span>
-              <button
-                onClick={() => navigate("/keys")}
-                className="flex items-center gap-1.5 tnum hover:text-[var(--fg)] transition-colors"
-                title="أعلى استهلاك حصة بين المزودين — اضغط للتفاصيل"
-              >
-                <Zap className="h-3.5 w-3.5" style={{ color: quotaTone }} />
-                <span className="font-semibold" style={{ color: quotaTone }}>{maxQuota}%</span>
-                <span>من الحصص</span>
-                <span className="text-[var(--border)]">·</span>
-                <span className="tnum">{activeKeys} مفتاح</span>
-              </button>
-            </>
-          )}
-        </div>
-
-        {loading ? (
-          <Badge variant="default" className="gap-1.5">
-            <RefreshCw className="h-3 w-3 animate-spin" />
-            يتحدّث
-          </Badge>
-        ) : error ? (
-          <Badge variant="danger" className="gap-1.5">
-            <WifiOff className="h-3 w-3" />
+      {/* Right: one usage chip + actions */}
+      <div className="ms-auto flex items-center gap-1.5 shrink-0">
+        {error ? (
+          <span className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-[var(--danger)]/40 bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] text-[12.5px] font-medium text-[var(--danger)]">
+            <WifiOff className="h-3.5 w-3.5" />
             غير متصل
-          </Badge>
-        ) : (
-          <Badge variant="success" className="gap-1.5" title="الاتصال بالسيرفر سليم">
-            <Wifi className="h-3 w-3" />
-            متصل
-          </Badge>
-        )}
+          </span>
+        ) : maxQuota != null ? (
+          <button
+            onClick={() => window.location.assign("/keys")}
+            className="hidden sm:flex items-center gap-1.5 h-8 px-3 rounded-lg border border-[var(--border-soft)] bg-[var(--bg-soft)] text-[12.5px] font-medium text-[var(--fg-muted)] hover:text-[var(--fg)] hover:border-[var(--border)] transition-colors"
+            title="أعلى استهلاك حصة بين المزودين — التفاصيل في صفحة الاستهلاك"
+          >
+            <Zap className="h-3.5 w-3.5" style={{ color: quotaTone }} />
+            <span className="tnum font-semibold" style={{ color: quotaTone }}>{maxQuota}%</span>
+            <span>من الحصص</span>
+          </button>
+        ) : null}
 
         <Button size="icon-sm" variant="ghost" onClick={() => qc.invalidateQueries()} title="تحديث الآن">
           <RefreshCw className="h-4 w-4" />

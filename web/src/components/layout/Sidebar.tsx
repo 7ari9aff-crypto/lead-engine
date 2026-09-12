@@ -2,7 +2,7 @@ import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard,
   KeyRound,
-  PlayCircle,
+  Megaphone,
   Database,
   MailCheck,
   Settings,
@@ -13,51 +13,55 @@ import {
   ChevronRight,
   Zap,
   X,
-  BookOpen,
   MessageSquare,
   Activity,
+  Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUI } from "@/hooks/useTheme";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { apiGet } from "@/lib/api";
 
+// Business-oriented navigation — the user thinks in workspace terms
+// (workspace → data → automation → administration), not in internals.
 const NAV_SECTIONS = [
   {
-    title: "الرئيسية",
+    title: "مساحة العمل",
     items: [
       { href: "/", label: "نظرة عامة", icon: LayoutDashboard },
+      { href: "/jobs", label: "الحملات", icon: Megaphone },
+      { href: "/leads", label: "العملاء المحتملون", icon: Database },
       { href: "/chat", label: "المساعد الذكي", icon: MessageSquare, badge: "AI" },
     ],
   },
   {
-    title: "العمليات",
+    title: "البيانات",
     items: [
-      { href: "/jobs", label: "المهام", icon: PlayCircle },
-      { href: "/leads", label: "النتائج", icon: Database },
-      { href: "/verify", label: "فحص إيميل", icon: MailCheck },
+      { href: "/verify", label: "فحص الإيميل", icon: MailCheck },
+      { href: "/activity", label: "سجل النشاط", icon: Activity },
+    ],
+  },
+  {
+    title: "الأنظمة",
+    items: [
+      { href: "/agents", label: "الوكلاء", icon: Bot },
+      { href: "/integrations", label: "التكاملات", icon: Plug },
     ],
   },
   {
     title: "الإدارة",
     items: [
-      { href: "/keys", label: "المفاتيح والمزودون", icon: KeyRound },
-      { href: "/integrations", label: "التكاملات و MCP", icon: Plug },
-      { href: "/agents", label: "الوكلاء", icon: Bot },
-      { href: "/activity", label: "سجل النشاط", icon: Activity },
+      { href: "/keys", label: "الاستهلاك والمفاتيح", icon: KeyRound },
       { href: "/config", label: "الإعدادات", icon: Settings },
     ],
   },
-];
-
-const EXTERNAL = [
-  { href: "/welcome", label: "صفحة الترحيب", icon: Sparkles },
-  { href: "/pricing", label: "الأسعار", icon: KeyRound },
 ];
 
 export function Sidebar() {
   const [location] = useLocation();
   const { sidebar, toggleSidebar, setSidebar } = useUI();
   const collapsed = sidebar === "collapsed";
+  const [plan, setPlan] = useState<string | null>(null);
 
   useEffect(() => {
     setSidebar("expanded");
@@ -74,6 +78,17 @@ export function Sidebar() {
     };
   }, [sidebar]);
 
+  // Plan chip for the workspace block (silent fetch — purely cosmetic).
+  useEffect(() => {
+    apiGet
+      .entitlements()
+      .then((e: any) => {
+        const p = String(e?.plan ?? e?.entitlements?.plan ?? "").toLowerCase();
+        if (p) setPlan(p === "free" ? "الخطة المجانية" : p === "pro" ? "خطة Pro" : p);
+      })
+      .catch(() => {});
+  }, []);
+
   return (
     <>
       {sidebar === "collapsed" && (
@@ -84,24 +99,29 @@ export function Sidebar() {
       )}
       <aside
         className={cn(
-          "glass-strong border-r border-[var(--border)] transition-all duration-300 ease-out",
+          "border-r border-[var(--border)] bg-[var(--bg-elev)] transition-all duration-300 ease-out",
           "flex flex-col h-screen sticky top-0 z-30",
           "fixed left-0 lg:sticky",
           sidebar === "collapsed"
-            ? "translate-x-0 lg:w-[68px] w-[280px]"
-            : "-translate-x-full lg:translate-x-0 lg:w-[250px]"
+            ? "translate-x-0 lg:w-[70px] w-[280px]"
+            : "-translate-x-full lg:translate-x-0 lg:w-[260px]"
         )}
       >
-        {/* Brand */}
+        {/* Workspace switcher */}
         <div className="flex items-center justify-between gap-3 px-4 h-16 border-b border-[var(--border-soft)] shrink-0">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <div className="flex items-center justify-center h-9 w-9 rounded-xl bg-[image:var(--gradient)] shadow-md shrink-0">
               <Zap className="h-5 w-5 text-white" />
             </div>
             {!collapsed && (
-              <div className="flex flex-col">
-                <span className="font-semibold text-sm leading-tight">Lead Engine</span>
-                <span className="text-[10px] text-[var(--fg-soft)]">منصة توليد العملاء</span>
+              <div className="flex flex-col min-w-0">
+                <span className="flex items-center gap-1.5 font-semibold text-[14px] leading-tight">
+                  <Building2 className="h-3.5 w-3.5 text-[var(--fg-soft)]" />
+                  Lead Engine
+                </span>
+                <span className="text-[11px] text-[var(--fg-soft)] truncate">
+                  {plan ?? "مساحة عمل توليد العملاء"}
+                </span>
               </div>
             )}
           </div>
@@ -121,7 +141,7 @@ export function Sidebar() {
           {NAV_SECTIONS.map((section) => (
             <div key={section.title} className="space-y-0.5">
               {!collapsed && (
-                <div className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--fg-soft)]">
+                <div className="px-3 mb-1.5 text-[11px] font-semibold text-[var(--fg-soft)]">
                   {section.title}
                 </div>
               )}
@@ -134,7 +154,7 @@ export function Sidebar() {
                     key={item.href}
                     href={item.href}
                     className={cn(
-                      "group relative flex items-center gap-3 rounded-lg px-3 h-9 text-[13px] font-medium",
+                      "group relative flex items-center gap-3 rounded-lg px-3 h-9.5 text-[13.5px] font-medium",
                       "transition-all duration-200",
                       active
                         ? "bg-[var(--accent-soft)] text-[var(--accent-hover)]"
@@ -144,7 +164,7 @@ export function Sidebar() {
                     {active && (
                       <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-[var(--accent)]" />
                     )}
-                    <Icon className={cn("h-4 w-4 shrink-0 transition-colors", active && "text-[var(--accent)]")} />
+                    <Icon className={cn("h-4.5 w-4.5 shrink-0 transition-colors", active && "text-[var(--accent)]")} />
                     {!collapsed && <span className="truncate">{item.label}</span>}
                     {!collapsed && item.badge && (
                       <span className="ms-auto text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-[image:var(--gradient)] text-white">
@@ -160,30 +180,18 @@ export function Sidebar() {
 
         {/* Footer */}
         <div className="border-t border-[var(--border-soft)] p-2.5 space-y-0.5 shrink-0">
-          {!collapsed && EXTERNAL.map((e) => {
-            const Icon = e.icon;
-            return (
-              <Link
-                key={e.href}
-                href={e.href}
-                className="w-full flex items-center gap-2.5 rounded-md h-8 px-2.5 text-xs text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)] transition-colors"
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {e.label}
-              </Link>
-            );
-          })}
           {!collapsed && (
-            <div className="my-1.5 rounded-lg p-2.5 bg-[var(--bg-soft)] border border-[var(--border-soft)]">
-              <div className="flex items-center gap-2 text-xs text-[var(--fg-muted)]">
-                <Sparkles className="h-3.5 w-3.5 text-[var(--accent)] shrink-0" />
-                <span>تشغيل حقيقي واعٍ بالحصص</span>
-              </div>
-            </div>
+            <Link
+              href="/pricing"
+              className="w-full flex items-center gap-2.5 rounded-md h-8 px-2.5 text-[12.5px] text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)] transition-colors"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              الأسعار والخطط
+            </Link>
           )}
           <button
             onClick={toggleSidebar}
-            className="w-full flex items-center justify-center gap-2 h-8 rounded-md text-xs text-[var(--fg-soft)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)] transition-colors"
+            className="w-full flex items-center justify-center gap-2 h-8 rounded-md text-[12.5px] text-[var(--fg-soft)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)] transition-colors"
           >
             {collapsed ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
             {!collapsed && <span>طيّ القائمة</span>}

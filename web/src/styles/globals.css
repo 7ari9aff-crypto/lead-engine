@@ -383,8 +383,8 @@ pre code {
   border-spacing: 0;
 }
 .pro-table thead th {
-  padding: 10px 16px;
-  font-size: 11px;
+  padding: 11px 16px;
+  font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -395,8 +395,8 @@ pre code {
   text-align: start;
 }
 .pro-table tbody td {
-  padding: 12px 16px;
-  font-size: 13px;
+  padding: 13px 16px;
+  font-size: 14px;
   border-bottom: 1px solid var(--border-soft);
   vertical-align: middle;
 }
