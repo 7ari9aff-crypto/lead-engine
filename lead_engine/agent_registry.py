@@ -67,6 +67,12 @@ class AgentRegistry:
             )
 
     def agents(self):
+        # Tenant scope: platform agents (NULL org) plus this org's own.
+        org_id = getattr(self.db, "org_id", None)
+        if org_id:
+            return self.db.query(
+                "SELECT * FROM agents WHERE organization_id IS NULL OR organization_id = ?"
+                " ORDER BY name", (org_id,))
         return self.db.query("SELECT * FROM agents ORDER BY name")
 
     def versions(self, slug):

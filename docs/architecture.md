@@ -93,3 +93,49 @@
 - MFA/SSO/SCIM: مع أول عقد enterprise.
 - Object storage pipelines: عند ملفات كبيرة حقيقية.
 - SOC 2 evidence: المرحلة 3.
+
+## 6) حالة التنفيذ الفعلية (تحديث 2026-09-12)
+
+الوثيقة القديمة كانت متأخرة عن الكود. الجدول ده هو المصدر المُحدَّث:
+
+| الطبقة | الحالة |
+|---|---|
+| Engine pipeline كامل | منفَّذ ومختبر (تشغيل حقيقي: 84 عميل، 32 مقبول) |
+| Provider Router | منفَّذ (أولويات، حصص، RPM، تدوير مفاتيح، cooldown، fallback) |
+| Queue على Postgres | منفَّذة (SKIP LOCKED، lease، reclaim، backoff) — tests/test_queue_pg.py |
+| Outbox + Events | منفَّذ (outbox، استهلاك idempotent، DLQ بعد 5 محاولات) |
+| Webhooks | منفَّذة (HMAC موقعة، delivery log، 3 محاولات لكل جولة) |
+| Multi-tenancy | منفَّذة (organizations، members، RLS، org injection) |
+| Tenant context لكل request | منفَّذ (JWT → membership → DB handle) — env bridge احتياطي للـworker |
+| Auth | Supabase JWT أساسي؛ المسار القديم بكلمة مرور مُغلق في وضع supabase |
+| Integrations OAuth | منفَّذة (signed state، توكنات مشفرة، refresh، revoke) — صلبة بإعدادات مزود حقيقية |
+| Agents platform | منفَّذة (versions، runs، steps، tools، approvals) |
+| MCP | منفَّذ (5 أدوات) — auth/org-scoping للمستأجرين لاحقًا |
+| Entitlements | منفَّذة (حدود يومية لكل org) — Billing/Stripe غير منفَّذ |
+| Observability / SLO | غير منفَّذ |
+| Enterprise isolation | مخطط (provisioning state machine جاهز، dedicated runtime لاحقًا) |
+
+## 7) تصنيف الجداول (Data Isolation Audit — ملزم)
+
+### Tenant-scoped — organization_id إلزامي في الكتابة
+
+jobs · leads · usage_ledger · agent_runs · agent_steps · approvals ·
+job_events · evidence · cache · notifications · activity_events · agents
+
+- NULL organization_id في agents فقط = وكيل منصة (system agent)
+- activity_events القديمة (قبل migration 6) بدون org = صفوف منصة تراثية
+
+### Platform-global — مشتركة للقراءة، لا تحمل بيانات عملاء
+
+providers (تعريفات) · tools (السجل)
+
+### Internal — ليست بيانات مستأجرين
+
+connections (اتصالات مزودين قديمة بنمط الوكلاء؛ حل محلها
+public.integration_connections للـOAuth — تُستبعد تدريجيًا)
+
+### قواعد التنفيذ
+
+1. كل INSERT على جدول tenant-scoped يمر عبر ORG_TABLES في db_pg (حقن تلقائي)
+2. كل قائمة/قراءة في الـAPI تفلتر: org الحالي + صفوف المنصة (NULL) عند اللزوم
+3. لا يجوز endpoint يعرض صفوف tenant آخر بأي شكل

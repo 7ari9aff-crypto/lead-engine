@@ -213,6 +213,15 @@ class LoginRequest(BaseModel):
 def auth_login(req: LoginRequest):
     from .auth import COOKIE_NAME, issue_session, password_matches
 
+    # P0.3 auth finalization: when Supabase Auth is the backend, the legacy
+    # shared-password path is closed — users sign in with email via the
+    # frontend Supabase client. Legacy stays only for local/no-Supabase dev.
+    from . import auth_jwt
+    if auth_jwt.auth_mode() == "supabase":
+        raise HTTPException(
+            status_code=403,
+            detail="تسجيل الدخول بيتم بالبريد الإلكتروني — استخدم صفحة الدخول العادية",
+        )
     if not password_matches(req.password):
         raise HTTPException(status_code=401, detail="invalid credentials")
     response = JSONResponse({"authenticated": True})

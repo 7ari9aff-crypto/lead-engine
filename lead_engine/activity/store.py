@@ -60,17 +60,21 @@ class ActivityStore:
     def list(self, limit: int = 50, kind: str | None = None) -> list[dict]:
         if limit < 1:
             limit = 1
+        # Tenant scope: this org's events plus legacy platform rows (NULL).
+        org_id = getattr(self.db, "org_id", None)
+        where, params = [], []
+        if org_id:
+            where.append("(organization_id = ? OR organization_id IS NULL)")
+            params.append(org_id)
         if kind:
-            rows = self.db.query(
-                "SELECT * FROM activity_events WHERE kind = ?"
-                " ORDER BY id DESC LIMIT ?",
-                (kind, limit),
-            )
-        else:
-            rows = self.db.query(
-                "SELECT * FROM activity_events ORDER BY id DESC LIMIT ?",
-                (limit,),
-            )
+            where.append("kind = ?")
+            params.append(kind)
+        clause = (" WHERE " + " AND ".join(where)) if where else ""
+        params.append(limit)
+        rows = self.db.query(
+            f"SELECT * FROM activity_events{clause} ORDER BY id DESC LIMIT ?",
+            tuple(params),
+        )
         return [self._row_to_dict(r) for r in rows]
 
     @staticmethod

@@ -28,7 +28,8 @@ import psycopg
 from psycopg.rows import dict_row
 
 # Tables whose INSERTs must carry organization_id.
-ORG_TABLES = {"jobs", "leads", "usage_ledger", "agent_runs", "approvals"}
+ORG_TABLES = {"jobs", "leads", "usage_ledger", "agent_runs", "approvals",
+              "activity_events", "agents"}
 
 _ORG_INSERT_RE = re.compile(
     r"(insert\s+into\s+(jobs|leads|usage_ledger|agent_runs|approvals)\s*)"
