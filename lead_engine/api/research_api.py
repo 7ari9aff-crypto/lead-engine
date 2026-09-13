@@ -185,16 +185,22 @@ def research_resume(job_id: str, background: BackgroundTasks, db=Depends(get_db)
     return {"ok": True, "state": "RUNNING"}
 
 @router.get("/{job_id}/stream")
-async def research_stream(job_id: str, request: Request, db=Depends(get_db)):
+async def research_stream(job_id: str, request: Request, db=Depends(get_db),
+                          max_seconds: int = 600):
     """Real-time SSE progress stream for the UI/chat (directive §39 / docs/handoff).
-    Streams state transitions and counter updates without client polling."""
+    Streams state transitions and counter updates without client polling.
+    Bounded by wall clock (max_seconds) — a stuck stream can never hang a
+    client forever; UIs simply reconnect."""
     _owned(db, job_id)
+    import time as _time
+
+    started = _time.monotonic()
 
     async def event_generator():
         last_updated = None
         manager = ResearchJobManager(db)
         terminal_states = {"COMPLETED", "FAILED", "CANCELLED", "READY_FOR_REVIEW", "WAITING_FOR_USER"}
-        for _ in range(360):
+        while _time.monotonic() - started < max_seconds:
             if await request.is_disconnected():
                 break
             prog = manager.progress(job_id)
@@ -209,6 +215,7 @@ async def research_stream(job_id: str, request: Request, db=Depends(get_db)):
             else:
                 yield ": ping\n\n"
             await asyncio.sleep(2)
+        yield f"event: done\ndata: {json.dumps({'state': 'stream_closed'})}\n\n"
 
     return StreamingResponse(
         event_generator(),

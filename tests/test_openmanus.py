@@ -153,13 +153,41 @@ def test_wrapper_task_lifecycle_with_fake_openmanus(wrapper_client, tmp_path, mo
         stdout = fake_stdout
         stderr = ""
 
-    captured = {}
-    def fake_run(cmd, **kwargs):
-        captured["cmd"] = cmd
-        captured["stdin"] = kwargs.get("input")
-        return FakeProc()
+    # the wrapper now runs the Manus agent IN-PROCESS — inject a fake
+    # app.agent.manus module that "produces" the JSON result as an assistant
+    # message, exercising the real extraction path
+    import sys, types, asyncio
 
-    monkeypatch.setattr("wrapper.openmanus_wrapper.subprocess.run", fake_run)
+    result_json_msg = ("```json\n" + result_json + "\n```")
+
+    class FakeAgent:
+        max_steps = 0
+        messages = []
+        @staticmethod
+        async def create():
+            return FakeAgent()
+        async def run(self, prompt):
+            class M:
+                role, content = "assistant", result_json_msg
+            FakeAgent.messages = [M()]
+            captured["prompt"] = prompt
+            return "done"
+        async def cleanup(self):
+            return None
+
+    fake_manus = types.ModuleType("app.agent.manus")
+    fake_manus.Manus = FakeAgent
+    fake_schema = types.ModuleType("app.schema")
+    class AgentState:
+        pass
+    fake_schema.AgentState = AgentState
+    fake_pkg = types.ModuleType("app"); fake_agent_pkg = types.ModuleType("app.agent")
+    fake_pkg.agent = fake_agent_pkg; fake_agent_pkg.manus = fake_manus
+    monkeypatch.setitem(sys.modules, "app", fake_pkg)
+    monkeypatch.setitem(sys.modules, "app.agent", fake_agent_pkg)
+    monkeypatch.setitem(sys.modules, "app.agent.manus", fake_manus)
+    monkeypatch.setitem(sys.modules, "app.schema", fake_schema)
+    captured = {}
     headers = {"Authorization": "Bearer tok-123"}
     created = wrapper_client.post(
         "/tasks", json={"type": "research", "objective": "investigate clinic-c",
@@ -178,10 +206,8 @@ def test_wrapper_task_lifecycle_with_fake_openmanus(wrapper_client, tmp_path, mo
     assert final["status"] == "completed"
     assert final["result"]["facts"][0]["value"] == "+966501234567"
     assert "missing" in final["result"]
-    # the prompt (with the JSON-output instruction) was piped to stdin, and
-    # the configured entry script was executed in the OpenManus cwd
-    assert captured["cmd"][1] == "run_flow.py"
-    assert "facts" in captured["stdin"]
+    # the research prompt (with the JSON-output instruction) reached the agent
+    assert "facts" in captured["prompt"]
 
 
 def test_wrapper_requires_configured_cwd(wrapper_client, monkeypatch, tmp_path):
@@ -192,10 +218,15 @@ def test_wrapper_requires_configured_cwd(wrapper_client, monkeypatch, tmp_path):
 
 
 # --------------------------------------------------------- extraction tests
-def test_extract_last_json_prefers_fenced_block():
-    from wrapper.openmanus_wrapper import _extract_last_json
+def test_extract_provenanced_facts_prefers_fenced_block_and_normalizes():
+    from wrapper.openmanus_wrapper import extract_provenanced_facts
 
-    stdout = 'logs {"not": "it"} ... ```json\n{"facts": [1], "summary": "s"}\n```'
-    data = _extract_last_json(stdout)
-    assert data["summary"] == "s"
-    assert _extract_last_json("no json at all") is None
+    text = ('logs... ```json\n{"facts": ['
+            '{"field": "phone", "value": "0501234567",'
+            ' "source_url": "https://c.com", "quote": "call"},'
+            '{"field": "email", "value": "BAD", "source_url": "https://c.com"}]}\n```')
+    facts = extract_provenanced_facts(text, source_url="https://c.com")
+    # phone normalized to E.164, invalid email dropped to the sanitized value
+    assert facts[0]["value"] == "+966501234567"
+    assert all(f["source_url"] for f in facts)
+    assert extract_provenanced_facts("no json at all") == []

@@ -67,6 +67,10 @@ def client(db, monkeypatch):
                        "value": "+966501111111",
                        "source_url": "https://directory-sa.com/a", "provider": "exa"}},
              {"tool": "save_fact",
+              "args": {"domain": "clinica-sa.com", "field": "city",
+                       "value": "Riyadh",
+                       "source_url": "https://directory-sa.com/a", "provider": "exa"}},
+             {"tool": "save_fact",
               "args": {"domain": "clinica-sa.com", "field": "employee_count",
                        "value": "35", "quote": "estimated from branches",
                        "inferred": True}},
@@ -150,7 +154,7 @@ def test_full_target_flow_e2e(client, db):
     assert progress["stats"]["candidates"] == 3   # broad collection incl. directory
     assert progress["stats"]["all_facts"] >= 5
     assert progress["stats"]["open_conflicts"] == 1
-    assert progress["stats"]["verified_facts"] == 1   # only Clinic A's phone earned it
+    assert progress["stats"]["verified_facts"] == 2   # phone + city (2 independent sources each)
     # observability per job (directive §39)
     obs = progress["observability"]
     assert any(p["provider"] in ("tavily", "brave", "exa", "gemini")
@@ -167,7 +171,7 @@ def test_full_target_flow_e2e(client, db):
     b = by_id["org-e2e:clinicb-sa.com"]
 
     # Clinic A: VERIFIED phone (2 independent domains), honest missing email
-    assert a["verification"]["verified_facts"] == 1
+    assert a["verification"]["verified_facts"] == 2  # phone + city, each earned by 2 independent sources
     assert a["facts_snapshot"]["fields"]["phone"]["status"] == "VERIFIED"
     assert a["facts_snapshot"]["fields"]["phone"]["sources"][0]["source_url"]
     assert "email" in a["missing_information"]

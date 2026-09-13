@@ -2,7 +2,7 @@ import pytest
 
 from lead_engine.db import Database
 from lead_engine.jobs import (
-    COMPLETED, DEGRADED, FAILED, PAUSED, QUEUED, RESUMING, RUNNING,
+    COMPLETED, DEGRADED, DISCOVERING, FAILED, PAUSED, QUEUED, RESUMING, RUNNING,
     IllegalTransition, JobManager,
 )
 

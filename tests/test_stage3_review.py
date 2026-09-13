@@ -39,6 +39,10 @@ def _run_research_job(db, extra_script=None):
               "args": {"name": "Clinic A", "domain": "clinica-sa.com",
                        "field": "city", "value": "Riyadh",
                        "source_url": "https://clinica-sa.com", "provider": "tavily"}},
+             {"tool": "save_fact",
+              "args": {"domain": "clinica-sa.com",
+                       "field": "city", "value": "Riyadh",
+                       "source_url": "https://directory-sa.com/a", "provider": "exa"}},
          ]},
         {"thought": "خلصنا", "done": True, "actions": []},
         {"fit_score": 82, "tier": "A",
@@ -83,11 +87,11 @@ def test_presentation_payload_shape(db):
     assert payload["subject"] == {"kind": "company", "id": "clinica-sa.com"}
     assert payload["fit"]["fit_score"] == 82
     assert payload["fit"]["why"] == ["عيادة في الرياض", "هاتف موثق بمصدر"]
-    # honest knowledge state: one source per fact = UNVERIFIED, nothing claims
-    # verification it did not earn
-    assert payload["verification"]["verified_facts"] == 0
-    assert all(n["status"] == "UNVERIFIED"
-               for n in payload["facts_snapshot"]["fields"].values())
+    # honest knowledge state: only the twice-sourced city is VERIFIED; the
+    # single-source phone stays UNVERIFIED — nothing claims what it did not earn
+    assert payload["verification"]["verified_facts"] == 1
+    assert payload["facts_snapshot"]["fields"]["city"]["status"] == "VERIFIED"
+    assert payload["facts_snapshot"]["fields"]["phone"]["status"] == "UNVERIFIED" 
     assert "email" in payload["missing_information"]     # honest gaps
     assert payload["identity"]["city"]["value"] == "Riyadh"
     assert payload["lead"]["stage"] == "REVIEW"

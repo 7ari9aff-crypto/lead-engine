@@ -133,11 +133,24 @@ def test_chat_start_research_tool_creates_job(db, monkeypatch):
 
 
 def test_research_stream_endpoint(client, db):
-    job_id = ResearchJobManager(db).create("objective for stream test")
-    with client.stream("GET", f"/api/v1/research/{job_id}/stream") as resp:
+    # a terminal-state job makes the stream emit progress + done immediately —
+    # no waiting, no hang; max_seconds bounds even a never-terminal stream
+    manager = ResearchJobManager(db)
+    job_id = manager.create("objective for stream test")
+    manager.jobs.transition(job_id, "RUNNING")
+    manager.ready_for_review(job_id, "OBJECTIVE_SATISFIED")
+    with client.stream("GET", f"/api/v1/research/{job_id}/stream?max_seconds=2") as resp:
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers["content-type"]
+        saw_progress = saw_done = False
         for line in resp.iter_lines():
-            if line:
-                assert "event: progress" in line or "data:" in line or ": ping" in line
+            if not line:
+                continue
+            assert ("event: progress" in line or "data:" in line
+                    or ": ping" in line or "event: done" in line)
+            if "progress" in line:
+                saw_progress = True
+            if "event: done" in line:
+                saw_done = True
                 break
+        assert saw_progress and saw_done
