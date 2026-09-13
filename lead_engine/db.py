@@ -320,6 +320,7 @@ CREATE TABLE IF NOT EXISTS research_context (
     kind TEXT NOT NULL DEFAULT 'research',   -- research | legacy
     objective TEXT NOT NULL,
     icp_version_id TEXT,
+    run_id TEXT,
     plan_json TEXT,
     budget_json TEXT,
     counters_json TEXT,

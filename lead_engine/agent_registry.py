@@ -18,7 +18,30 @@ AGENT_SEED = {
         "thinking_effort": None,
         "tool_policy": {"scopes": ["search:read", "leads:write", "verification:run"]},
         "output_schema": {"type": "object", "required": ["job_id", "state", "leads"]},
-    }
+    },
+    "lead-research": {
+        "name": "Research Agent",
+        "description": "وكيل بحث ذاتي: يخطط، يبحث، يحقق، يوثق الحقائق بمصادرها، "
+                       "يكشف التعارض، يؤهل مقابل الـICP، ويتوقف عند بوابة المراجعة البشرية. "
+                       "لا يرسل شيئًا لأحد أبدًا.",
+        "version": "1.0.0",
+        "instructions": (
+            "شغّل حلقة البحث: خطط استعلامات، ادور، احفظ كل ملاحظة كحقيقة بمصدرها، "
+            "كرر المصادر المستقلة للحقول الحاسمة حتى تتحقق، اكشف التعارض ولا تحله "
+            "بصمت، صفِّ المرشحين مقابل الـICP من الحقائق فقط، ثم أعلن done ليتوقف "
+            "النظام عند READY_FOR_REVIEW. ممنوع اختراع أي معلومة، وممنوع أي إرسال."
+        ),
+        "model_policy": {"task": "planning", "fallback": "none"},
+        "model_provider": "gemini",
+        "model_name": None,
+        "thinking_effort": None,
+        "tool_policy": {"scopes": ["search:read", "research:read", "evidence:write",
+                                   "verification:run", "facts:read",
+                                   "qualification:run", "jobs:read",
+                                   "interaction:write"]},
+        "output_schema": {"type": "object",
+                          "required": ["job_id", "state", "stop_reason"]},
+    },
 }
 
 TOOL_SEED = [
@@ -27,6 +50,19 @@ TOOL_SEED = [
     ("list_leads", "Read leads with filters", ["leads:read"], False),
     ("verify_email", "Verify an email address", ["verification:run"], False),
     ("system_status", "Read providers, jobs, and usage", ["system:read"], False),
+    ("search_companies", "Web search for candidate companies", ["search:read"], False),
+    ("research_company", "Deep company investigation via the OpenManus browsing runtime",
+     ["research:read", "evidence:write"], False),
+    ("save_fact", "Store a sourced fact in the Truth Layer", ["evidence:write"], False),
+    ("verify_fact", "Verify a stored fact (5-state email verification)",
+     ["verification:run"], False),
+    ("list_facts", "Read the fact snapshot for a subject", ["facts:read"], False),
+    ("qualify_lead", "Evidence-grounded ICP qualification from stored facts",
+     ["qualification:run"], False),
+    ("get_research_status", "Research job progress, counters and budgets",
+     ["jobs:read"], False),
+    ("ask_user", "Ask the user a blocking question (job goes WAITING_FOR_USER)",
+     ["interaction:write"], False),
 ]
 
 

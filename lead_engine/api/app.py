@@ -1303,6 +1303,10 @@ def dashboard():
 from ..activity import get_router as _activity_router
 app.include_router(_activity_router())
 
+# Agentic research jobs (R2/R3) — chat-first persistent research
+from .research_api import router as research_router
+app.include_router(research_router)
+
 # OAuth Integration Platform (Phase 2) — connect/callback/revoke per provider
 from .integrations_api import router as integrations_router
 from .events_api import router as events_router

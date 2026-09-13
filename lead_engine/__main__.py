@@ -135,6 +135,24 @@ def main(argv=None):
             job_id, icp_id = job["job_id"], job["icp_id"]
             print(f"leased {job_id} (icp={icp_id}, attempt={job['attempts']})")
             try:
+                from .research import ResearchJobManager
+
+                if ResearchJobManager(db).is_research(job_id):
+                    # agentic research path — resumable, budgeted, human gate
+                    from .research.orchestrator import ResearchOrchestrator
+
+                    summary = ResearchOrchestrator(db, settings, job_id).run()
+                    state = summary.get("state") or "READY_FOR_REVIEW"
+                    if state == "PAUSED":
+                        queue.fail(db, job_id, summary.get("pause_reason") or "paused")
+                    else:
+                        # READY_FOR_REVIEW / WAITING_FOR_USER / CANCELLED:
+                        # the state belongs to the human gate now, not the queue
+                        queue.release(db, job_id)
+                    print(f"{job_id} -> {state} ({summary.get('stop_reason')})")
+                    if args.once:
+                        return 0
+                    continue
                 from .config import load_icp
 
                 summary, _metrics, _outputs = run_benchmark(

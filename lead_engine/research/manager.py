@@ -132,6 +132,16 @@ class ResearchJobManager:
             (json.dumps(counters, ensure_ascii=False), utcnow(), job_id))
         return counters[key]
 
+    def set_counter(self, job_id: str, key: str, value: int) -> None:
+        ctx = self.context(job_id)
+        if not ctx:
+            raise ValueError(f"no research context for {job_id}")
+        counters = dict(ctx.get("counters") or {})
+        counters[key] = int(value)
+        self.db.execute(
+            "UPDATE research_context SET counters_json=?, updated_at=? WHERE job_id=?",
+            (json.dumps(counters, ensure_ascii=False), utcnow(), job_id))
+
     def budget_check(self, job_id: str) -> tuple[bool, str | None, dict]:
         """(ok, exceeded_budget_name, snapshot). One exceeded guardrail is
         enough to stop the loop — the caller records the stop_reason."""

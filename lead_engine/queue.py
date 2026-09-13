@@ -64,6 +64,15 @@ def complete(db, job_id: str) -> None:
         " updated_at=? WHERE job_id=?", (_now(), job_id))
 
 
+def release(db, job_id: str) -> None:
+    """Clear the lease WITHOUT touching the job state — used when the work
+    reached a state owned by someone else (READY_FOR_REVIEW / WAITING_FOR_USER
+    for research jobs: the queue is bookkeeping, the human gate owns COMPLETED)."""
+    db.execute(
+        "UPDATE jobs SET worker_id=NULL, lease_expires_at=NULL, updated_at=?"
+        " WHERE job_id=?", (_now(), job_id))
+
+
 def fail(db, job_id: str, reason: str) -> str:
     """Retry with exponential backoff while attempts remain, else FAILED.
     Returns the resulting state."""
