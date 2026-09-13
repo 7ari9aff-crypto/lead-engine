@@ -23,6 +23,7 @@ TOOL_SCOPES = {
     "list_leads": ["leads:read"],
     "verify_email": ["verification:run"],
     "system_status": ["system:read"],
+    "start_research": ["jobs:run", "search:read", "evidence:write"],
 }
 
 SYSTEM_INSTRUCTION = """أنت "مساعد محرك الـLeads" — واجهة محادثة لنظام توليد leads واعٍ بالحصص (quotas).
@@ -90,6 +91,18 @@ TOOLS_DECL = [{
             "description": "حالة النظام: المزوّدون المتاحون والمستنفدون، عدد المهام والـleads، الاستهلاك.",
             "parameters": {"type": "OBJECT", "properties": {}},
         },
+        {
+            "name": "start_research",
+            "description": "ابدأ مهمة بحث وكيلية دائمة عن هدف صيغ بلغة طبيعية (مثال: دور على شركات SaaS في السعودية بين 100 و500 موظف). المهمة تبحث وتحقق وتوثق الحقائق بمصادرها ويتوقف عند مراجعتك — لا يرسل شيئًا لأحد.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "objective": {"type": "STRING",
+                                  "description": "هدف البحث بلغة طبيعية كما كتبه المستخدم"},
+                },
+                "required": ["objective"],
+            },
+        },
     ]
 }]
 
@@ -134,6 +147,45 @@ def execute_tool(name: str, args: dict, router, db) -> dict:
                 "contacts_note": "الأرقام/الإيميلات مستخرجة من مقتطفات نتائج البحث "
                                  "(بمصدرها) — إكمال جهات الاتصال يتطلب مفاتيح Apollo وHunter.",
             }
+
+        if name == "start_research":
+            objective = (args.get("objective") or "").strip()
+            if not objective:
+                return {"error": "objective مطلوب"}
+            from ..queue import enqueue, platform_mode
+            from ..research import ResearchJobManager
+
+            manager = ResearchJobManager(db)
+            job_id = manager.create(objective)
+            if platform_mode():
+                enqueue(db, job_id)
+                mode = "queue"
+            else:
+                # inline: a daemon thread runs the orchestrator on its OWN db
+                # handle so the chat returns immediately and progress is polled
+                import threading
+
+                from ..db import open_db
+
+                org = getattr(db, "org_id", None)
+
+                def _run():
+                    from ..config import load_settings
+                    from ..research.orchestrator import ResearchOrchestrator
+
+                    orch_db = open_db(org_id=org)
+                    if getattr(orch_db, "dialect", "sqlite") == "sqlite":
+                        orch_db.org_id = org or "shared"
+                    try:
+                        ResearchOrchestrator(orch_db, load_settings(), job_id).run()
+                    finally:
+                        orch_db.close()
+
+                threading.Thread(target=_run, daemon=True).start()
+                mode = "inline"
+            return {"job_id": job_id, "state": "QUEUED", "mode": mode,
+                    "note": "مهمة بحث دائمة بدأت — تابع تقدمها الحي في صفحة "
+                            "المهام، وبتتوقف عند مراجعتك قبل أي إجراء."}
 
         if name == "get_job_status":
             job = db.one("SELECT * FROM jobs WHERE job_id=?", (args.get("job_id", ""),))

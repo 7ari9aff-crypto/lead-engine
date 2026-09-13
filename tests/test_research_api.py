@@ -106,3 +106,27 @@ def test_resume_from_ready_for_review_is_research_more(client, db):
     assert manager.jobs.current(job_id) == "PAUSED"
     events = client.get(f"/api/v1/research/{job_id}/events").json()["events"]
     assert any("RESEARCH_MORE" in (e["reason"] or "") for e in events)
+
+
+def test_chat_start_research_tool_creates_job(db, monkeypatch):
+    """The chat 'start_research' tool creates a persistent research job —
+    the chat-first entry from directive §29."""
+    from lead_engine.api.chat import execute_tool
+    from lead_engine.cache import CacheLayer
+    from lead_engine.config import load_cache_policy
+    from lead_engine.router import Router
+
+    class NullRouter(Router):
+        def route(self, *a, **k):
+            from lead_engine.router import NoProviderAvailable
+
+            raise NoProviderAvailable("reasoning", tried=["none"])
+
+    router = NullRouter(db, CacheLayer(db, load_cache_policy()), {})
+    out = execute_tool("start_research", {"objective": "دور على شركات SaaS في السعودية"},
+                       router, db)
+    assert out["state"] == "QUEUED"
+    assert out["job_id"].startswith("job-")
+    manager = ResearchJobManager(db)
+    assert manager.is_research(out["job_id"])
+    assert "SaaS" in manager.context(out["job_id"])["objective"]

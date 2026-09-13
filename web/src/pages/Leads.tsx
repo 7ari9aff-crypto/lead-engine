@@ -34,6 +34,7 @@ import { friendlyError, ICP_LABELS } from "@/lib/friendly";
 import { Spinner, EmptyState } from "@/components/ui/EmptyState";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatCard } from "@/components/ui/FilterPills";
+import { ReviewPanel } from "@/components/review/ReviewPanel";
 import { toast } from "sonner";
 
 // Saved searches — persisted locally per browser.
@@ -583,6 +584,8 @@ function LeadDrawer({ lead, onClose }: { lead: LeadRow; onClose: () => void }) {
               راسلهم الآن
             </Button>
           )}
+
+          {l.lead_id && <ReviewPanel leadId={l.lead_id} />}
         </div>
       </aside>
     </>

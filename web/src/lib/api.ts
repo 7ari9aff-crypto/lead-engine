@@ -179,6 +179,84 @@ export type SuppressionEntry = {
   created_at: string;
 };
 
+// ===== Stage 3 — agentic research & human review =====
+
+export type FactNode = {
+  value: string;
+  value_kind?: string;
+  status: "VERIFIED" | "CONFLICTED" | "STALE" | "UNVERIFIED" | "INFERRED";
+  confidence: number | null;
+  collected_at: string | null;
+  expires_at: string | null;
+  fact_id: string;
+  sources: { source_url: string | null; source_kind: string; provider: string | null; quote: string | null }[];
+  alternatives?: { value: string; status: string; fact_id: string }[];
+};
+
+export type FactSnapshot = {
+  subject_kind: string;
+  subject_id: string;
+  fields: Record<string, FactNode>;
+  conflicts: { conflict_id: string; field: string; fact_a: string; fact_b: string; resolution: string }[];
+  stale_fields: string[];
+};
+
+export type Presentation = {
+  lead: {
+    lead_id: string | null;
+    job_id: string | null;
+    stage: string | null;
+    score: number | null;
+    qualification_score: number | null;
+    tier: string | null;
+    disposition: "APPROVE_CONTACT" | "REJECT" | "RESEARCH_MORE" | "SAVE_FOR_LATER" | null;
+    disposition_note: string | null;
+    disposition_at: string | null;
+  };
+  subject: { kind: string; id: string };
+  identity: Record<string, { value: string; status: string; confidence: number } | null | undefined>;
+  fit: {
+    fit_score: number | null;
+    tier: string | null;
+    why: string[];
+    confidence: number | null;
+    blockers: string[];
+    processing_mode?: string | null;
+    deterministic?: boolean;
+  };
+  verification: {
+    email_status: string | null;
+    email_confidence: number | null;
+    verified_facts: number;
+    contact_coverage: Record<string, boolean>;
+  };
+  facts_snapshot: FactSnapshot;
+  missing_information: string[];
+  conflicts: FactSnapshot["conflicts"];
+  stale_fields: string[];
+  sources_count: number;
+};
+
+export type ResearchProgress = {
+  job_id: string;
+  state: string;
+  pause_reason?: string | null;
+  objective: string | null;
+  counters: Record<string, number>;
+  budgets: Record<string, { used: number; limit: number }>;
+  stop_reason: string | null;
+  parent_job_id: string | null;
+  stats: {
+    candidates: number;
+    verified_facts: number;
+    all_facts: number;
+    open_conflicts: number;
+    open_questions: number;
+    visited_sources: number;
+  };
+  note?: string | null;
+};
+
 export type Entitlements = {
   organization_id: string | null;
   limits: Record<string, unknown>;
@@ -276,6 +354,18 @@ export const apiGet = {
     if (kind) q.set("kind", kind);
     return api.get<{events: ActivityEvent[]}>(`/api/activity?${q.toString()}`);
   },
+  reviewPending: (jobId?: string) =>
+    api.get<{ leads: Presentation[] }>(
+      `/api/v1/review/pending${jobId ? `?job_id=${encodeURIComponent(jobId)}` : ""}`
+    ),
+  leadPresentation: (leadId: string) =>
+    api.get<Presentation>(`/api/v1/leads/${encodeURIComponent(leadId)}/presentation`),
+  researchProgress: (jobId: string) =>
+    api.get<ResearchProgress>(`/api/v1/research/${encodeURIComponent(jobId)}`),
+  researchEvents: (jobId: string) =>
+    api.get<{ events: { ts: string; from_state: string; to_state: string; reason: string | null }[] }>(
+      `/api/v1/research/${encodeURIComponent(jobId)}/events`
+    ),
 };
 
 export const apiPost = {
@@ -343,4 +433,20 @@ export const apiPost = {
     api.post<{ id?: string }>("/api/v1/suppression", { channel, value, reason }),
   suppressionRemove: (id: string) =>
     api.delete<{ ok: boolean }>(`/api/v1/suppression/${encodeURIComponent(id)}`),
+  // Stage 3 — human decisions (APPROVE_CONTACT is the terminal state; nothing sends)
+  leadDecision: (leadId: string, action: "APPROVE_CONTACT" | "REJECT" | "RESEARCH_MORE" | "SAVE_FOR_LATER", note?: string) =>
+    api.post<{ ok: boolean; child_job_id?: string; note?: string }>(
+      `/api/v1/leads/${encodeURIComponent(leadId)}/decision`, { action, note: note || null }
+    ),
+  leadRequalify: (leadId: string, icpVersionId?: string) =>
+    api.post<{ ok: boolean; presentation: Presentation }>(
+      `/api/v1/leads/${encodeURIComponent(leadId)}/requalify`,
+      { icp_version_id: icpVersionId || null }
+    ),
+  startResearch: (objective: string, icpVersionId?: string, budgets?: Record<string, number>) =>
+    api.post<{ job_id: string; state: string; mode: string }>(
+      "/api/v1/research", { objective, icp_version_id: icpVersionId || null, budgets: budgets || null }
+    ),
+  researchCancel: (jobId: string) =>
+    api.post<{ ok: boolean }>(`/api/v1/research/${encodeURIComponent(jobId)}/cancel`, {}),
 };
