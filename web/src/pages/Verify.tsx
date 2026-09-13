@@ -134,7 +134,7 @@ export function VerifyPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="name@clinic.com"
                   dir="ltr"
-                  className="ps-10"
+                  className="pe-10"
                   onKeyDown={(e) => e.key === "Enter" && check()}
                 />
               </div>

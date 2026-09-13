@@ -138,7 +138,7 @@ export function ResearchPage() {
                   <Badge variant={LIVE_STATES.has(j.state) ? "info" : j.state === "READY_FOR_REVIEW" ? "warn" : j.state === "FAILED" || j.state === "CANCELLED" ? "danger" : "success"}>
                     {STATE_AR[j.state] || j.state}
                   </Badge>
-                  <span className="ms-auto text-[10px] text-[var(--fg-soft)] tnum">{j.job_id.slice(0, 14)}…</span>
+                  <span className="ms-auto text-[10px] text-[var(--fg-soft)] tnum"><span dir="ltr">{j.job_id.slice(0, 14)}…</span></span>
                 </div>
                 <div className="text-[12.5px] text-[var(--fg-muted)] mt-1.5 truncate">
                   {truncate(j.pause_reason || j.icp_id, 48)}
@@ -183,7 +183,7 @@ function ResearchJobPanel({ jobId, onChanged, onCancel, onResume }: {
             setConnected(false);
           }
           if (data?.state) {
-            const line = `${new Date().toLocaleTimeString("ar-EG")} — ${STATE_AR[data.state] || data.state}`;
+            const line = `${new Date().toLocaleTimeString("ar-EG-u-nu-latn")} — ${STATE_AR[data.state] || data.state}`;
             setNarration((n) => n[n.length - 1] === line ? n : [...n.slice(-30), line]);
           }
         }, ctl.signal);

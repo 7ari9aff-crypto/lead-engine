@@ -321,7 +321,7 @@ pre code {
 .md-body ul,
 .md-body ol {
   margin: 0.5em 0;
-  padding-right: 1.4em;
+  padding-inline-start: 1.4em;
 }
 .md-body ul {
   list-style: disc;
@@ -356,7 +356,7 @@ pre code {
 .md-body td {
   border: 1px solid var(--border);
   padding: 8px 10px;
-  text-align: right;
+  text-align: start;
 }
 .md-body th {
   background: var(--bg-soft);

@@ -382,3 +382,61 @@ def test_deterministic_checks_verified_city_hard_fails():
     assert checks[0]["check"] == "city_match"
     # A VERIFIED city mismatch MUST be a hard fail
     assert checks[0]["verdict"] == "fail"
+
+
+# ---------------------------------------- regression tests (expert findings)
+def test_provider_own_domain_cannot_self_verify(store):
+    """P0 regression: a provider's own site must not act as a second source."""
+    store.record_fact("company", "org:c.com", "phone", "+966501234567",
+                      source_url="https://example.com/a", provider="exa")
+    fact = store.record_fact("company", "org:c.com", "phone", "+966501234567",
+                             source_url="https://example.com/b", provider="exa")
+    assert fact["status"] == STATUS_UNVERIFIED  # same site, no matter the path
+
+
+def test_refutation_source_never_verifies_its_own_fact(store):
+    """P0 regression: a refuted email re-observed once must NOT become VERIFIED
+    via its own refutation source."""
+    fact = store.record_fact("company", "org:c.com", "email", "x@c.com",
+                             source_url="https://c.com", provider="tavily")
+    store.verify_fact(fact["fact_id"], outcome="refuted",
+                      provider="local_smtp", quote="550")
+    revived = store.record_fact("company", "org:c.com", "email", "x@c.com",
+                                source_url="https://c.com", provider="tavily")
+    assert revived["status"] == STATUS_UNVERIFIED  # honest: 1 real observation
+
+
+def test_verify_fact_refused_while_conflict_open(store):
+    a = store.record_fact("company", "org:c.com", "phone", "1",
+                          source_url="https://a.com", provider="tavily")
+    store.record_fact("company", "org:c.com", "phone", "2",
+                      source_url="https://b.com", provider="brave")
+    with pytest.raises(ValueError):
+        store.verify_fact(a["fact_id"], outcome="verified")
+
+
+def test_email_identity_is_case_insensitive(store):
+    store.record_fact("company", "org:c.com", "email", "Info@D.com",
+                      source_url="https://c.com", provider="tavily")
+    fact = store.record_fact("company", "org:c.com", "email", "info@d.com",
+                             source_url="https://other.com", provider="brave")
+    rows = store.db.query("SELECT COUNT(*) AS n FROM research_facts")
+    assert rows[0]["n"] == 1
+    assert fact["status"] == STATUS_VERIFIED  # same identity, 2 real domains
+
+
+def test_three_way_conflict_partial_resolution_consistent(store):
+    a = store.record_fact("company", "org:c.com", "phone", "1",
+                          source_url="https://a.com", provider="tavily")
+    b = store.record_fact("company", "org:c.com", "phone", "2",
+                          source_url="https://b.com", provider="brave")
+    c = store.record_fact("company", "org:c.com", "phone", "3",
+                          source_url="https://c.com", provider="exa")
+    conflicts = sorted(store.conflicts(subject_id="org:c.com"),
+                       key=lambda x: x["created_at"])
+    target = next(k for k in conflicts if c["fact_id"] in (k["fact_a"], k["fact_b"]))
+    store.resolve_conflict(target["conflict_id"], winner_fact_id=c["fact_id"])
+    snap = store.snapshot("company", "org:c.com")
+    # facts with REMAINING open conflicts stay CONFLICTED even if they won once
+    if store.conflicts(subject_id="org:c.com", status="OPEN"):
+        assert snap["fields"]["phone"]["status"] == STATUS_CONFLICTED

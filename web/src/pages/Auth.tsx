@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
-  Zap, Mail, Lock, Eye, EyeOff, User as UserIcon, ArrowRight,
+  Zap, Mail, Lock, Eye, EyeOff, User as UserIcon, ArrowLeft,
   ShieldCheck, MailCheck, KeyRound, Loader2, CheckCircle2,
 } from "lucide-react";
 import { Input } from "@/components/ui/Input";
@@ -147,7 +147,7 @@ export function LoginPage() {
     return (
       <AuthLayout title="لوحة التحكم" subtitle="الوضع الحالي مفتوح — الدخول مباشر.">
         <Button variant="primary" className="w-full h-11" onClick={() => navigate("/")}>
-          <ArrowRight className="h-4 w-4" />
+          <ArrowLeft className="h-4 w-4" />
           ادخل اللوحة
         </Button>
       </AuthLayout>
@@ -172,7 +172,7 @@ export function LoginPage() {
                 <Mail className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--fg-soft)]" />
                 <Input
                   type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@company.com" dir="ltr" className="ps-10" required autoFocus
+                  placeholder="name@company.com" dir="ltr" className="pe-10" required autoFocus
                 />
               </div>
             </div>
@@ -186,7 +186,7 @@ export function LoginPage() {
               <Input
                 type={show ? "text" : "password"} value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••" dir="ltr" className="pe-10 ps-10" required autoFocus={mode === "password"}
+                placeholder="••••••••" dir="ltr" className="pe-10 pe-10" required autoFocus={mode === "password"}
               />
               <button
                 type="button" onClick={() => setShow(!show)}
@@ -274,7 +274,7 @@ export function SignupPage() {
               <UserIcon className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--fg-soft)]" />
               <Input
                 value={name} onChange={(e) => setName(e.target.value)}
-                placeholder="اسمك الكامل" className="ps-10" required autoFocus
+                placeholder="اسمك الكامل" className="pe-10" required autoFocus
               />
             </div>
           </div>
@@ -284,7 +284,7 @@ export function SignupPage() {
               <Mail className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--fg-soft)]" />
               <Input
                 type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                placeholder="name@company.com" dir="ltr" className="ps-10" required
+                placeholder="name@company.com" dir="ltr" className="pe-10" required
               />
             </div>
           </div>
@@ -295,7 +295,7 @@ export function SignupPage() {
               <Input
                 type={show ? "text" : "password"} value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="٨ أحرف على الأقل" dir="ltr" className="pe-10 ps-10" required minLength={8}
+                placeholder="٨ أحرف على الأقل" dir="ltr" className="pe-10 pe-10" required minLength={8}
               />
               <button
                 type="button" onClick={() => setShow(!show)}

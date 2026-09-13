@@ -9,7 +9,7 @@ export function formatDate(iso?: string | number | null, withTime = true) {
   if (!iso) return "—";
   const d = typeof iso === "string" ? new Date(iso) : new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  const locale = "ar-SA-u-nu-latn";
+  const locale = "ar-EG-u-nu-latn";
   if (withTime)
     return d.toLocaleString(locale, {
       year: "numeric",

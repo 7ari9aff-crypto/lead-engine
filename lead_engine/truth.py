@@ -68,12 +68,14 @@ def _now_plus(days: int) -> str:
 def _domain_of(url: str | None, provider: str | None) -> str:
     """Independent-source key: hostname when there is a URL, else the provider
     identity. A provider's OWN domain (apollo.io fetched by apollo) counts as
-    the provider, not as an independent second source."""
+    the provider, not as an independent second source. EXACT host match only —
+    a substring match let one site self-verify (example.com vs provider:exa)."""
     if url:
-        host = (urlparse(url).hostname or "").lower().removeprefix("www.")
+        host = (urlparse(url).hostname or "").lower().rstrip(".").removeprefix("www.")
         if host:
-            if provider and provider.lower() in host:
-                return f"provider:{provider.lower()}"
+            pd = (provider or "").lower()
+            if pd and (host == pd or host.endswith("." + pd)):
+                return f"provider:{pd}"
             return host
     return f"provider:{(provider or 'unknown').lower()}"
 
@@ -134,6 +136,8 @@ class FactsStore:
         value = "" if value is None else str(value).strip()
         if not value:
             raise ValueError("fact value must be non-empty")
+        if "@" in str(value):          # emails: case is never meaningful identity
+            value = value.lower()
         has_source = bool(source_url or provider)
         if not has_source and not inferred:
             raise ValueError(
@@ -162,9 +166,10 @@ class FactsStore:
             status, conf = self._recompute_status(fact_id)
             self.db.execute(
                 "UPDATE research_facts SET status=?, confidence=?, collected_at=?,"
-                " expires_at=?, updated_at=? WHERE fact_id=?",
+                " expires_at=?, job_id=COALESCE(?, job_id),"
+                " run_id=COALESCE(?, run_id), updated_at=? WHERE fact_id=?",
                 (status, conf if conf is not None else existing["confidence"],
-                 now, _now_plus(self._ttl_days(field)), now, fact_id))
+                 now, _now_plus(self._ttl_days(field)), job_id, run_id, now, fact_id))
             return self.get_fact(fact_id)
 
         # brand-new value — every fact carries a freshness deadline
@@ -278,10 +283,15 @@ class FactsStore:
             " resolved_at=?, winner=?, updated_at=? WHERE conflict_id=?",
             ("RESOLVED_AUTO" if automatic else "RESOLVED_HUMAN",
              note, by, now, winner_fact_id, now, conflict_id))
-        self.db.execute(
-            "UPDATE research_facts SET status=?,"
-            " confidence=CASE WHEN confidence > 0.85 THEN confidence ELSE 0.85 END,"
-            " updated_at=? WHERE fact_id=?", (STATUS_VERIFIED, now, winner_fact_id))
+        other_open = self.db.one(
+            "SELECT 1 AS ok FROM fact_conflicts WHERE resolution='OPEN'"
+            " AND conflict_id<>? AND (fact_a=? OR fact_b=?) LIMIT 1",
+            (conflict_id, winner_fact_id, winner_fact_id))
+        if not other_open:
+            self.db.execute(
+                "UPDATE research_facts SET status=?,"
+                " confidence=CASE WHEN confidence > 0.85 THEN confidence ELSE 0.85 END,"
+                " updated_at=? WHERE fact_id=?", (STATUS_VERIFIED, now, winner_fact_id))
         self.db.execute(
             "UPDATE research_facts SET status=?, updated_at=? WHERE fact_id=?",
             (STATUS_STALE, now, loser))
@@ -301,6 +311,9 @@ class FactsStore:
         fact = self.get_fact(fact_id)
         if not fact:
             raise ValueError(f"fact not found: {fact_id}")
+        if outcome == "verified" and self._has_open_conflict(fact_id):
+            raise ValueError(
+                "fact has an OPEN conflict — resolve the conflict first, then verify")
         now = utcnow()
         if source_url or provider:
             self._add_source(fact_id, fact["organization_id"], source_url,
@@ -333,11 +346,19 @@ class FactsStore:
             "SELECT * FROM fact_sources WHERE fact_id=? ORDER BY id", (fact_id,))
 
     def _add_source(self, fact_id, org, url, kind, provider, query, quote):
+        kind = kind if kind in SOURCE_KINDS else "search_api"
+        dup = self.db.one(
+            "SELECT id FROM fact_sources WHERE fact_id=? AND source_kind=?"
+            " AND COALESCE(source_url,'')=COALESCE(?,'') AND COALESCE(provider,'')=COALESCE(?,'')",
+            (fact_id, kind, url, provider))
+        if dup:
+            self.db.execute("UPDATE fact_sources SET collected_at=? WHERE id=?",
+                            (utcnow(), dup["id"]))
+            return
         self.db.execute(
             "INSERT INTO fact_sources (organization_id, fact_id, source_url,"
             " source_kind, provider, query, quote, collected_at) VALUES (?,?,?,?,?,?,?,?)",
-            (org, fact_id, url, kind if kind in SOURCE_KINDS else "search_api",
-             provider, query, quote, utcnow()))
+            (org, fact_id, url, kind, provider, query, quote, utcnow()))
 
     def _is_fresh(self, fact: dict, now: str | None = None) -> bool:
         exp = fact.get("expires_at")
@@ -346,20 +367,24 @@ class FactsStore:
     def _recompute_status(self, fact_id: str) -> tuple[str, float | None]:
         """Derive the honest status from provenance.
 
+        - an OPEN conflict overrides EVERYTHING (checked first — even a fact
+          explicitly VERIFIED stays CONFLICTED while other conflicts are open)
         - explicit VERIFIED (verifier / conflict win) is NEVER silently demoted
-        - an OPEN conflict overrides everything: CONFLICTED
-        - VERIFIED requires 2+ INDEPENDENT source domains
-        - one source: UNVERIFIED; none: INFERRED
+        - VERIFIED requires 2+ INDEPENDENT source domains: verification calls
+          (email_verify) are checks, not observations — they never count as a
+          second domain (a refutation must not "verify" its own fact)
+        - one observation source: UNVERIFIED; none: INFERRED
         """
         row = self.db.one("SELECT * FROM research_facts WHERE fact_id=?", (fact_id,))
         if not row:
             return STATUS_UNVERIFIED, None
-        if row["status"] == STATUS_CONFLICTED and self._has_open_conflict(fact_id):
+        if self._has_open_conflict(fact_id):
             return STATUS_CONFLICTED, row["confidence"]
         if row["status"] == STATUS_VERIFIED:
             return STATUS_VERIFIED, row["confidence"]
         sources = self.sources_for(fact_id)
-        real = [s for s in sources if s["source_kind"] != "llm_inference"]
+        real = [s for s in sources
+                if s["source_kind"] not in ("llm_inference", "email_verify")]
         distinct = {_domain_of(s["source_url"], s["provider"]) for s in real}
         if len(distinct) >= 2:
             return STATUS_VERIFIED, min(0.95, 0.5 + 0.15 * (len(distinct) - 1))
