@@ -59,6 +59,17 @@ Queue (SKIP LOCKED) · MCP · Supabase dual-dialect — كلها KEEP واستُ
 
 متحقق ✅: truth layer · evidence/provenance · conflicts · freshness · persistent jobs · restart/resume · budgets · orchestration · tools scoped · facts→evidence · qualification من facts · human review · القرارات الأربعة · RESEARCH_MORE سياق · re-verification · APPROVE_CONTACT terminal · لا outbound · RLS · observability · audit للقرارات · 244 اختبار · E2E · recovery scenarios
 
+محدَّث بعد مراجعة صاحب المشروع (سؤال "هل المرحلتين الأولى والثانية تمّت؟") —
+الفجوات اللي اكتشفها واتصلحت:
+1. **معايير الفلترة بيد المستخدم**: `POST/GET /api/v1/icps` + أداة شات `define_icp`
+   — شروطك تتحول لنسخة ICP فعالة تُفلتر بيها الجمع والتأهيل.
+2. **عمق الجمع**: الاستخراج التلقائي للهاتف/الإيميل/الاسم/المدينة من مقتطفات
+   البحث إلى حقائق موثقة بمصدرها (دلالة: 24 حقيقة + أرقام جدة حقيقية في
+   التشغيل الحقيقي) — الفلترة لم تعد رهينة ذاكرة النموذج.
+3. **بوابة الأدلة على التماديةل**: مرشح بلا جهة اتصال وأقل من حقلين لا يُعرض
+   (الدلائل/الصفحات الشاردة تُحسب وتُسجل كمستبعدة).
+4. **حسم صادق متبقٍ**: تحسين جودة حفظ النموذج المستمر + ربط OpenManus الحي.
+
 قيود معروفة (حقيقية، موثقة):
 1. **OpenManus الحية**: العقد + العميل + الـwrapper جاهزين ومختبرين بوحدات؛ الربط الفعلي ينتظر تشغيل الـwrapper على جهازك (خطوات جاهزة في wrapper/README.md)
 2. **حل تعارضات بالـAPI**: `resolve_conflict` موجود في الطبقة الداخلية، endpoint بشري مخصص له لم يُبنَ بعد (التعارضات معروضة في العرض والقرار عليها عبر RESEARCH_MORE)
