@@ -1311,6 +1311,10 @@ app.include_router(research_router)
 from .review_api import router as review_router
 app.include_router(review_router)
 
+# ICP versions — the user's filtering criteria (stage 2 gate)
+from .icp_api import router as icp_router
+app.include_router(icp_router)
+
 # OAuth Integration Platform (Phase 2) — connect/callback/revoke per provider
 from .integrations_api import router as integrations_router
 from .events_api import router as events_router

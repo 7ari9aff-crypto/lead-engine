@@ -82,7 +82,8 @@ def client(db, monkeypatch):
         # turn 5: coverage reached
         {"thought": "الهدف تحقق", "done": True, "actions": [],
          "note": "مرشحان، أحدهما موثق بمصدرين"},
-        # qualifications (alphabetic subject order: clinica, clinicb)
+        # qualifications (per subject: clinica, clinicb, and the directory page
+        # that deterministic auto-collection also captured — stage 2 filters it)
         {"fit_score": 85, "tier": "A", "why": ["هاتف موثق من مصدرين مستقلين",
                                                "مدينة مطابقة للـICP"],
          "confidence": 0.85, "unknown_fields": ["email"], "blockers": []},
@@ -90,6 +91,9 @@ def client(db, monkeypatch):
          "why": ["رقم الهاتف متضارب بين مصدرين — محتاج تحقق"],
          "confidence": 0.5, "unknown_fields": ["email"],
          "blockers": ["phone conflict"]},
+        {"fit_score": 8, "tier": "C",
+         "why": ["صفحة دليل/مُجمّع وليست عيادة مستهدفة"],
+         "confidence": 0.9, "unknown_fields": [], "blockers": ["not a clinic"]},
     ]
 
     def fake_run(job_id):
@@ -143,7 +147,7 @@ def test_full_target_flow_e2e(client, db):
     progress = client.get(f"/api/v1/research/{job_id}").json()
     assert progress["state"] == "READY_FOR_REVIEW"
     assert progress["stop_reason"] == "OBJECTIVE_SATISFIED"
-    assert progress["stats"]["candidates"] == 2
+    assert progress["stats"]["candidates"] == 3   # broad collection incl. directory
     assert progress["stats"]["all_facts"] >= 5
     assert progress["stats"]["open_conflicts"] == 1
     assert progress["stats"]["verified_facts"] == 1   # only Clinic A's phone earned it
@@ -154,8 +158,11 @@ def test_full_target_flow_e2e(client, db):
 
     # ---- 2) Stage 3: the review board interprets every lead
     board = client.get(f"/api/v1/review/pending?job_id={job_id}").json()["leads"]
-    assert len(board) == 2
+    # broad collection + strict filtering: the directory page gets qualified
+    # and PRESENTED too (with its low score) — nothing hides, the human decides
+    assert len(board) == 3
     by_id = {p["lead"]["lead_id"]: p for p in board}
+    assert by_id["org-e2e:directory-sa.com"]["fit"]["fit_score"] == 8
     a = by_id["org-e2e:clinica-sa.com"]
     b = by_id["org-e2e:clinicb-sa.com"]
 

@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from ..agent_registry import AgentRegistry
-from ..pipeline.normalize import domain_from_url, extract_contacts
+from ..pipeline.normalize import clean_title, domain_from_url, extract_contacts, is_social
 from ..providers.email import VerificationPipeline
 from ..truth import FactsStore
 from .qualification import QualificationError, qualify_from_facts
@@ -76,18 +76,61 @@ def _tool_search(ctx: ToolContext, args: dict) -> dict:
         "web_search", {"query": query, "max_results": max_results},
         job_id=ctx.job_id, cache_data_type="search_results")
     ctx.manager.bump_counter(ctx.job_id, "searches")
+    city = args.get("city")
+    country = args.get("country") or "SA"
     candidates = []
-    icp_city = args.get("city")
+    auto_saved = 0
     for r in result.get("results", []):
         domain = domain_from_url(r.get("url", ""))
+        social = is_social(domain)
+        name = clean_title(r.get("title", ""))
         candidates.append({
-            "name": r.get("title", ""), "domain": domain or None,
+            "name": name, "domain": None if social else domain,
             "url": r.get("url"), "snippet": r.get("snippet", ""),
-            "city": icp_city, "provider": meta.get("provider"),
+            "city": city, "provider": meta.get("provider"),
         })
-    ctx.manager.bump_counter(ctx.job_id, "candidates", 0)  # candidates counted on save_fact
+        # deterministic collection (stage 1 depth): every snippet already
+        # carries evidence-backed contacts — extract and persist them with
+        # their source URL, so filtering/presentation never depends on the
+        # model remembering to save. Same provenance rules as save_fact.
+        blob = f"{name} {r.get('snippet', '')}"
+        phones, email = extract_contacts(blob, country)
+        subject_kind, subject_id = canonical_subject({"name": name, "domain": domain})
+        if social:
+            ctx.store.add_visit(ctx.job_id, r.get("url"), title=name,
+                                summary="social profile discovered")
+            continue
+        try:
+            if name:
+                ctx.store.record_fact(subject_kind, subject_id, "name", name,
+                                      source_url=r.get("url"), provider=meta.get("provider"),
+                                      query=query, job_id=ctx.job_id, run_id=ctx.run_id)
+                auto_saved += 1
+            if phones:
+                ctx.store.record_fact(subject_kind, subject_id, "phone", phones[0],
+                                      source_url=r.get("url"), provider=meta.get("provider"),
+                                      query=query, quote=r.get("snippet", "")[:200],
+                                      job_id=ctx.job_id, run_id=ctx.run_id)
+                auto_saved += 1
+            if email:
+                ctx.store.record_fact(subject_kind, subject_id, "email", email,
+                                      source_url=r.get("url"), provider=meta.get("provider"),
+                                      query=query, quote=r.get("snippet", "")[:200],
+                                      job_id=ctx.job_id, run_id=ctx.run_id)
+                auto_saved += 1
+            if city:
+                ctx.store.record_fact(subject_kind, subject_id, "city", city,
+                                      source_url=r.get("url"), provider=meta.get("provider"),
+                                      query=query, job_id=ctx.job_id, run_id=ctx.run_id)
+                auto_saved += 1
+        except Exception as exc:  # one bad result never kills the search round
+            candidates[-1]["autosave_error"] = f"{type(exc).__name__}: {exc}"
+    row = ctx.db.one(
+        "SELECT COUNT(DISTINCT subject_id) AS n FROM research_facts"
+        " WHERE job_id=? AND subject_kind='company'", (ctx.job_id,))
+    ctx.manager.set_counter(ctx.job_id, "candidates", row["n"] if row else 0)
     return {"provider": meta.get("provider"), "count": len(candidates),
-            "candidates": candidates}
+            "auto_saved_facts": auto_saved, "candidates": candidates}
 
 
 def _tool_research_company(ctx: ToolContext, args: dict) -> dict:

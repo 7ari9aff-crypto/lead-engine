@@ -24,6 +24,7 @@ TOOL_SCOPES = {
     "verify_email": ["verification:run"],
     "system_status": ["system:read"],
     "start_research": ["jobs:run", "search:read", "evidence:write"],
+    "define_icp": ["system:read", "jobs:run"],
 }
 
 SYSTEM_INSTRUCTION = """أنت "مساعد محرك الـLeads" — واجهة محادثة لنظام توليد leads واعٍ بالحصص (quotas).
@@ -92,6 +93,23 @@ TOOLS_DECL = [{
             "parameters": {"type": "OBJECT", "properties": {}},
         },
         {
+            "name": "define_icp",
+            "description": "حدّد معايير الفلترة (من ينفع ومن لا ينفع) — يحول شروطك لنسخة ICP فعلية وتُنشَّط لكل البحث والتأهيل القادم.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "industry": {"type": "STRING", "description": "القطاع المستهدف"},
+                    "cities": {"type": "ARRAY", "items": {"type": "STRING"},
+                               "description": "المدن المستهدفة"},
+                    "keywords_en": {"type": "ARRAY", "items": {"type": "STRING"}},
+                    "keywords_ar": {"type": "ARRAY", "items": {"type": "STRING"}},
+                    "min_branches": {"type": "INTEGER"},
+                    "notes": {"type": "STRING", "description": "شروط إضافية حرة من المستخدم"},
+                },
+                "required": ["industry"],
+            },
+        },
+        {
             "name": "start_research",
             "description": "ابدأ مهمة بحث وكيلية دائمة عن هدف صيغ بلغة طبيعية (مثال: دور على شركات SaaS في السعودية بين 100 و500 موظف). المهمة تبحث وتحقق وتوثق الحقائق بمصادرها ويتوقف عند مراجعتك — لا يرسل شيئًا لأحد.",
             "parameters": {
@@ -148,15 +166,42 @@ def execute_tool(name: str, args: dict, router, db) -> dict:
                                  "(بمصدرها) — إكمال جهات الاتصال يتطلب مفاتيح Apollo وHunter.",
             }
 
+        if name == "define_icp":
+            from ..icp_store import ICPStore
+
+            definition = {
+                "industry": args.get("industry") or "general",
+                "cities": [{"name": c} for c in (args.get("cities") or [])],
+                "keywords_en": args.get("keywords_en") or [args.get("industry")],
+                "keywords_ar": args.get("keywords_ar") or [],
+                "criteria": {"min_branches": args.get("min_branches") or 0,
+                             "notes": args.get("notes") or ""},
+                "v0_limits": {"max_search_queries": 6,
+                              "search_results_per_query": 8,
+                              "enrichment_budget_credits": 0,
+                              "enrichment_max_people": 0},
+            }
+            icps = ICPStore(db)
+            row = icps.create_version("agentic", definition, source="chat_intent")
+            row = icps.activate(row["icp_version_id"])
+            return {"icp_version_id": row["icp_version_id"], "status": "ACTIVE",
+                    "definition": definition,
+                    "note": "معاييرك بقت هي فلتر البحث والتأهيل — أطلب requalify "
+                            "في أي وقت لإعادة تقييم الـleads المخزنة عليها."}
+
         if name == "start_research":
             objective = (args.get("objective") or "").strip()
             if not objective:
                 return {"error": "objective مطلوب"}
+            from ..icp_store import ICPStore
             from ..queue import enqueue, platform_mode
             from ..research import ResearchJobManager
 
             manager = ResearchJobManager(db)
-            job_id = manager.create(objective)
+            active_icp = ICPStore(db).active("agentic")
+            job_id = manager.create(
+                objective,
+                icp_version_id=active_icp["icp_version_id"] if active_icp else None)
             if platform_mode():
                 enqueue(db, job_id)
                 mode = "queue"

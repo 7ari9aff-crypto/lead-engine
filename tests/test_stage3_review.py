@@ -6,7 +6,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from lead_engine.api import research_api, review_api
+from lead_engine.api import icp_api, research_api, review_api
 from lead_engine.api.app import app
 from lead_engine.db import Database
 from lead_engine.research import ResearchJobManager
@@ -106,6 +106,7 @@ def client(db, monkeypatch):
 
     override(research_api)
     override(review_api)
+    override(icp_api)
 
     def fake_run(job_id):
         from lead_engine.config import load_settings
@@ -115,7 +116,7 @@ def client(db, monkeypatch):
 
     monkeypatch.setattr(research_api, "_run_research", fake_run)
     yield TestClient(app)
-    for module in (research_api, review_api):
+    for module in (research_api, review_api, icp_api):
         app.dependency_overrides.pop(module.get_db, None)
 
 
@@ -212,3 +213,52 @@ def test_requalify_from_facts_without_rediscovery(client, db):
     # NOTHING was re-discovered: same facts, zero new provider spend
     assert db.one("SELECT COUNT(*) AS n FROM research_facts")["n"] == facts_before
     assert db.one("SELECT COUNT(*) AS n FROM usage_ledger")["n"] == searches_before
+
+
+# ------------------------------------------------- ICP API (user criteria)
+def test_icp_api_create_activate_and_filter(db, client):
+    """Stage 2 gate: the user defines what qualifies — versioned + active —
+    and the agentic pipeline filters against IT."""
+    r = client.post("/api/v1/icps", json={
+        "slug": "agentic",
+        "definition": {"industry": "dental",
+                       "cities": [{"name": "Jeddah"}],
+                       "criteria": {"min_branches": 3}},
+    })
+    assert r.status_code == 200
+    icp = r.json()["icp"]
+    assert icp["status"] == "active"
+    lst = client.get("/api/v1/icps").json()
+    assert lst["active"]["icp_version_id"] == icp["icp_version_id"]
+    # activating a new version retires the old one
+    r2 = client.post("/api/v1/icps", json={
+        "slug": "agentic",
+        "definition": {"industry": "dental", "cities": [{"name": "Riyadh"}]},
+    })
+    v2 = r2.json()["icp"]
+    versions = {v["version"]: v["status"] for v in
+                client.get("/api/v1/icps").json()["versions"]}
+    assert versions["v1"] == "retired" and versions["v2"] == "active"
+
+
+def test_chat_define_icp_tool(db):
+    """Chat-first criteria: 'عايز عيادات في جدة 3 فروع أكتر' becomes an
+    ACTIVE ICP version via the define_icp tool."""
+    from lead_engine.api.chat import execute_tool
+    from lead_engine.cache import CacheLayer
+    from lead_engine.config import load_cache_policy
+    from lead_engine.router import Router
+
+    router = Router(db, CacheLayer(db, load_cache_policy()), {})
+    out = execute_tool("define_icp", {
+        "industry": "dental", "cities": ["جدة"], "min_branches": 3,
+        "notes": "نشاط تسويقي واضح",
+    }, router, db)
+    assert out["status"] == "ACTIVE"
+    definition = out["definition"]
+    assert definition["criteria"]["min_branches"] == 3
+    # and start_research automatically binds the active ICP
+    out2 = execute_tool("start_research", {"objective": "دور على عيادات"},
+                        router, db)
+    ctx = ResearchJobManager(db).context(out2["job_id"])
+    assert ctx["icp_version_id"] == out["icp_version_id"]

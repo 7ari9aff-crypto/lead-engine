@@ -281,7 +281,8 @@ class ResearchOrchestrator:
         icp = _active_icp(self._tool_context(agent_run_id))
         subjects = self.db.query(
             "SELECT DISTINCT subject_id FROM research_facts"
-            " WHERE job_id=? AND subject_kind='company'", (self.job_id,))
+            " WHERE job_id=? AND subject_kind='company'"
+            " ORDER BY subject_id", (self.job_id,))
         verdicts = {}
         for row in subjects:
             if self.manager.jobs.current(self.job_id) in (CANCELLED, PAUSED):
@@ -313,9 +314,18 @@ class ResearchOrchestrator:
         scorer = Scorer(self.settings)
         gate = LegalGate(load_legal_policy("default"))
         count = 0
+        skipped_thin = 0
         for subject_id, verdict in verdicts.items():
             facts = self.store.facts_for_qualification("company", subject_id)
             values = facts["values"]
+            # evidence threshold (stage 2 filter, deterministic): a subject the
+            # research could only name — directories, aggregators, stray pages —
+            # is not a lead. At least a contact field, or 2+ distinct facts.
+            contact_present = any(values.get(k) for k in
+                                  ("phone", "email", "decision_maker"))
+            if len(values) < 2 and not contact_present:
+                skipped_thin += 1
+                continue
             lead_id = f"{getattr(self.db, 'org_id', None) or 'shared'}:{subject_id}"
             email = values.get("email")
             is_domain_subject = not subject_id.startswith("name:")
@@ -359,6 +369,9 @@ class ResearchOrchestrator:
                 lead["email_status"] = row["status"] if row else None
             self.db.insert_lead(lead)
             count += 1
+        if skipped_thin:
+            self.manager.bump_counter(self.job_id, "thin_candidates_skipped",
+                                      skipped_thin)
         return count
 
     # ----------------------------------------------------------- planning
