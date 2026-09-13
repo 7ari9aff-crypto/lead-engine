@@ -161,11 +161,10 @@ def execute_tool(name: str, args: dict, router, db) -> dict:
                 enqueue(db, job_id)
                 mode = "queue"
             else:
-                # inline: a daemon thread runs the orchestrator on its OWN db
-                # handle so the chat returns immediately and progress is polled
+                # inline: a daemon thread runs the orchestrator on a CLONE of
+                # this request's database (same backend, same tenant) — never
+                # on a fresh handle that would point at another store
                 import threading
-
-                from ..db import open_db
 
                 org = getattr(db, "org_id", None)
 
@@ -173,9 +172,15 @@ def execute_tool(name: str, args: dict, router, db) -> dict:
                     from ..config import load_settings
                     from ..research.orchestrator import ResearchOrchestrator
 
-                    orch_db = open_db(org_id=org)
-                    if getattr(orch_db, "dialect", "sqlite") == "sqlite":
+                    if getattr(db, "dialect", "sqlite") == "sqlite":
+                        from ..db import Database
+
+                        orch_db = Database(db.path)
                         orch_db.org_id = org or "shared"
+                    else:
+                        from ..db import open_db
+
+                        orch_db = open_db(org_id=org)
                     try:
                         ResearchOrchestrator(orch_db, load_settings(), job_id).run()
                     finally:

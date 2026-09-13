@@ -239,6 +239,37 @@ DECLARATIONS = [{"name": s.name, "description": s.description,
                  "parameters": {"type": "OBJECT", "properties": {}}}
                 for s in TOOLS.values()]
 
+# The actor prompt MUST enumerate the exact tool names + argument shapes —
+# a live model that has to guess names calls "search"/"web_search" and every
+# action dies with "أداة غير موجودة" (caught by the real smoke test).
+TOOLS_DOC = """الأدوات المتاحة (استخدم الأسماء حرفيًا كما هي):
+
+1. search_companies — ابحث في الويب عن شركات/عملاء
+   args: {"query": "نص البحث", "city": "المدينة", "max_results": 8}
+2. save_fact — احفظ ملاحظة موثقة عن شركة في طبقة الحقيقة (كل معلومة تتعلمها تُحفظ فورًا)
+   args: {"name": "اسم الشركة", "domain": "النطاق إن وجد", "field": "phone|email|city|branches|employee_count|decision_maker|...",
+          "value": "القيمة", "source_url": "رابط المصدر", "provider": "tavily|brave|exa|openmanus",
+          "quote": "الجملة الدالة", "inferred": false}
+   (لو الحقيقة استنتاج بلا مصدر مباشر: inferred=true واكتب السبب في quote)
+3. verify_fact — تحقق من حقيقة محفوظة (للإيميل: فحص 5-حالات)
+   args: {"fact_id": "معرف الحقيقة"}
+4. list_facts — اعرض حقائق شركة
+   args: {"domain": "..."} أو {"name": "..."}
+5. qualify_lead — قيّم شركة مقابل الـICP من الحقائق المخزنة فقط
+   args: {"domain": "..."} أو {"name": "..."}
+6. get_research_status — حالة المهمة (بدون args)
+7. ask_user — اسأل المستخدم سؤالًا يحجب التقدم
+   args: {"question": "السؤال"}
+8. research_company — تحقيق عميق عبر تصفح OpenManus (لو غير مهيأ سيُقال لك)
+   args: {"domain": "...", "objective": "ما تبحث عنه"}
+
+ملاحظة صارمة: القيم اللي تتعلمها من مقتطفات البحث تُحفظ بـsave_fact مع
+source_url — ممنوع تعتمد على ذاكرتك بين الجولات."""
+
+
+def render_tool_docs() -> str:
+    return TOOLS_DOC
+
 
 def execute_tool(ctx: ToolContext, name: str, args: dict,
                  *, registry: AgentRegistry | None = None) -> dict:

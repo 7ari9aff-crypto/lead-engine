@@ -124,17 +124,24 @@ class ResearchOrchestrator:
 
         last_candidates = 0
         stall_rounds = 0
+        last_actions: list = []
+        stop_reason = stop_detail = None
         while True:
             current = self.manager.jobs.current(self.job_id)
             if current in (CANCELLED, PAUSED, COMPLETED, FAILED, WAITING_FOR_USER):
                 return self._summary(current)
             ok, exceeded, snap = self.manager.budget_check(self.job_id)
             if not ok:
-                return self._gate("BUDGET_EXHAUSTED", f"{exceeded}: {snap}",
-                                  agent_run_id)
+                # a budget stop does NOT skip closure: whatever was learned
+                # still gets verified, qualified and presented — the user must
+                # see the partial knowledge, never an empty gate (§41 + §46)
+                stop_reason, stop_detail = "BUDGET_EXHAUSTED", f"{exceeded}: {snap}"
+                break
             self.manager.bump_counter(self.job_id, "steps")
-            turn = self._agent_turn(objective, plan, agent_run_id)
+            turn = self._agent_turn(objective, plan, agent_run_id,
+                                    last_actions=last_actions)
             self.manager.bump_counter(self.job_id, "model_calls")
+            last_actions = turn.get("actions") or []
             candidates = int(self.manager.counters(self.job_id).get("candidates") or 0)
             if candidates > last_candidates:
                 stall_rounds = 0
@@ -144,25 +151,34 @@ class ResearchOrchestrator:
             if turn.get("done"):
                 break
             if stall_rounds >= STALL_ROUNDS_LIMIT:
-                return self._gate("DIMINISHING_RETURNS",
-                                  f"no new candidates for {stall_rounds} rounds",
-                                  agent_run_id)
+                stop_reason, stop_detail = ("DIMINISHING_RETURNS",
+                                            f"no new candidates for {stall_rounds} rounds")
+                break
             if self.manager.jobs.current(self.job_id) == WAITING_FOR_USER:
                 return self._summary(WAITING_FOR_USER,
                                      note=turn.get("note") or "waiting for user input")
 
-        return self._finalize(agent_run_id)
+        return self._finalize(agent_run_id, stop_reason=stop_reason,
+                              stop_detail=stop_detail)
 
     # ------------------------------------------------------ agent turn
-    def _agent_turn(self, objective: str, plan: dict, agent_run_id: str) -> dict:
+    def _agent_turn(self, objective: str, plan: dict, agent_run_id: str,
+                    last_actions: list | None = None) -> dict:
+        from .tools import render_tool_docs
+
         ctx = self._tool_context(agent_run_id)
         progress = self.manager.progress(self.job_id)
         digest = self._facts_digest()
         step_number = int(self.manager.counters(self.job_id).get("steps") or 0)
+        observations = json.dumps(last_actions or [], ensure_ascii=False,
+                                  default=str)[:3500]
         prompt = (f"هدف البحث: {objective}\n\nالخطة: "
                   f"{json.dumps(plan, ensure_ascii=False)}\n\n"
                   f"التقدم الحالي: {json.dumps(progress, ensure_ascii=False, default=str)}\n\n"
+                  f"نتائج أدواتك في الجولة السابقة (هذه ملاحظاتك — احفظ ما تعلمته "
+                  f"بـsave_fact فورًا): {observations}\n\n"
                   f"آخر الحقائق المخزنة (مختصر): {digest}\n\n"
+                  f"{render_tool_docs()}\n\n"
                   "قرر الجولة التالية: أعد JSON بالشكل المطلوب.")
         payload = {"prompt": ACTOR_SYSTEM + "\n\n" + prompt, "json_mode": True}
         prefer = self._pinned_provider()
@@ -210,7 +226,8 @@ class ResearchOrchestrator:
                 "actions": executed}
 
     # ------------------------------------------------------------- phases
-    def _finalize(self, agent_run_id: str) -> dict:
+    def _finalize(self, agent_run_id: str, *, stop_reason: str | None = None,
+                  stop_detail: str | None = None) -> dict:
         """Verification sweep + qualification of every candidate subject, then
         materialize leads and park at the review gate. Nothing here
         re-discovers (directive §25)."""
@@ -222,12 +239,14 @@ class ResearchOrchestrator:
         candidates = int(self.manager.counters(self.job_id).get("candidates") or 0)
         target = int((self.manager.context(self.job_id).get("plan") or {})
                      .get("target_candidates") or 0)
-        if target and candidates >= target:
+        if stop_reason:
+            reason = stop_reason
+            detail = f"{stop_detail or ''}; {materialized} leads ready for review"
+        elif target and candidates >= target:
             reason, detail = "OBJECTIVE_SATISFIED", f"{candidates}/{target} candidates"
         else:
             reason, detail = "COVERAGE_ADEQUATE", f"{candidates} candidates"
-        return self._gate(reason, f"{detail}; {materialized} leads ready for review",
-                          agent_run_id)
+        return self._gate(reason, detail, agent_run_id)
 
     def _verify_emails(self, agent_run_id: str) -> int:
         from ..providers.email import VerificationPipeline

@@ -212,7 +212,8 @@ class ResearchJobManager:
 
     # ---------------------------------------------------------- progress
     def progress(self, job_id: str) -> dict:
-        """Everything the chat/UI needs to narrate live progress (§39)."""
+        """Everything the chat/UI needs to narrate live progress (§39):
+        counters, budgets, truth-layer stats, provider spend, and elapsed."""
         ctx = self.context(job_id) or {}
         job = self.db.one("SELECT state, pause_reason, resume_at, created_at,"
                           " updated_at FROM jobs WHERE job_id=?", (job_id,))
@@ -234,6 +235,22 @@ class ResearchJobManager:
             "visited_sources": self._count(
                 "SELECT COUNT(*) AS n FROM visited_sources WHERE job_id=?", (job_id,)),
         }
+        observability = {
+            "providers": self.db.query(
+                "SELECT provider, task, COUNT(*) AS calls, COALESCE(SUM(units),0) AS units,"
+                " COALESCE(SUM(prompt_tokens),0) AS prompt_tokens,"
+                " COALESCE(SUM(completion_tokens),0) AS completion_tokens,"
+                " COALESCE(AVG(latency_ms),0) AS avg_latency_ms"
+                " FROM usage_ledger WHERE job_id=? GROUP BY provider, task"
+                " ORDER BY calls DESC", (job_id,)),
+            "steps_recorded": self._count(
+                "SELECT COUNT(*) AS n FROM agent_steps WHERE run_id IN"
+                " (SELECT run_id FROM agent_runs WHERE input_json LIKE ?)",
+                (f'%"{job_id}"%',)),
+            "retries_or_errors": self._count(
+                "SELECT COUNT(*) AS n FROM usage_ledger WHERE job_id=?"
+                " AND status<>'ok'", (job_id,)),
+        }
         return {
             "job_id": job_id,
             "state": job["state"] if job else None,
@@ -242,8 +259,10 @@ class ResearchJobManager:
             "counters": counters,
             "budgets": budget_snap,
             "stop_reason": ctx.get("stop_reason"),
+            "stop_detail": ctx.get("stop_detail"),
             "parent_job_id": ctx.get("parent_job_id"),
             "stats": stats,
+            "observability": observability,
             "created_at": job.get("created_at") if job else None,
             "updated_at": job.get("updated_at") if job else None,
         }

@@ -351,6 +351,7 @@ class Database:
         # check_same_thread=False: FastAPI sync dependencies run in a worker
         # thread while async endpoints run in the loop thread; connections are
         # short-lived per request and WAL + busy_timeout handle the rest.
+        self.path = str(path)
         self.conn = sqlite3.connect(str(path), timeout=10, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         # dashboard requests + background engine runs share the file:
@@ -362,6 +363,7 @@ class Database:
         self._migrate_usage_columns()
         self._migrate_agent_version_columns()
         self._migrate_lead_disposition_columns()
+        self._migrate_research_context_columns()
         self.conn.commit()
 
     def _migrate_provider_columns(self):
@@ -398,6 +400,10 @@ class Database:
 
     def _migrate_lead_disposition_columns(self):
         existing = {row["name"] for row in self.conn.execute("PRAGMA table_info(leads)")}
+        if not existing:
+            return
+        if "organization_id" not in existing:
+            self.conn.execute("ALTER TABLE leads ADD COLUMN organization_id TEXT")
         for name, definition in (
             ("disposition", "TEXT"),
             ("disposition_note", "TEXT"),
@@ -406,6 +412,11 @@ class Database:
         ):
             if name not in existing:
                 self.conn.execute(f"ALTER TABLE leads ADD COLUMN {name} {definition}")
+
+    def _migrate_research_context_columns(self):
+        existing = {row["name"] for row in self.conn.execute("PRAGMA table_info(research_context)")}
+        if existing and "run_id" not in existing:
+            self.conn.execute("ALTER TABLE research_context ADD COLUMN run_id TEXT")
 
     def audit(self, actor: str, action: str, entity_type: str | None = None,
               entity_id: str | None = None, payload: dict | None = None) -> None:
@@ -478,6 +489,9 @@ class Database:
 
     def leads_for_job(self, job_id: str):
         return self.query("SELECT * FROM leads WHERE job_id = ?", (job_id,))
+
+    def close(self):
+        self.conn.close()
 
     def add_evidence(self, lead_id, claim, source, method, expires_at=None):
         self.execute(
