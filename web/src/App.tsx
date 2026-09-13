@@ -130,16 +130,30 @@ function DashboardLayout({ children }: { children: ReactNode }) {
 function AuthGate({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [authenticated, setAuthenticated] = useState(false);
+  const [mode, setMode] = useState<string>("");
 
   useEffect(() => {
     apiGet.authSession().then((result) => {
       setAuthenticated(result.authenticated);
+      setMode(result.mode || "");
       setReady(true);
     }).catch(() => setReady(true));
   }, []);
 
   if (!ready) return <div className="py-20 text-center text-sm text-[var(--fg-muted)]">جارٍ التحقق من الجلسة…</div>;
   if (authenticated) return <>{children}</>;
+  if (mode === "closed") {
+    return (
+      <div className="max-w-lg mx-auto mt-10 rounded-2xl border border-[var(--warn)]/40 bg-[color-mix(in_srgb,var(--warn)_8%,transparent)] p-6 text-center">
+        <h2 className="text-lg font-bold mb-2">المنصة مقفولة — محتاجة ضبط أول مرة</h2>
+        <p className="text-[13px] text-[var(--fg-muted)] leading-6">
+          حماية المنصة مقفولة كل حاجة لحد ما متغيرات البيئة تتضبط على الاستضافة:
+          مفاتيح قاعدة البيانات، ومعرّف المنظمة، ومفتاح التشفير، ومفاتيح مزودي البيانات —
+          وبعدها أعد النشر وهيشتغل كل حاجة تلقائيًا.
+        </p>
+      </div>
+    );
+  }
   // Not signed in → the dedicated login page (never raw dashboard content).
   return <Redirect to="/login" />;
 }

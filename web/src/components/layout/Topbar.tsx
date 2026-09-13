@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import {
-  Sun, Moon, RefreshCw, WifiOff, Menu, Search, Zap, LogOut,
+  Sun, Moon, RefreshCw, WifiOff, Menu, Search, Zap, LogOut, Settings2,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useUI } from "@/hooks/useTheme";
@@ -34,7 +34,8 @@ export function Topbar() {
   const qc = useQueryClient();
   const [location] = useLocation();
   const { data: usage } = useLiveData<any>(() => apiGet.keysUsage(), 60000);
-  const { error } = useLiveData(() => apiGet.status(), 15000);
+  const { data: session, error } = useLiveData<any>(() => apiGet.authSession(), 120000);
+  const needsSetup = !error && session?.mode === "closed";
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -138,7 +139,15 @@ export function Topbar() {
 
       {/* Right: one usage chip + actions */}
       <div className="ms-auto flex items-center gap-1.5 shrink-0">
-        {error ? (
+        {needsSetup ? (
+          <span
+            className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-[var(--warn)]/50 bg-[color-mix(in_srgb,var(--warn)_12%,transparent)] text-[12.5px] font-medium text-[var(--warn)]"
+            title="المنصة في وضع مقفول لحد ما متغيرات البيئة تتضبط على الاستضافة: SUPABASE_URL و SUPABASE_DB_URL و LEAD_ENGINE_ORG_ID و LEAD_ENGINE_ENCRYPTION_KEY ومفاتيح المزودين — ثم أعد النشر"
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+            محتاجة ضبط أول مرة
+          </span>
+        ) : error ? (
           <span className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-[var(--danger)]/40 bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] text-[12.5px] font-medium text-[var(--danger)]">
             <WifiOff className="h-3.5 w-3.5" />
             غير متصل
