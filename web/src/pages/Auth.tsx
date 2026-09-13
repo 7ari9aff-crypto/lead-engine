@@ -242,6 +242,11 @@ export function SignupPage() {
       if (error) throw error;
       if (data.session) {
         navigate("/");
+      } else if (!data.user) {
+        // Supabase returns an empty payload for existing emails (no
+        // enumeration) — never claim an activation email was sent.
+        toast.info("الحساب ده مسجل بالفعل — سجّل دخولك عادي من صفحة الدخول");
+        setTimeout(() => navigate("/login"), 1200);
       } else {
         setNeedsConfirm(true);
       }
