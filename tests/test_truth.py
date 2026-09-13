@@ -142,11 +142,87 @@ def test_expired_value_superseded_without_conflict(store):
     new = store.record_fact("company", "org:c.com", "phone", "+966502222222",
                             source_url="https://new.com", provider="brave")
     assert store.conflicts(subject_id="org:c.com") == []
-    assert store.get_fact(old["fact_id"])["status"] == STATUS_UNVERIFIED  # still, until read
     snap = store.snapshot("company", "org:c.com")
     assert snap["fields"]["phone"]["value"] == "+966502222222"
     assert snap["fields"]["phone"]["status"] == STATUS_UNVERIFIED
-    assert "phone" in snap["stale_fields"]
+    # the field's CURRENT value is fresh — a stale row in history doesn't
+    # make the field stale (staleness follows the selected value)
+    assert "phone" not in snap["stale_fields"]
+
+
+def test_reobservation_after_expiry_revives_the_fact(store):
+    fact = store.record_fact("company", "org:c.com", "phone", "+966501234567",
+                             source_url="https://c.com", provider="tavily")
+    _expire(store, fact["fact_id"])
+    assert store.snapshot("company", "org:c.com")["fields"]["phone"]["status"] == STATUS_STALE
+    revived = store.record_fact("company", "org:c.com", "phone", "+966501234567",
+                                source_url="https://c.com", provider="tavily")
+    assert revived["status"] == STATUS_UNVERIFIED
+    # the clock is recomputed from THIS observation — not the expired 2020 one
+    assert revived["expires_at"] > "2020-01-01T00:00:00Z"
+
+
+def test_resolved_loser_value_reobserved_reopens_conflict(store):
+    a = store.record_fact("company", "org:c.com", "employee_count", "50",
+                          source_url="https://a.com", provider="tavily")
+    b = store.record_fact("company", "org:c.com", "employee_count", "120",
+                          source_url="https://b.com", provider="brave")
+    conflict = store.conflicts(subject_id="org:c.com")[0]
+    store.resolve_conflict(conflict["conflict_id"], winner_fact_id=b["fact_id"])
+    assert store.snapshot("company", "org:c.com")["fields"]["employee_count"]["status"] \
+        == STATUS_VERIFIED
+    # the losing value shows up again from a NEW independent source
+    store.record_fact("company", "org:c.com", "employee_count", "50",
+                      source_url="https://c.com", provider="exa")
+    snap = store.snapshot("company", "org:c.com")
+    assert snap["fields"]["employee_count"]["status"] == STATUS_CONFLICTED
+    assert len(snap["conflicts"]) == 1  # reopened, not duplicated
+    # and the field must NOT report two verified truths
+    assert snap["fields"]["employee_count"]["value"] in ("50", "120")
+
+
+def test_explicit_verification_survives_reobservation(store):
+    fact = store.record_fact("company", "org:c.com", "email", "x@c.com",
+                             source_url="https://c.com", provider="tavily")
+    store.verify_fact(fact["fact_id"], outcome="verified", confidence=0.9)
+    again = store.record_fact("company", "org:c.com", "email", "x@c.com",
+                              source_url="https://c.com", provider="tavily")
+    assert again["status"] == STATUS_VERIFIED  # never silently demoted
+    assert again["confidence"] == 0.9
+
+
+def test_fact_without_source_or_inferred_flag_rejected(store):
+    with pytest.raises(ValueError):
+        store.record_fact("company", "org:c.com", "phone", "+966501234567")
+
+
+def test_inferred_facts_carry_freshness_deadline(store):
+    fact = store.record_fact("company", "org:c.com", "employee_count", "120",
+                             quote="estimated", inferred=True)
+    assert fact["expires_at"] is not None
+
+
+def test_cross_org_by_id_read_blocked(tmp_path):
+    db_a = Database(tmp_path / "a.sqlite3")
+    db_a.org_id = "org-a"
+    db_b = Database(tmp_path / "b.sqlite3")
+    db_b.org_id = "org-b"
+    fact = FactsStore(db_a).record_fact("company", "org:c.com", "phone", "1",
+                                        source_url="https://c.com", provider="tavily")
+    assert FactsStore(db_b).get_fact(fact["fact_id"]) is None
+    assert FactsStore(db_a).get_fact(fact["fact_id"]) is not None
+
+
+def test_export_subject_includes_stale_fact_sources(store):
+    a = store.record_fact("company", "org:c.com", "phone", "1",
+                          source_url="https://a.com", provider="tavily")
+    store.record_fact("company", "org:c.com", "phone", "2",
+                      source_url="https://b.com", provider="brave")
+    conflict = store.conflicts(subject_id="org:c.com")[0]
+    store.resolve_conflict(conflict["conflict_id"], winner_fact_id=a["fact_id"])
+    dump = store.export_subject("company", "org:c.com")
+    urls = {s["source_url"] for s in dump["all_sources"]}
+    assert {"https://a.com", "https://b.com"} <= urls
 
 
 # --------------------------------------------------------------- freshness

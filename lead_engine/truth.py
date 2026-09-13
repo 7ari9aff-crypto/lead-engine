@@ -55,6 +55,11 @@ SOURCE_KINDS = ("search_api", "openmanus", "apollo", "hunter", "abstract",
                 "email_verify", "manual", "llm_inference")
 
 
+class OrgContextRequired(RuntimeError):
+    """Facts are tenant data: on Postgres a write/read requires a tenant org
+    context (JWT membership or the LEAD_ENGINE_ORG_ID worker bridge)."""
+
+
 def _now_plus(days: int) -> str:
     return (datetime.now(timezone.utc) + timedelta(days=days)).strftime(
         "%Y-%m-%dT%H:%M:%SZ")
@@ -62,12 +67,15 @@ def _now_plus(days: int) -> str:
 
 def _domain_of(url: str | None, provider: str | None) -> str:
     """Independent-source key: hostname when there is a URL, else the provider
-    identity. Two facts from the same domain do NOT verify each other."""
+    identity. A provider's OWN domain (apollo.io fetched by apollo) counts as
+    the provider, not as an independent second source."""
     if url:
         host = (urlparse(url).hostname or "").lower().removeprefix("www.")
         if host:
+            if provider and provider.lower() in host:
+                return f"provider:{provider.lower()}"
             return host
-    return f"provider:{provider or 'unknown'}"
+    return f"provider:{(provider or 'unknown').lower()}"
 
 
 class FactsStore:
@@ -81,7 +89,11 @@ class FactsStore:
         org = getattr(self.db, "org_id", None)
         if self._sqlite:
             return org or "shared"
-        return org  # PG: the adapter injects org on INSERT; None = platform row
+        if not org:
+            raise OrgContextRequired(
+                "facts are tenant data — set db.org_id (JWT membership or the "
+                "LEAD_ENGINE_ORG_ID bridge) before using FactsStore on Postgres")
+        return org
 
     def _org_eq(self, column: str = "organization_id") -> tuple[str, list]:
         """WHERE fragment pinning reads to the caller's org. On SQLite every
@@ -122,6 +134,11 @@ class FactsStore:
         value = "" if value is None else str(value).strip()
         if not value:
             raise ValueError("fact value must be non-empty")
+        has_source = bool(source_url or provider)
+        if not has_source and not inferred:
+            raise ValueError(
+                "a fact needs a source (url/provider) or inferred=True — "
+                "no value without provenance except INFERRED")
         org = self._org()
         now = utcnow()
 
@@ -131,66 +148,83 @@ class FactsStore:
             (subject_kind, subject_id, field, value, *self._org_eq()[1]))
 
         if existing:
+            # same value re-observed: freshen — the clock is owned by THIS
+            # observation, never by the first sighting (an expired fact can
+            # always be revived by new evidence for the same value).
             fact_id = existing["fact_id"]
-            if source_url or provider:
+            if has_source:
                 self._add_source(fact_id, org, source_url, source_kind, provider,
                                  query, quote)
-            status, conf = self._recompute_status(fact_id, None)
+            # a re-observed value can still collide with a fresh rival
+            # (e.g. a resolved loser showing up again) — never silently verify
+            self._detect_conflicts(org, subject_kind, subject_id, field,
+                                   fact_id, job_id, now)
+            status, conf = self._recompute_status(fact_id)
             self.db.execute(
                 "UPDATE research_facts SET status=?, confidence=?, collected_at=?,"
                 " expires_at=?, updated_at=? WHERE fact_id=?",
                 (status, conf if conf is not None else existing["confidence"],
-                 now, self._fresh_until(existing, now) or existing.get("expires_at"),
-                 now, fact_id))
+                 now, _now_plus(self._ttl_days(field)), now, fact_id))
             return self.get_fact(fact_id)
 
-        # brand-new value
-        if inferred:
-            status, conf = STATUS_INFERRED, (confidence if confidence is not None else 0.3)
-        else:
-            status, conf = STATUS_UNVERIFIED, (confidence if confidence is not None else 0.5)
+        # brand-new value — every fact carries a freshness deadline
         fact_id = self._fact_id()
-        expires_at = _now_plus(self._ttl_days(field)) if not inferred else None
+        status = STATUS_INFERRED if inferred else STATUS_UNVERIFIED
+        conf = confidence if confidence is not None else (0.3 if inferred else 0.5)
         self.db.execute(
             "INSERT INTO research_facts (fact_id, organization_id, subject_kind,"
             " subject_id, field, value, value_kind, status, confidence, job_id,"
             " run_id, collected_at, expires_at, created_at, updated_at)"
             " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (fact_id, org, subject_kind, subject_id, field, value, value_kind,
-             status, conf, job_id, run_id, now, expires_at, now, now))
-        if source_url or provider:
+             status, conf, job_id, run_id, now,
+             _now_plus(self._ttl_days(field)), now, now))
+        if has_source:
             self._add_source(fact_id, org, source_url, source_kind, provider,
                              query, quote)
         else:
             self._add_source(fact_id, org, None, "llm_inference", provider, query,
                              quote or "inferred without a direct source")
 
-        # conflict detection against OTHER fresh values of the same field
-        others, params = [], []
-        sql = ("SELECT * FROM research_facts WHERE subject_kind=? AND subject_id=?"
-               " AND field=? AND fact_id<>? AND status IN ('VERIFIED','UNVERIFIED','CONFLICTED')")
-        params.extend((subject_kind, subject_id, field, fact_id))
-        org_sql, org_params = self._org_eq()
-        sql += org_sql
-        params.extend(org_params)
-        for other in self.db.query(sql, params):
-            if self._is_fresh(other, now):
-                self._open_conflict(org, subject_kind, subject_id, field,
-                                    other["fact_id"], fact_id, job_id)
-        status, conf = self._recompute_status(fact_id, None)
+        # conflict detection against OTHER fresh values of the same field —
+        # runs for new values AND for freshened values (a resolved loser whose
+        # value is re-observed must REOPEN a conflict, never silently verify)
+        self._detect_conflicts(org, subject_kind, subject_id, field, fact_id, job_id, now)
+        status, conf = self._recompute_status(fact_id)
         self.db.execute(
             "UPDATE research_facts SET status=?, confidence=?, updated_at=? WHERE fact_id=?",
             (status, conf if conf is not None else 0.5, now, fact_id))
         return self.get_fact(fact_id)
 
     # ---------------------------------------------------------- conflicts
+    def _detect_conflicts(self, org, subject_kind, subject_id, field, fact_id,
+                          job_id, now=None) -> int:
+        """Flag a conflict against every other FRESH value of the same field.
+        Returns how many NEW conflict rows were opened."""
+        sql = ("SELECT * FROM research_facts WHERE subject_kind=? AND subject_id=?"
+               " AND field=? AND fact_id<>?"
+               " AND status IN ('VERIFIED','UNVERIFIED','CONFLICTED')")
+        params = [subject_kind, subject_id, field, fact_id]
+        org_sql, org_params = self._org_eq()
+        sql += org_sql
+        params.extend(org_params)
+        opened = 0
+        for other in self.db.query(sql, params):
+            if self._is_fresh(other, now):
+                conflict_id = self._open_conflict(org, subject_kind, subject_id,
+                                                  field, other["fact_id"],
+                                                  fact_id, job_id)
+                if conflict_id:
+                    opened += 1
+        return opened
+
     def _open_conflict(self, org, subject_kind, subject_id, field,
                        fact_a: str, fact_b: str, job_id: str | None) -> str | None:
         pair = {fact_a, fact_b}
         for row in self.conflicts(subject_kind=subject_kind, subject_id=subject_id,
                                   field=field, status="OPEN"):
             if {row["fact_a"], row["fact_b"]} == pair:
-                return row["conflict_id"]
+                return None  # already open — do not duplicate
         conflict_id = f"cfl_{uuid.uuid4().hex[:12]}"
         now = utcnow()
         self.db.execute(
@@ -245,7 +279,8 @@ class FactsStore:
             ("RESOLVED_AUTO" if automatic else "RESOLVED_HUMAN",
              note, by, now, winner_fact_id, now, conflict_id))
         self.db.execute(
-            "UPDATE research_facts SET status=?, confidence=MAX(confidence, 0.85),"
+            "UPDATE research_facts SET status=?,"
+            " confidence=CASE WHEN confidence > 0.85 THEN confidence ELSE 0.85 END,"
             " updated_at=? WHERE fact_id=?", (STATUS_VERIFIED, now, winner_fact_id))
         self.db.execute(
             "UPDATE research_facts SET status=?, updated_at=? WHERE fact_id=?",
@@ -286,8 +321,11 @@ class FactsStore:
     # ------------------------------------------------------------ reading
     def get_fact(self, fact_id: str) -> dict | None:
         row = self.db.one("SELECT * FROM research_facts WHERE fact_id=?", (fact_id,))
-        if row:
-            row["sources"] = self.sources_for(fact_id)
+        if not row:
+            return None
+        if self._sqlite and row.get("organization_id") != self._org():
+            return None  # belt-and-braces; on PG FORCE RLS is the guarantee
+        row["sources"] = self.sources_for(fact_id)
         return row
 
     def sources_for(self, fact_id: str) -> list[dict]:
@@ -305,23 +343,24 @@ class FactsStore:
         exp = fact.get("expires_at")
         return not exp or exp > (now or utcnow())
 
-    def _fresh_until(self, fact: dict, now: str) -> str | None:
-        if not self._is_fresh(fact, now):
-            return None
-        return fact.get("expires_at") or _now_plus(
-            self._ttl_days(fact["field"]))
+    def _recompute_status(self, fact_id: str) -> tuple[str, float | None]:
+        """Derive the honest status from provenance.
 
-    def _recompute_status(self, fact_id: str, field_based_status) -> tuple[str, float | None]:
-        """VERIFIED when 2+ independent sources agree; UNVERIFIED with one;
-        INFERRED stays until a source arrives; CONFLICTED overrides all."""
+        - explicit VERIFIED (verifier / conflict win) is NEVER silently demoted
+        - an OPEN conflict overrides everything: CONFLICTED
+        - VERIFIED requires 2+ INDEPENDENT source domains
+        - one source: UNVERIFIED; none: INFERRED
+        """
         row = self.db.one("SELECT * FROM research_facts WHERE fact_id=?", (fact_id,))
         if not row:
             return STATUS_UNVERIFIED, None
+        if row["status"] == STATUS_CONFLICTED and self._has_open_conflict(fact_id):
+            return STATUS_CONFLICTED, row["confidence"]
+        if row["status"] == STATUS_VERIFIED:
+            return STATUS_VERIFIED, row["confidence"]
         sources = self.sources_for(fact_id)
         real = [s for s in sources if s["source_kind"] != "llm_inference"]
         distinct = {_domain_of(s["source_url"], s["provider"]) for s in real}
-        if row["status"] == STATUS_CONFLICTED and self._has_open_conflict(fact_id):
-            return STATUS_CONFLICTED, row["confidence"]
         if len(distinct) >= 2:
             return STATUS_VERIFIED, min(0.95, 0.5 + 0.15 * (len(distinct) - 1))
         if real:
@@ -368,6 +407,7 @@ class FactsStore:
             by_field.setdefault(f["field"], []).append(f)
 
         fields = {}
+        stale_fields = []
         for field, group in by_field.items():
             fresh = [f for f in group if f["status"] != STATUS_STALE] or group
             fresh.sort(key=lambda f: (_RANK.get(f["status"], 0), f["confidence"] or 0,
@@ -376,6 +416,8 @@ class FactsStore:
             field_status = current["status"]
             if any(f["fact_id"] in conflicted_fact_ids for f in group):
                 field_status = STATUS_CONFLICTED
+            if field_status == STATUS_STALE:
+                stale_fields.append(field)
             fields[field] = {
                 "value": current["value"],
                 "value_kind": current["value_kind"],
@@ -396,8 +438,8 @@ class FactsStore:
             "subject_id": subject_id,
             "fields": fields,
             "conflicts": open_conflicts,
-            "stale_fields": sorted(
-                f["field"] for f in facts if f["status"] == STATUS_STALE),
+            # staleness of the CURRENT value per field — not "any old row exists"
+            "stale_fields": sorted(stale_fields),
         }
 
     def facts_for_qualification(self, subject_kind: str, subject_id: str) -> dict:
@@ -465,9 +507,15 @@ class FactsStore:
 
     # ------------------------------------------------------------ export
     def export_subject(self, subject_kind: str, subject_id: str) -> dict:
-        """Full auditable dump: facts + every source + conflicts + visits."""
+        """Full auditable dump: facts + EVERY source (including stale facts')
+        + conflicts + visits — nothing hides."""
         snap = self.snapshot(subject_kind, subject_id)
+        sql = "SELECT fact_id FROM research_facts WHERE subject_kind=? AND subject_id=?"
+        params = [subject_kind, subject_id]
+        org_sql, org_params = self._org_eq()
+        sql += org_sql
+        params.extend(org_params)
         all_sources = []
-        for field in snap["fields"].values():
-            all_sources.extend(field["sources"])
+        for row in self.db.query(sql, params):
+            all_sources.extend(self.sources_for(row["fact_id"]))
         return {**snap, "all_sources": all_sources}

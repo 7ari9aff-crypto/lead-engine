@@ -7,6 +7,7 @@ agent qualifies against the ACTIVE definition — changing it later must
 re-qualify from stored facts, never re-discover.
 """
 import json
+import uuid
 
 from .db import utcnow
 
@@ -40,7 +41,8 @@ class ICPStore:
             dup_params.append(org)
         if self.db.one(dup_sql, dup_params):
             raise ValueError(f"ICP version already exists: {slug} {version}")
-        icp_version_id = f"icp_{slug}_{version}".replace(" ", "")
+        # row ids are globally unique — slugs are only unique per tenant
+        icp_version_id = f"icp_{uuid.uuid4().hex[:12]}"
         now = utcnow()
         self.db.execute(
             "INSERT INTO icp_versions (icp_version_id, organization_id, slug,"
@@ -55,6 +57,8 @@ class ICPStore:
         row = self.get(icp_version_id)
         if not row:
             raise ValueError(f"ICP version not found: {icp_version_id}")
+        if row["status"] == "active":
+            return row  # idempotent — no transient zero-active window
         now = utcnow()
         org_sql, org_params = self._org_filter_sql()
         self.db.execute(
@@ -74,8 +78,14 @@ class ICPStore:
         return self._parse(row) if row else None
 
     def get(self, icp_version_id: str) -> dict | None:
-        return self._parse(self.db.one(
-            "SELECT * FROM icp_versions WHERE icp_version_id=?", (icp_version_id,)))
+        row = self.db.one("SELECT * FROM icp_versions WHERE icp_version_id=?",
+                          (icp_version_id,))
+        if not row:
+            return None
+        if (getattr(self.db, "dialect", "sqlite") == "sqlite"
+                and row.get("organization_id") != self._org()):
+            return None
+        return self._parse(row)
 
     def list_versions(self, slug: str) -> list[dict]:
         sql, params = "SELECT * FROM icp_versions WHERE slug=?", [slug]
@@ -100,6 +110,8 @@ class ICPStore:
         if isinstance(raw, str):
             try:
                 row["definition"] = json.loads(raw)
-            except (json.JSONDecodeError, TypeError):
-                pass
+            except (json.JSONDecodeError, TypeError) as exc:
+                raise ValueError(
+                    f"ICP row {row.get('icp_version_id')} has corrupt definition JSON"
+                ) from exc
         return row

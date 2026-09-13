@@ -207,8 +207,11 @@ class PgDatabase:
         if row["requires_review"] is True:
             row["requires_review"] = 1
         cols = list(row.keys())
+        # human-owned decision columns survive pipeline refreshes (see db.py)
+        human_owned = ("disposition", "disposition_note", "disposition_at", "decided_by")
         updates = ", ".join(
-            f"{c} = excluded.{c}" for c in cols if c != "lead_id")
+            f"{c} = excluded.{c}" for c in cols
+            if c != "lead_id" and c not in human_owned)
         sql = (
             f"INSERT INTO leads ({', '.join(cols)}) "
             f"VALUES ({', '.join('?' for _ in cols)}) "

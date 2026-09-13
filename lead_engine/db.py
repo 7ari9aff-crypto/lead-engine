@@ -426,7 +426,11 @@ class Database:
         if row["requires_review"] is True:
             row["requires_review"] = 1
         cols = list(row.keys())
-        updates = ", ".join(f"{c} = excluded.{c}" for c in cols if c != "lead_id")
+        # human-owned decision columns survive pipeline refreshes: only the
+        # decision endpoints may change them, never a re-run upsert
+        human_owned = ("disposition", "disposition_note", "disposition_at", "decided_by")
+        updates = ", ".join(
+            f"{c} = excluded.{c}" for c in cols if c != "lead_id" and c not in human_owned)
         self.execute(
             f"INSERT INTO leads ({', '.join(cols)}) "
             f"VALUES ({', '.join('?' for _ in cols)}) "
