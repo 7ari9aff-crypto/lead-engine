@@ -139,3 +139,24 @@ public.integration_connections للـOAuth — تُستبعد تدريجيًا)
 1. كل INSERT على جدول tenant-scoped يمر عبر ORG_TABLES في db_pg (حقن تلقائي)
 2. كل قائمة/قراءة في الـAPI تفلتر: org الحالي + صفوف المنصة (NULL) عند اللزوم
 3. لا يجوز endpoint يعرض صفوف tenant آخر بأي شكل
+
+## 8) قرار معماري 2026-09-13 — Agentic Research Target (R0–R6)
+
+قرار صريح بموجب بند "أي تعديل يتطلب قرارًا": اعتماد الهدف النهائي
+**Chat-first autonomous research agent** بحد نهائي `APPROVE_CONTACT` —
+**بدون أي outbound execution في هذا النظام** (إرسال إيميل/واتساب/لينكدإن
+غير موجود وأي أداة من نوع SEND ممنوعة كأدوات وكيل).
+
+- المرجع التنفيذي والملزم: `docs/plan-agentic-research.md` (خريطة المكونات
+  Keep/Extend/Refactor، حالات الـresearch job، قواعد Business Truth،
+  budgets/stop_reason، الصلاحيات، مراحل R0–R6 وDoD).
+- إضافات schema معتمدة: `engine.research_facts`، `engine.fact_sources`،
+  `engine.fact_conflicts`، `engine.open_questions`، `engine.visited_sources`،
+  `engine.icp_versions`، `engine.research_context` + `leads.disposition` —
+  كلها tenant-scoped بـRLS.
+- الجدول في القسم 2 يُحدّث: Jobs/Workers/Queue + Events/Outbox + Tenancy
+  (منفذة أصلًا) تُوسّع — لا يُستبدل أي منها. طبقة Truth/Verification/
+  Qualification تُبنى أعلى الموجود (extension إلزامي، لا بناء موازٍ).
+- ICP تنتقل من YAML إلى `engine.icp_versions` (versioned per-org) — YAML
+  يظل مصدر import فقط. Company Profile كواجهة منفصلة: مؤجل — الـintent
+  يأتي من الشات مباشرة (chat-first).
