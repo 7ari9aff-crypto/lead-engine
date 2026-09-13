@@ -29,10 +29,13 @@ from psycopg.rows import dict_row
 
 # Tables whose INSERTs must carry organization_id.
 ORG_TABLES = {"jobs", "leads", "usage_ledger", "agent_runs", "approvals",
-              "activity_events", "agents"}
+              "activity_events", "agents",
+              "research_facts", "fact_sources", "fact_conflicts",
+              "open_questions", "visited_sources", "icp_versions"}
 
 _ORG_INSERT_RE = re.compile(
-    r"(insert\s+into\s+(jobs|leads|usage_ledger|agent_runs|approvals|agents|activity_events)\s*)"
+    r"(insert\s+into\s+(jobs|leads|usage_ledger|agent_runs|approvals|agents|activity_events"
+    r"|research_facts|fact_sources|fact_conflicts|open_questions|visited_sources|icp_versions)\s*)"
     r"\(([^)]*)\)\s*values\s*\(([^)]*)\)",
     re.IGNORECASE,
 )
@@ -106,6 +109,7 @@ class PgDatabase:
     _IDENTITY_TABLES = (
         "agent_steps", "activity_events", "evidence",
         "usage_ledger", "job_events", "audit_logs",
+        "fact_sources", "open_questions", "visited_sources",
     )
 
     def __init__(self, dsn: str, org_id: str | None = None):
@@ -174,6 +178,7 @@ class PgDatabase:
         "website", "social", "qualification_score", "tier", "score", "stage",
         "processing_mode", "requires_review", "legal_decision", "data_types",
         "sources", "source_queries", "raw", "created_at", "updated_at",
+        "disposition", "disposition_note", "disposition_at", "decided_by",
     )
 
     def insert_lead(self, lead: dict) -> None:

@@ -117,7 +117,11 @@ CREATE TABLE IF NOT EXISTS leads (
   source_queries TEXT,
   raw TEXT,
   created_at TEXT,
-  updated_at TEXT
+  updated_at TEXT,
+  disposition TEXT,         -- APPROVE_CONTACT | REJECT | RESEARCH_MORE | SAVE_FOR_LATER (human only)
+  disposition_note TEXT,
+  disposition_at TEXT,
+  decided_by TEXT
 );
 CREATE TABLE IF NOT EXISTS evidence (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -221,6 +225,95 @@ CREATE TABLE IF NOT EXISTS approvals (
     requested_at TEXT,
     resolved_at TEXT
 );
+CREATE TABLE IF NOT EXISTS research_facts (
+    fact_id TEXT PRIMARY KEY,
+    organization_id TEXT,
+    subject_kind TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    field TEXT NOT NULL,
+    value TEXT NOT NULL,
+    value_kind TEXT NOT NULL DEFAULT 'text',
+    status TEXT NOT NULL DEFAULT 'UNVERIFIED',
+    confidence REAL NOT NULL DEFAULT 0.4,
+    job_id TEXT,
+    run_id TEXT,
+    collected_at TEXT NOT NULL,
+    expires_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (organization_id, subject_kind, subject_id, field, value)
+);
+CREATE INDEX IF NOT EXISTS idx_facts_subject
+    ON research_facts (organization_id, subject_kind, subject_id);
+CREATE TABLE IF NOT EXISTS fact_sources (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    organization_id TEXT,
+    fact_id TEXT NOT NULL,
+    source_url TEXT,
+    source_kind TEXT NOT NULL DEFAULT 'search_api',
+    provider TEXT,
+    query TEXT,
+    quote TEXT,
+    collected_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_fact_sources_fact ON fact_sources (fact_id);
+CREATE TABLE IF NOT EXISTS fact_conflicts (
+    conflict_id TEXT PRIMARY KEY,
+    organization_id TEXT,
+    subject_kind TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    field TEXT NOT NULL,
+    fact_a TEXT NOT NULL,
+    fact_b TEXT NOT NULL,
+    winner TEXT,
+    resolution TEXT NOT NULL DEFAULT 'OPEN',
+    resolution_note TEXT,
+    resolved_by TEXT,
+    resolved_at TEXT,
+    job_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_conflicts_open
+    ON fact_conflicts (organization_id, subject_id, field, resolution);
+CREATE TABLE IF NOT EXISTS open_questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    organization_id TEXT,
+    job_id TEXT NOT NULL,
+    subject_kind TEXT NOT NULL DEFAULT 'company',
+    subject_id TEXT,
+    question TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'OPEN',
+    answer_fact_id TEXT,
+    created_at TEXT NOT NULL,
+    answered_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_open_questions_job
+    ON open_questions (organization_id, job_id, status);
+CREATE TABLE IF NOT EXISTS visited_sources (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    organization_id TEXT,
+    job_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    title TEXT,
+    http_status INTEGER,
+    summary TEXT,
+    fetched_at TEXT NOT NULL,
+    UNIQUE (job_id, url)
+);
+CREATE TABLE IF NOT EXISTS icp_versions (
+    icp_version_id TEXT PRIMARY KEY,
+    organization_id TEXT,
+    slug TEXT NOT NULL,
+    version TEXT NOT NULL,
+    definition TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'manual',
+    status TEXT NOT NULL DEFAULT 'draft',
+    created_by TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (organization_id, slug, version)
+);
 """
 
 
@@ -242,6 +335,7 @@ class Database:
         self._migrate_provider_columns()
         self._migrate_usage_columns()
         self._migrate_agent_version_columns()
+        self._migrate_lead_disposition_columns()
         self.conn.commit()
 
     def _migrate_provider_columns(self):
@@ -276,6 +370,17 @@ class Database:
             " WHERE model_provider IS NULL OR model_provider=''"
         )
 
+    def _migrate_lead_disposition_columns(self):
+        existing = {row["name"] for row in self.conn.execute("PRAGMA table_info(leads)")}
+        for name, definition in (
+            ("disposition", "TEXT"),
+            ("disposition_note", "TEXT"),
+            ("disposition_at", "TEXT"),
+            ("decided_by", "TEXT"),
+        ):
+            if name not in existing:
+                self.conn.execute(f"ALTER TABLE leads ADD COLUMN {name} {definition}")
+
     def execute(self, sql, params=()):
         cur = self.conn.execute(sql, params)
         self.conn.commit()
@@ -295,6 +400,7 @@ class Database:
         "website", "social", "qualification_score", "tier", "score", "stage",
         "processing_mode", "requires_review", "legal_decision", "data_types",
         "sources", "source_queries", "raw", "created_at", "updated_at",
+        "disposition", "disposition_note", "disposition_at", "decided_by",
     )
 
     def insert_lead(self, lead: dict) -> None:
