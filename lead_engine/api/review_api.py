@@ -222,3 +222,34 @@ def _subject_id(lead: dict) -> str:
     _, subject = canonical_subject({"name": lead.get("name"),
                                     "domain": lead.get("domain")})
     return subject
+
+class ResolveConflictRequest(BaseModel):
+    winner_fact_id: str
+    note: str | None = None
+
+
+@router.get("/api/v1/conflicts")
+def list_conflicts(subject_id: str | None = None, field: str | None = None,
+                   status: str = "OPEN", db=Depends(get_db)):
+    """List detected fact conflicts for human review."""
+    store = FactsStore(db)
+    return {"conflicts": store.conflicts(subject_id=subject_id, field=field, status=status)}
+
+
+@router.post("/api/v1/conflicts/{conflict_id}/resolve")
+def resolve_conflict_endpoint(conflict_id: str, req: ResolveConflictRequest,
+                              request: Request, db=Depends(get_db)):
+    """Human gate to resolve a factual conflict: winner -> VERIFIED, loser -> STALE."""
+    store = FactsStore(db)
+    actor = _actor(request)
+    try:
+        resolved = store.resolve_conflict(
+            conflict_id,
+            req.winner_fact_id,
+            note=req.note,
+            by=actor,
+            automatic=False,
+        )
+        return {"ok": True, "conflict": resolved}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))

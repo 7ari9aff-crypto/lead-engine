@@ -1,3 +1,5 @@
+import asyncio
+from fastapi.responses import StreamingResponse
 """Research job API — the chat-first entry point (directive §32).
 
 POST /api/v1/research           create a research job (QUEUED); inline mode
@@ -181,3 +183,39 @@ def research_resume(job_id: str, background: BackgroundTasks, db=Depends(get_db)
     else:
         background.add_task(_run_research, job_id)
     return {"ok": True, "state": "RUNNING"}
+
+@router.get("/{job_id}/stream")
+async def research_stream(job_id: str, request: Request, db=Depends(get_db)):
+    """Real-time SSE progress stream for the UI/chat (directive §39 / docs/handoff).
+    Streams state transitions and counter updates without client polling."""
+    _owned(db, job_id)
+
+    async def event_generator():
+        last_updated = None
+        manager = ResearchJobManager(db)
+        terminal_states = {"COMPLETED", "FAILED", "CANCELLED", "READY_FOR_REVIEW", "WAITING_FOR_USER"}
+        for _ in range(360):
+            if await request.is_disconnected():
+                break
+            prog = manager.progress(job_id)
+            current_updated = prog.get("updated_at")
+            if current_updated != last_updated:
+                last_updated = current_updated
+                data = json.dumps(prog, ensure_ascii=False, default=str)
+                yield f"event: progress\ndata: {data}\n\n"
+                if prog.get("state") in terminal_states:
+                    yield f"event: done\ndata: {json.dumps({'state': prog.get('state')})}\n\n"
+                    break
+            else:
+                yield ": ping\n\n"
+            await asyncio.sleep(2)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

@@ -73,3 +73,20 @@ def test_events_log(jm):
     events = manager.events(job)
     assert [(e["from_state"], e["to_state"]) for e in events] == [
         (QUEUED, RUNNING), (RUNNING, PAUSED)]
+
+
+def test_recover_interrupted_jobs(jm):
+    manager, db = jm
+    j1 = manager.create_job("icp")
+    manager.transition(j1, RUNNING)
+    j2 = manager.create_job("icp")
+    manager.transition(j2, RUNNING)
+    manager.transition(j2, DISCOVERING)
+    j3 = manager.create_job("icp")
+
+    recovered = manager.recover_interrupted_jobs("test restart")
+    assert len(recovered) == 2
+    assert j1 in recovered and j2 in recovered
+    assert manager.current(j1) == PAUSED
+    assert manager.current(j2) == PAUSED
+    assert manager.current(j3) == QUEUED

@@ -262,3 +262,23 @@ def test_chat_define_icp_tool(db):
                         router, db)
     ctx = ResearchJobManager(db).context(out2["job_id"])
     assert ctx["icp_version_id"] == out["icp_version_id"]
+
+
+def test_conflict_resolution_api(client, db):
+    from lead_engine.truth import FactsStore, STATUS_VERIFIED, STATUS_STALE
+    store = FactsStore(db)
+    f1 = store.record_fact("company", "org:clinic-c.com", "phone", "+966501111111",
+                           source_url="https://c.com/1", provider="tavily")
+    f2 = store.record_fact("company", "org:clinic-c.com", "phone", "+966502222222",
+                           source_url="https://c.com/2", provider="brave")
+    confs = client.get("/api/v1/conflicts").json()["conflicts"]
+    assert len(confs) >= 1
+    cid = confs[0]["conflict_id"]
+
+    res = client.post(f"/api/v1/conflicts/{cid}/resolve",
+                      json={"winner_fact_id": f1["fact_id"], "note": "verified"}).json()
+    assert res["ok"] is True
+    assert res["conflict"]["winner"] == f1["fact_id"]
+    snap = store.snapshot("company", "org:clinic-c.com")
+    assert snap["fields"]["phone"]["value"] == "+966501111111"
+    assert snap["fields"]["phone"]["status"] == STATUS_VERIFIED

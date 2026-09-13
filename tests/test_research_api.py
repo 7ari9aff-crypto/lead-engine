@@ -130,3 +130,14 @@ def test_chat_start_research_tool_creates_job(db, monkeypatch):
     manager = ResearchJobManager(db)
     assert manager.is_research(out["job_id"])
     assert "SaaS" in manager.context(out["job_id"])["objective"]
+
+
+def test_research_stream_endpoint(client, db):
+    job_id = ResearchJobManager(db).create("objective for stream test")
+    with client.stream("GET", f"/api/v1/research/{job_id}/stream") as resp:
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.headers["content-type"]
+        for line in resp.iter_lines():
+            if line:
+                assert "event: progress" in line or "data:" in line or ": ping" in line
+                break

@@ -25,6 +25,9 @@ TOOL_SCOPES = {
     "system_status": ["system:read"],
     "start_research": ["jobs:run", "search:read", "evidence:write"],
     "define_icp": ["system:read", "jobs:run"],
+    "get_research_progress": ["jobs:read"],
+    "answer_research_question": ["jobs:run", "evidence:write"],
+    "resume_research_job": ["jobs:run"],
 }
 
 SYSTEM_INSTRUCTION = """أنت "مساعد محرك الـLeads" — واجهة محادثة لنظام توليد leads واعٍ بالحصص (quotas).
@@ -110,6 +113,36 @@ TOOLS_DECL = [{
             },
         },
         {
+            "name": "get_research_progress",
+            "description": "استعلم عن تفاصيل وتقدم مهمة بحث وكيلية (العدادات، الحقائق الموثقة، التعارضات، مرحلة الإنجاز).",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {"job_id": {"type": "STRING", "description": "معرف مهمة البحث"}},
+                "required": ["job_id"],
+            },
+        },
+        {
+            "name": "answer_research_question",
+            "description": "أجب على سؤال مفتوح طرحه وكيل البحث (حالة WAITING_FOR_USER) لاستئناف البحث تلقائيًا.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "job_id": {"type": "STRING", "description": "معرف مهمة البحث"},
+                    "answer": {"type": "STRING", "description": "إجابة المستخدم على السؤال المطروح"},
+                },
+                "required": ["job_id", "answer"],
+            },
+        },
+        {
+            "name": "resume_research_job",
+            "description": "استأنف مهمة بحث وكيلية متوقفة مؤقتًا (PAUSED) أو اطلب تعميق البحث (RESEARCH_MORE) من مرحلة المراجعة.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {"job_id": {"type": "STRING", "description": "معرف مهمة البحث"}},
+                "required": ["job_id"],
+            },
+        },
+        {
             "name": "start_research",
             "description": "ابدأ مهمة بحث وكيلية دائمة عن هدف صيغ بلغة طبيعية (مثال: دور على شركات SaaS في السعودية بين 100 و500 موظف). المهمة تبحث وتحقق وتوثق الحقائق بمصادرها ويتوقف عند مراجعتك — لا يرسل شيئًا لأحد.",
             "parameters": {
@@ -188,6 +221,72 @@ def execute_tool(name: str, args: dict, router, db) -> dict:
                     "definition": definition,
                     "note": "معاييرك بقت هي فلتر البحث والتأهيل — أطلب requalify "
                             "في أي وقت لإعادة تقييم الـleads المخزنة عليها."}
+
+        if name == "get_research_progress":
+            from ..research import ResearchJobManager
+            job_id = args.get("job_id")
+            if not job_id:
+                return {"error": "job_id مطلوب"}
+            return ResearchJobManager(db).progress(job_id)
+
+        if name == "answer_research_question":
+            from ..research import ResearchJobManager
+            from ..truth import FactsStore
+            from ..db import utcnow
+            from ..queue import enqueue, platform_mode
+
+            job_id = args.get("job_id")
+            answer = (args.get("answer") or "").strip()
+            if not job_id or not answer:
+                return {"error": "job_id و answer مطلوبان"}
+            manager = ResearchJobManager(db)
+            if manager.jobs.current(job_id) != "WAITING_FOR_USER":
+                return {"error": f"المهمة في حالة {manager.jobs.current(job_id)} وليست في انتظار المستخدم"}
+            store = FactsStore(db)
+            open_qs = store.open_questions(job_id)
+            if open_qs:
+                store.drop_open_question(open_qs[-1]["id"])
+            db.execute(
+                "INSERT INTO job_events (ts, job_id, from_state, to_state, reason)"
+                " VALUES (?,?,?,?,?)",
+                (utcnow(), job_id, "WAITING_FOR_USER", "RUNNING", f"user answered in chat: {answer[:300]}"))
+            manager.jobs.transition(job_id, "RUNNING")
+            if platform_mode():
+                enqueue(db, job_id)
+            else:
+                import threading
+                def _run():
+                    from ..config import load_settings
+                    from ..research.orchestrator import ResearchOrchestrator
+                    ResearchOrchestrator(db, load_settings(), job_id).run()
+                threading.Thread(target=_run, daemon=True).start()
+            return {"ok": True, "state": "RUNNING", "message": "تم تسجيل الإجابة واستئناف البحث بنجاح."}
+
+        if name == "resume_research_job":
+            from ..research import ResearchJobManager
+            from ..queue import enqueue, platform_mode
+
+            job_id = args.get("job_id")
+            if not job_id:
+                return {"error": "job_id مطلوب"}
+            manager = ResearchJobManager(db)
+            state = manager.jobs.current(job_id)
+            if state == "PAUSED":
+                manager.jobs.resume(job_id)
+            elif state == "READY_FOR_REVIEW":
+                manager.jobs.transition(job_id, "RUNNING", "RESEARCH_MORE")
+            else:
+                return {"error": f"المهمة في حالة {state} ولا يمكن استئنافها"}
+            if platform_mode():
+                enqueue(db, job_id)
+            else:
+                import threading
+                def _run():
+                    from ..config import load_settings
+                    from ..research.orchestrator import ResearchOrchestrator
+                    ResearchOrchestrator(db, load_settings(), job_id).run()
+                threading.Thread(target=_run, daemon=True).start()
+            return {"ok": True, "state": "RUNNING", "message": "تم استئناف مهمة البحث بنجاح."}
 
         if name == "start_research":
             objective = (args.get("objective") or "").strip()

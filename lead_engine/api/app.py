@@ -56,7 +56,23 @@ def _hydrate_credentials_at_boot() -> None:
         pass  # no DSN/org/key yet — .env bootstrap path
 
 
+
+def _recover_interrupted_jobs_at_boot() -> None:
+    try:
+        from ..jobs import JobManager
+        from ..queue import platform_mode, reclaim_expired
+
+        db = open_db()
+        if platform_mode():
+            reclaim_expired(db)
+        JobManager(db).recover_interrupted_jobs()
+        db.conn.close()
+    except Exception:
+        pass
+
+
 _hydrate_credentials_at_boot()
+_recover_interrupted_jobs_at_boot()
 
 STATIC_DIR = ROOT / "lead_engine" / "static"
 CONFIG_FILES = {
@@ -522,6 +538,19 @@ def run_benchmark_endpoint(req: RunRequest, background: BackgroundTasks,
 
 @app.get("/api/v1/jobs/{job_id}")
 @app.get("/api/jobs/{job_id}")
+
+@app.post("/api/v1/jobs/recover")
+@app.post("/jobs/recover")
+def recover_jobs(db: Database = Depends(get_db)):
+    """Manual or maintenance trigger to recover stranded jobs left in active states."""
+    from ..jobs import JobManager
+    from ..queue import platform_mode, reclaim_expired
+
+    reclaimed = reclaim_expired(db) if platform_mode() else 0
+    recovered = JobManager(db).recover_interrupted_jobs()
+    return {"recovered_jobs": recovered, "reclaimed_leases": reclaimed}
+
+
 @app.get("/jobs/{job_id}")
 def get_job_v1(job_id: str, db: Database = Depends(get_db)):
     return get_job(job_id, db)
@@ -535,6 +564,19 @@ def list_jobs(db: Database = Depends(get_db)):
     return db.query("SELECT job_id, icp_id, state, pause_reason, resume_at, created_at,"
                     f" updated_at FROM jobs WHERE 1=1{clause}"
                     " ORDER BY created_at DESC LIMIT 50", params)
+
+
+
+@app.post("/api/v1/jobs/recover")
+@app.post("/jobs/recover")
+def recover_jobs(db: Database = Depends(get_db)):
+    """Manual or maintenance trigger to recover stranded jobs left in active states."""
+    from ..jobs import JobManager
+    from ..queue import platform_mode, reclaim_expired
+
+    reclaimed = reclaim_expired(db) if platform_mode() else 0
+    recovered = JobManager(db).recover_interrupted_jobs()
+    return {"recovered_jobs": recovered, "reclaimed_leases": reclaimed}
 
 
 @app.get("/jobs/{job_id}")
