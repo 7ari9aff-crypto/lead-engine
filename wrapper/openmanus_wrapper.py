@@ -312,6 +312,9 @@ def _run_task(task_id: str, req: TaskRequest) -> None:
 
         task.update({
             "status": "completed",
+            # diagnostics: when zero facts come back we MUST be able to see
+            # what the agent actually said (missing JSON block, empty run...)
+            "output_tail": output_text[-1200:] if not facts else "",
             "result": {
                 "summary": summary,
                 "title": title,
