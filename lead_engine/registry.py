@@ -30,6 +30,9 @@ SEED = [
     ("hunter",      "email",  "email_find",   1, "account",   None, "none",    None, "HUNTER_API_KEY"),
     ("abstract",    "email",  "email_verify", 2, "credits",   100,  "monthly", None, "ABSTRACT_API_KEY"),
     ("local_smtp",  "email",  "email_verify", 3, "unlimited", None, "none",    None, None),
+    # deep-browsing runtime (docs/openmanus-contract.md) — lives off-box;
+    # 'available' = OPENMANUS_BASE_URL configured
+    ("openmanus",   "runtime", "deep_research", 1, "requests", None, "none",  None, "OPENMANUS_BASE_URL"),
 ]
 
 ACTIVE = "active"
@@ -43,10 +46,19 @@ class Registry:
         self.db = db
 
     def seed_if_empty(self):
-        if self.db.one("SELECT 1 FROM providers LIMIT 1"):
+        """Idempotent seeding that also UPGRADES existing databases: rows whose
+        (name, task) is missing get inserted, so a new provider added in code
+        appears on already-seeded deployments without a migration. Existing
+        rows (quotas, usage, status) are never touched."""
+        existing = {
+            (r["name"], r["task"])
+            for r in self.db.query("SELECT name, task FROM providers")
+        }
+        missing = [row for row in SEED if (row[0], row[2]) not in existing]
+        if not missing:
             return
         now = utcnow()
-        for name, ptype, task, prio, kind, limit, period, rpm, env_key in SEED:
+        for name, ptype, task, prio, kind, limit, period, rpm, env_key in missing:
             self.db.execute(
                 "INSERT INTO providers"
                 " (name, task, type, priority, quota_kind, quota_limit, quota_used,"
