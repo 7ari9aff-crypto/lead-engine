@@ -114,6 +114,20 @@ def test_wrapper_health(wrapper_client):
     body = wrapper_client.get("/health").json()
     assert body["status"] == "ok"
     assert body["openmanus_ready"] is True
+    assert body["auth_configured"] is True
+
+
+def test_wrapper_fails_closed_when_token_unset(wrapper_client, monkeypatch):
+    monkeypatch.delenv("OPENMANUS_WRAPPER_TOKEN", raising=False)
+    # Fail-closed: if token is unset on server, requests must fail with 503
+    resp = wrapper_client.post(
+        "/tasks", json={"type": "research"},
+        headers={"Authorization": "Bearer any-token"})
+    assert resp.status_code == 503
+    assert "OPENMANUS_WRAPPER_TOKEN" in resp.json()["detail"]
+    health = wrapper_client.get("/health").json()
+    assert health["auth_configured"] is False
+    assert health["status"] == "degraded" 
 
 
 def test_wrapper_auth(wrapper_client):

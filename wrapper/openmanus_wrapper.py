@@ -46,18 +46,22 @@ app = FastAPI(
     version="1.0.0",
 )
 
+allowed_origins_env = os.environ.get(
+    "OPENMANUS_ALLOWED_ORIGINS",
+    "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8000,http://127.0.0.1:8000,http://localhost:8080,http://127.0.0.1:8080",
+)
+allowed_origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
 TASKS_DIR = Path(os.environ.get("OPENMANUS_TASKS_DIR", Path(__file__).parent / "tasks"))
 TASKS_DIR.mkdir(parents=True, exist_ok=True)
-
-DEFAULT_TOKEN = os.environ.get("OPENMANUS_WRAPPER_TOKEN", "openmanus-lead-secret-token-2026")
 
 
 class TaskRequest(BaseModel):
@@ -69,15 +73,18 @@ class TaskRequest(BaseModel):
 
 
 def _token() -> str:
-    return os.environ.get("OPENMANUS_WRAPPER_TOKEN", DEFAULT_TOKEN)
+    return os.environ.get("OPENMANUS_WRAPPER_TOKEN", "").strip()
 
 
 def _auth(authorization: str) -> None:
     expected = _token()
     if not expected:
-        raise HTTPException(status_code=503, detail="OPENMANUS_WRAPPER_TOKEN not set")
+        raise HTTPException(
+            status_code=503,
+            detail="OPENMANUS_WRAPPER_TOKEN not configured on server. Set the environment variable to enable access.",
+        )
     provided = (authorization or "").removeprefix("Bearer ").strip()
-    if provided != expected:
+    if not provided or provided != expected:
         raise HTTPException(status_code=401, detail="invalid token")
 
 
@@ -331,11 +338,14 @@ def _run_task(task_id: str, req: TaskRequest) -> None:
 @app.get("/health")
 def health():
     cwd = _cwd()
+    has_token = bool(_token())
+    ready = bool(cwd and Path(cwd).exists())
     return {
-        "status": "ok",
+        "status": "ok" if (ready and has_token) else "degraded",
         "version": "1.0.0",
         "openmanus_entry": _entry(),
-        "openmanus_ready": bool(cwd and Path(cwd).exists()),
+        "openmanus_ready": ready,
+        "auth_configured": has_token,
         "engine": "OpenManus + Model Gateway (Gemini 3.8 Flash + Exa Neural Search)",
     }
 

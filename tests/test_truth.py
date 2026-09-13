@@ -353,3 +353,32 @@ def test_icp_org_isolation(tmp_path):
     ICPStore(db_a).create_version("dental", {"industry": "dental"})
     assert ICPStore(db_b).list_versions("dental") == []
     assert ICPStore(db_a).list_versions("dental")
+
+# ----------------------------------------------------- qualification checks
+def test_deterministic_checks_unverified_city_does_not_hard_fail():
+    from lead_engine.research.qualification import deterministic_checks
+    icp = {"cities": [{"name": "Riyadh", "ar": "الرياض"}]}
+    facts = {
+        "values": {"city": "Dubai"},
+        "statuses": {"city": STATUS_UNVERIFIED},
+    }
+    checks = deterministic_checks(facts, icp)
+    assert len(checks) == 1
+    assert checks[0]["check"] == "city_match"
+    # An UNVERIFIED city mismatch must NOT be a hard fail
+    assert checks[0]["verdict"] == "unknown"
+    assert "unverified" in checks[0]["basis"].lower()
+
+
+def test_deterministic_checks_verified_city_hard_fails():
+    from lead_engine.research.qualification import deterministic_checks
+    icp = {"cities": [{"name": "Riyadh", "ar": "الرياض"}]}
+    facts = {
+        "values": {"city": "Dubai"},
+        "statuses": {"city": STATUS_VERIFIED},
+    }
+    checks = deterministic_checks(facts, icp)
+    assert len(checks) == 1
+    assert checks[0]["check"] == "city_match"
+    # A VERIFIED city mismatch MUST be a hard fail
+    assert checks[0]["verdict"] == "fail"

@@ -16,7 +16,7 @@ change reuses the stored facts (directive §25).
 import json
 
 from ..router import NoProviderAvailable
-from ..truth import STATUS_CONFLICTED, STATUS_STALE, FactsStore
+from ..truth import STATUS_CONFLICTED, STATUS_STALE, STATUS_VERIFIED, FactsStore
 
 PROMPT = """أنت محلل تأهيل عملاء B2B صارم ومسؤول عن الحقيقة.
 قيّم الشركة التالية مقابل معايير الـICP اعتمادًا على الحقائق المخزنة **فقط**.
@@ -66,11 +66,24 @@ def deterministic_checks(facts: dict, icp: dict) -> list[dict]:
         norm_city = normalize_text(city)
         match = any(normalize_text(c) and normalize_text(c) in norm_city
                     or norm_city in normalize_text(c) for c in icp_cities if c)
-        checks.append({
-            "check": "city_match", "value": city,
-            "verdict": "pass" if match else "fail",
-            "basis": f"city fact is {_status('city')}",
-        })
+        if match:
+            checks.append({
+                "check": "city_match", "value": city,
+                "verdict": "pass",
+                "basis": f"city fact is {_status('city')}",
+            })
+        elif _status("city") == STATUS_VERIFIED:
+            checks.append({
+                "check": "city_match", "value": city,
+                "verdict": "fail",
+                "basis": f"city fact is {_status('city')} and contradicts ICP",
+            })
+        else:
+            checks.append({
+                "check": "city_match", "value": city,
+                "verdict": "unknown",
+                "basis": f"city fact is {_status('city')}; unverified facts do not trigger hard rejection",
+            })
     elif icp_cities:
         checks.append({"check": "city_match", "verdict": "unknown",
                        "basis": "no city fact stored"})
