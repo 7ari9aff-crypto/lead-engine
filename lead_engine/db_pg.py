@@ -31,7 +31,8 @@ from psycopg.rows import dict_row
 ORG_TABLES = {"jobs", "leads", "usage_ledger", "agent_runs", "approvals",
               "activity_events", "agents",
               "research_facts", "fact_sources", "fact_conflicts",
-              "open_questions", "visited_sources", "icp_versions"}
+              "open_questions", "visited_sources", "icp_versions",
+              "research_context"}
 
 _ORG_INSERT_RE = re.compile(
     r"(insert\s+into\s+(jobs|leads|usage_ledger|agent_runs|approvals|agents|activity_events"

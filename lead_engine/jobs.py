@@ -1,11 +1,19 @@
 """Job state machine.
 
+Legacy pipeline path:
 QUEUED -> RUNNING -> (DEGRADED) -> COMPLETED
-                   -> PAUSED -> RESUMING -> RUNNING
+                    -> PAUSED -> RESUMING -> RUNNING
 
-PAUSED means "resource state" (no LLM/search provider available) — the
-scheduler retries later. FAILED is reserved for unrecoverable errors:
-corrupt database, invalid job, broken configuration.
+Agentic research path (docs/plan-agentic-research.md) extends RUNNING with
+observable phases and stops at a human review point:
+QUEUED -> RUNNING -> DISCOVERING/RESEARCHING/VERIFYING/QUALIFYING (rounds)
+       -> READY_FOR_REVIEW -> COMPLETED            (user: APPROVE/REJECT/SAVE)
+       -> RUNNING                                   (user: RESEARCH_MORE)
+WAITING_FOR_USER  = the agent asked an open question and cannot progress.
+WAITING_FOR_CAPACITY = PAUSED (quota/provider exhaustion) — same resource
+state the legacy path uses, one name.
+CANCELLED is terminal and reachable from any live state — user action only.
+FAILED stays reserved for unrecoverable errors.
 """
 from .db import Database, utcnow
 
@@ -16,15 +24,42 @@ PAUSED = "PAUSED"
 RESUMING = "RESUMING"
 COMPLETED = "COMPLETED"
 FAILED = "FAILED"
+DISCOVERING = "DISCOVERING"
+RESEARCHING = "RESEARCHING"
+VERIFYING = "VERIFYING"
+QUALIFYING = "QUALIFYING"
+WAITING_FOR_USER = "WAITING_FOR_USER"
+READY_FOR_REVIEW = "READY_FOR_REVIEW"
+CANCELLED = "CANCELLED"
+
+WAITING_FOR_CAPACITY = PAUSED  # alias — capacity exhaustion is a resource state
+
+RESEARCH_PHASES = (DISCOVERING, RESEARCHING, VERIFYING, QUALIFYING)
+
+# research phases interleave freely (the loop re-enters discovery during
+# replanning), can hand control back to RUNNING, pause for capacity, ask the
+# user, or reach the review gate. COMPLETED is deliberately NOT a phase exit:
+# research work always passes through READY_FOR_REVIEW first.
+_PHASE_EXITS = ({RUNNING, PAUSED, FAILED, CANCELLED,
+                 WAITING_FOR_USER, READY_FOR_REVIEW} | set(RESEARCH_PHASES))
 
 TRANSITIONS = {
-    QUEUED: {RUNNING, FAILED},          # invalid job config
-    RUNNING: {DEGRADED, PAUSED, COMPLETED, FAILED},
+    QUEUED: {RUNNING, FAILED, CANCELLED},
+    RUNNING: {DEGRADED, PAUSED, COMPLETED, FAILED,
+              DISCOVERING, RESEARCHING, VERIFYING, QUALIFYING,
+              WAITING_FOR_USER, READY_FOR_REVIEW, CANCELLED},
     DEGRADED: {RUNNING, PAUSED, COMPLETED},
-    PAUSED: {RESUMING, FAILED},         # unrecoverable config only
+    PAUSED: {RESUMING, FAILED, CANCELLED},
     RESUMING: {RUNNING, PAUSED},
     COMPLETED: set(),
     FAILED: set(),
+    DISCOVERING: _PHASE_EXITS,
+    RESEARCHING: _PHASE_EXITS,
+    VERIFYING: _PHASE_EXITS,
+    QUALIFYING: _PHASE_EXITS,
+    WAITING_FOR_USER: {RUNNING, CANCELLED, FAILED},
+    READY_FOR_REVIEW: {COMPLETED, RUNNING, CANCELLED},
+    CANCELLED: set(),
 }
 
 

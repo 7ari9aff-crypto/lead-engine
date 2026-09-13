@@ -314,6 +314,21 @@ CREATE TABLE IF NOT EXISTS icp_versions (
     updated_at TEXT NOT NULL,
     UNIQUE (organization_id, slug, version)
 );
+CREATE TABLE IF NOT EXISTS research_context (
+    job_id TEXT PRIMARY KEY,
+    organization_id TEXT,
+    kind TEXT NOT NULL DEFAULT 'research',   -- research | legacy
+    objective TEXT NOT NULL,
+    icp_version_id TEXT,
+    plan_json TEXT,
+    budget_json TEXT,
+    counters_json TEXT,
+    stop_reason TEXT,
+    stop_detail TEXT,
+    parent_job_id TEXT,
+    created_at TEXT,
+    updated_at TEXT
+);
 """
 
 
