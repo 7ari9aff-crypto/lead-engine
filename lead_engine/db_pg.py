@@ -133,7 +133,16 @@ class PgDatabase:
         if re.search(r"insert\s+into", sql, re.IGNORECASE):
             sql, params = _inject_org(sql, params, self.org_id)
         cur = self.conn.cursor()
-        cur.execute(sql, params)
+        try:
+            cur.execute(sql, params)
+        except Exception:
+            # a failed statement aborts the PG transaction; without a rollback
+            # every later statement on this connection fails too
+            try:
+                self.conn.rollback()
+            except Exception:
+                pass
+            raise
         self.conn.commit()
         # Identity tables expose lastrowid (agent_steps.start_step,
         # activity_events.record, ...) via lastval.
