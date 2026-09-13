@@ -250,6 +250,10 @@ def resolve_conflict_endpoint(conflict_id: str, req: ResolveConflictRequest,
             by=actor,
             automatic=False,
         )
+        db.audit(actor, "conflict.resolved", "fact_conflict", conflict_id, {
+            "winner": req.winner_fact_id, "note": req.note,
+            "subject_id": resolved.get("subject_id"),
+        })
         return {"ok": True, "conflict": resolved}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

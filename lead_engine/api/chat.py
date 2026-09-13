@@ -257,8 +257,17 @@ def execute_tool(name: str, args: dict, router, db) -> dict:
                 import threading
                 def _run():
                     from ..config import load_settings
+                    from ..db import Database
                     from ..research.orchestrator import ResearchOrchestrator
-                    ResearchOrchestrator(db, load_settings(), job_id).run()
+                    # clone the request's DB handle: a background thread must
+                    # never share one sqlite connection with the request loop
+                    thread_db = Database(db.path) if getattr(db, "dialect", "sqlite") == "sqlite" else db
+                    thread_db.org_id = getattr(db, "org_id", None)
+                    try:
+                        ResearchOrchestrator(thread_db, load_settings(), job_id).run()
+                    finally:
+                        if thread_db is not db:
+                            thread_db.close()
                 threading.Thread(target=_run, daemon=True).start()
             return {"ok": True, "state": "RUNNING", "message": "تم تسجيل الإجابة واستئناف البحث بنجاح."}
 
@@ -283,8 +292,17 @@ def execute_tool(name: str, args: dict, router, db) -> dict:
                 import threading
                 def _run():
                     from ..config import load_settings
+                    from ..db import Database
                     from ..research.orchestrator import ResearchOrchestrator
-                    ResearchOrchestrator(db, load_settings(), job_id).run()
+                    # clone the request's DB handle: a background thread must
+                    # never share one sqlite connection with the request loop
+                    thread_db = Database(db.path) if getattr(db, "dialect", "sqlite") == "sqlite" else db
+                    thread_db.org_id = getattr(db, "org_id", None)
+                    try:
+                        ResearchOrchestrator(thread_db, load_settings(), job_id).run()
+                    finally:
+                        if thread_db is not db:
+                            thread_db.close()
                 threading.Thread(target=_run, daemon=True).start()
             return {"ok": True, "state": "RUNNING", "message": "تم استئناف مهمة البحث بنجاح."}
 

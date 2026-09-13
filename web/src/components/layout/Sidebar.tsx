@@ -3,6 +3,9 @@ import {
   LayoutDashboard,
   KeyRound,
   Megaphone,
+  SearchCheck,
+  ClipboardCheck,
+  SlidersHorizontal,
   Database,
   MailCheck,
   Settings,
@@ -31,12 +34,14 @@ const NAV_SECTIONS = [
       { href: "/", label: "نظرة عامة", icon: LayoutDashboard },
       { href: "/jobs", label: "الحملات", icon: Megaphone },
       { href: "/leads", label: "العملاء المحتملون", icon: Database },
+      { href: "/research", label: "مهام البحث", icon: SearchCheck },
       { href: "/chat", label: "المساعد الذكي", icon: MessageSquare, badge: "AI" },
     ],
   },
   {
     title: "البيانات",
     items: [
+      { href: "/review", label: "لوحة المراجعة", icon: ClipboardCheck },
       { href: "/verify", label: "فحص الإيميل", icon: MailCheck },
       { href: "/activity", label: "سجل النشاط", icon: Activity },
     ],
@@ -51,6 +56,7 @@ const NAV_SECTIONS = [
   {
     title: "الإدارة",
     items: [
+      { href: "/icp", label: "معايير الفلترة (ICP)", icon: SlidersHorizontal },
       { href: "/keys", label: "الاستهلاك والمفاتيح", icon: KeyRound },
       { href: "/config", label: "الإعدادات", icon: Settings },
     ],

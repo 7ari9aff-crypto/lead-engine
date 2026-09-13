@@ -88,7 +88,9 @@ export type ProviderRow = {
 export type JobRow = {
   job_id: string;
   icp_id: string;
-  state: "QUEUED" | "RUNNING" | "DEGRADED" | "COMPLETED" | "PAUSED" | "RESUMING" | "FAILED";
+  state: "QUEUED" | "RUNNING" | "DEGRADED" | "COMPLETED" | "PAUSED" | "RESUMING" | "FAILED"
+        | "DISCOVERING" | "RESEARCHING" | "VERIFYING" | "QUALIFYING"
+        | "WAITING_FOR_USER" | "READY_FOR_REVIEW" | "CANCELLED";
   pause_reason: string | null;
   resume_at: string | null;
   created_at: string | null;
@@ -450,3 +452,91 @@ export const apiPost = {
   researchCancel: (jobId: string) =>
     api.post<{ ok: boolean }>(`/api/v1/research/${encodeURIComponent(jobId)}/cancel`, {}),
 };
+
+// ===== Research jobs live control (stage 1-3 operations) =====
+
+export type IcpVersion = {
+  icp_version_id: string;
+  slug: string;
+  version: string;
+  definition: any;
+  source: string;
+  status: "draft" | "active" | "retired";
+  created_at: string;
+};
+
+export type ConflictRow = {
+  conflict_id: string;
+  subject_kind: string;
+  subject_id: string;
+  field: string;
+  fact_a: string;
+  fact_b: string;
+  winner: string | null;
+  resolution: "OPEN" | "RESOLVED_AUTO" | "RESOLVED_HUMAN";
+  resolution_note?: string | null;
+  created_at: string;
+};
+
+export const apiGetExtra = {
+  icps: (slug = "agentic") =>
+    api.get<{ versions: IcpVersion[]; active: IcpVersion | null }>(
+      `/api/v1/icps?slug=${encodeURIComponent(slug)}`),
+  conflicts: (status = "OPEN") =>
+    api.get<{ conflicts: ConflictRow[] }>(
+      `/api/v1/conflicts?status=${encodeURIComponent(status)}`),
+};
+
+export const apiPostExtra = {
+  icpCreate: (definition: any, slug = "agentic", activate = true, source = "manual") =>
+    api.post<{ icp: IcpVersion }>("/api/v1/icps", { slug, definition, activate, source }),
+  icpActivate: (id: string) =>
+    api.post<{ icp: IcpVersion }>(`/api/v1/icps/${encodeURIComponent(id)}/activate`, {}),
+  researchCancel: (jobId: string) =>
+    api.post<{ ok: boolean }>(`/api/v1/research/${encodeURIComponent(jobId)}/cancel`, {}),
+  conflictResolve: (conflictId: string, winnerFactId: string, note?: string) =>
+    api.post<{ ok: boolean; conflict: ConflictRow }>(
+      `/api/v1/conflicts/${encodeURIComponent(conflictId)}/resolve`,
+      { winner_fact_id: winnerFactId, note: note || null }),
+};
+
+/**
+ * Live SSE progress for a research job, consumed via fetch so the Supabase
+ * Bearer token can travel (EventSource cannot send Authorization headers).
+ * Server bounds the stream with max_seconds; caller aborts via signal.
+ */
+export async function streamResearchProgress(
+  jobId: string,
+  onData: (event: string, data: any) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const token = await getAccessToken();
+  const headers: Record<string, string> = { Accept: "text/event-stream" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(
+    `${BASE}/api/v1/research/${encodeURIComponent(jobId)}/stream`,
+    { headers, credentials: "include", signal }
+  );
+  if (!res.ok || !res.body) throw new ApiError(`HTTP ${res.status}`, res.status, null);
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return;
+    buf += decoder.decode(value, { stream: true });
+    const chunks = buf.split("\n\n");
+    buf = chunks.pop() || "";
+    for (const chunk of chunks) {
+      let event = "message";
+      const dataLines: string[] = [];
+      for (const line of chunk.split("\n")) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+      }
+      if (dataLines.length) {
+        try { onData(event, JSON.parse(dataLines.join("\n"))); } catch {}
+      }
+    }
+  }
+}

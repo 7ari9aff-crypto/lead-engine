@@ -18,6 +18,9 @@ import { LandingPage } from "@/pages/Landing";
 import { PricingPage } from "@/pages/Pricing";
 import { LoginPage, SignupPage } from "@/pages/Auth";
 import { ActivityPage } from "@/pages/Activity";
+import { ResearchPage } from "@/pages/Research";
+import { ReviewPage } from "@/pages/Review";
+import { IcpPage } from "@/pages/Icp";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/Button";
 import { AlertTriangle, Home, RotateCcw, Zap } from "lucide-react";
@@ -62,6 +65,9 @@ export default function App() {
               <Route path="/integrations" component={IntegrationsPage} />
               <Route path="/agents" component={AgentsPage} />
               <Route path="/activity" component={ActivityPage} />
+              <Route path="/research" component={ResearchPage} />
+              <Route path="/review" component={ReviewPage} />
+              <Route path="/icp" component={IcpPage} />
               <Route>
                 <NotFound />
               </Route>
