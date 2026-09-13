@@ -113,6 +113,15 @@ class PgDatabase:
         "fact_sources", "open_questions", "visited_sources",
     )
 
+    # ----------------------------------------------------------------- audit
+    def audit(self, actor: str, action: str, entity_type: str | None = None,
+              entity_id: str | None = None, payload: dict | None = None) -> None:
+        self.execute(
+            "INSERT INTO audit_logs (organization_id, actor, action, entity_type,"
+            " entity_id, payload_json, created_at) VALUES (?,?,?,?,?,?,?)",
+            (getattr(self, "org_id", None), actor, action, entity_type, entity_id,
+             json.dumps(payload or {}, ensure_ascii=False, default=str), utcnow()))
+
     def __init__(self, dsn: str, org_id: str | None = None):
         self.org_id = org_id
         # Engine SQL uses unqualified table names (jobs, leads, ...) — they

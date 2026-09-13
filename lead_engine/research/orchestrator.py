@@ -212,11 +212,13 @@ class ResearchOrchestrator:
     # ------------------------------------------------------------- phases
     def _finalize(self, agent_run_id: str) -> dict:
         """Verification sweep + qualification of every candidate subject, then
-        the review gate. Nothing here re-discovers (directive §25)."""
+        materialize leads and park at the review gate. Nothing here
+        re-discovers (directive §25)."""
         self.manager.set_phase(self.job_id, "VERIFYING", "verification sweep")
         self._verify_emails(agent_run_id)
         self.manager.set_phase(self.job_id, "QUALIFYING", "evidence-grounded fit")
-        qualified = self._qualify_all(agent_run_id)
+        verdicts = self._qualify_all(agent_run_id)
+        materialized = self._materialize_leads(verdicts)
         candidates = int(self.manager.counters(self.job_id).get("candidates") or 0)
         target = int((self.manager.context(self.job_id).get("plan") or {})
                      .get("target_candidates") or 0)
@@ -224,7 +226,7 @@ class ResearchOrchestrator:
             reason, detail = "OBJECTIVE_SATISFIED", f"{candidates}/{target} candidates"
         else:
             reason, detail = "COVERAGE_ADEQUATE", f"{candidates} candidates"
-        return self._gate(reason, f"{detail}; {qualified} qualified",
+        return self._gate(reason, f"{detail}; {materialized} leads ready for review",
                           agent_run_id)
 
     def _verify_emails(self, agent_run_id: str) -> int:
@@ -251,7 +253,9 @@ class ResearchOrchestrator:
             verified += 1
         return verified
 
-    def _qualify_all(self, agent_run_id: str) -> int:
+    def _qualify_all(self, agent_run_id: str) -> dict:
+        """Qualify every candidate subject from stored facts ONLY.
+        Returns {subject_id: verdict}."""
         from .qualification import QualificationError, qualify_from_facts
         from .tools import _active_icp
 
@@ -259,7 +263,7 @@ class ResearchOrchestrator:
         subjects = self.db.query(
             "SELECT DISTINCT subject_id FROM research_facts"
             " WHERE job_id=? AND subject_kind='company'", (self.job_id,))
-        qualified = 0
+        verdicts = {}
         for row in subjects:
             if self.manager.jobs.current(self.job_id) in (CANCELLED, PAUSED):
                 break
@@ -274,11 +278,69 @@ class ResearchOrchestrator:
                 self.registry.finish_step(step_id, "COMPLETED", output={
                     "fit_score": verdict["fit_score"], "tier": verdict["tier"],
                     "why": verdict["why"][:3]})
-                qualified += 1
+                verdicts[row["subject_id"]] = verdict
             except QualificationError as exc:
                 self.registry.finish_step(step_id, "FAILED", error=str(exc)[:300])
             self.manager.bump_counter(self.job_id, "qualifications")
-        return qualified
+        return verdicts
+
+    def _materialize_leads(self, verdicts: dict) -> int:
+        """Turn qualified subjects into lead rows so the human review layer
+        (Stage 3) has something to present and decide on."""
+        from ..config import load_legal_policy
+        from ..pipeline.filters import Scorer
+        from ..pipeline.legal_gate import LegalGate
+
+        scorer = Scorer(self.settings)
+        gate = LegalGate(load_legal_policy("default"))
+        count = 0
+        for subject_id, verdict in verdicts.items():
+            facts = self.store.facts_for_qualification("company", subject_id)
+            values = facts["values"]
+            lead_id = f"{getattr(self.db, 'org_id', None) or 'shared'}:{subject_id}"
+            email = values.get("email")
+            is_domain_subject = not subject_id.startswith("name:")
+            lead = {
+                "lead_id": lead_id,
+                "job_id": self.job_id,
+                "name": values.get("name") or subject_id,
+                "domain": values.get("domain") or (
+                    subject_id if is_domain_subject else None),
+                "city": values.get("city"),
+                "country": values.get("country"),
+                "industry": values.get("industry"),
+                "branches": int(values["branches"])
+                if str(values.get("branches") or "").isdigit() else None,
+                "phone": values.get("phone"),
+                "email": email,
+                "decision_maker": values.get("decision_maker"),
+                "decision_maker_title": values.get("decision_maker_title"),
+                "linkedin": values.get("linkedin"),
+                "website": values.get("website") or (
+                    f"https://{subject_id}" if is_domain_subject else None),
+                "qualification_score": verdict["fit_score"],
+                "tier": verdict["tier"],
+                "processing_mode": verdict.get("processing_mode", "cloud"),
+                "sources": ["research_agent"],
+                "source_queries": [f"research:{self.job_id}"],
+                "raw": json.dumps({"pipeline": {"qualification": verdict}},
+                                  ensure_ascii=False, default=str),
+            }
+            lead["score"] = scorer.score(lead)
+            gate_verdict = gate.evaluate(lead)
+            lead["legal_decision"] = gate_verdict["decision"]
+            # research leads land in REVIEW: the human gate decides from here
+            lead["stage"] = "REJECTED" if not gate_verdict["storage_allowed"] \
+                else "REVIEW"
+            if email:
+                row = self.db.one(
+                    "SELECT status FROM research_facts WHERE subject_id=? AND"
+                    " field='email' AND value=? ORDER BY collected_at DESC LIMIT 1",
+                    (subject_id, email))
+                lead["email_status"] = row["status"] if row else None
+            self.db.insert_lead(lead)
+            count += 1
+        return count
 
     # ----------------------------------------------------------- planning
     def _make_plan(self, objective: str, agent_run_id: str) -> dict:

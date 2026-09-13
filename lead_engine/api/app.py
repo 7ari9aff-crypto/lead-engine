@@ -1307,6 +1307,10 @@ app.include_router(_activity_router())
 from .research_api import router as research_router
 app.include_router(research_router)
 
+# Stage 3 — human review board (R5): presentation + the four decisions
+from .review_api import router as review_router
+app.include_router(review_router)
+
 # OAuth Integration Platform (Phase 2) — connect/callback/revoke per provider
 from .integrations_api import router as integrations_router
 from .events_api import router as events_router

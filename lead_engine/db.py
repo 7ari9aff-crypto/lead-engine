@@ -330,6 +330,16 @@ CREATE TABLE IF NOT EXISTS research_context (
     created_at TEXT,
     updated_at TEXT
 );
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    organization_id TEXT,
+    actor TEXT NOT NULL,
+    action TEXT NOT NULL,
+    entity_type TEXT,
+    entity_id TEXT,
+    payload_json TEXT,
+    created_at TEXT NOT NULL
+);
 """
 
 
@@ -397,6 +407,14 @@ class Database:
             if name not in existing:
                 self.conn.execute(f"ALTER TABLE leads ADD COLUMN {name} {definition}")
 
+    def audit(self, actor: str, action: str, entity_type: str | None = None,
+              entity_id: str | None = None, payload: dict | None = None) -> None:
+        self.execute(
+            "INSERT INTO audit_logs (organization_id, actor, action, entity_type,"
+            " entity_id, payload_json, created_at) VALUES (?,?,?,?,?,?,?)",
+            (getattr(self, "org_id", None), actor, action, entity_type, entity_id,
+             json.dumps(payload or {}, ensure_ascii=False, default=str), utcnow()))
+
     def execute(self, sql, params=()):
         cur = self.conn.execute(sql, params)
         self.conn.commit()
@@ -417,9 +435,13 @@ class Database:
         "processing_mode", "requires_review", "legal_decision", "data_types",
         "sources", "source_queries", "raw", "created_at", "updated_at",
         "disposition", "disposition_note", "disposition_at", "decided_by",
+        "organization_id",
     )
 
     def insert_lead(self, lead: dict) -> None:
+        # SQLite parity with the PG adapter's org injection: every lead row is
+        # tenant-scoped at write time ('shared' = single-org dev bridge)
+        lead["organization_id"] = getattr(self, "org_id", None) or "shared"
         # Identity is tenant-global, NOT per-job: the same real-world company
         # keeps one row across campaigns (later runs refresh it via upsert).
         # org prefix keeps tenants isolated; job_id must never be part of it.
