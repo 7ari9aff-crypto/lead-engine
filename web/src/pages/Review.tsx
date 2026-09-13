@@ -4,7 +4,7 @@
  * the full ReviewPanel (facts + decisions) on selection.
  */
 import { useState } from "react";
-import { ShieldAlert, Loader2, CheckCircle2, Eye, EyeOff, Search } from "lucide-react";
+import { ShieldAlert, Loader2, CheckCircle2, Eye, EyeOff, Search, AlertTriangle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -88,6 +88,26 @@ export function ReviewPage() {
                 </div>
                 <div className="text-[11.5px] text-[var(--fg-muted)] mt-0.5 leading-4">
                   {p.fit.why[0] ? truncate(p.fit.why[0], 70) : "—"}
+                </div>
+                {/* prototype pattern: the lead's facts WITH their evidence inline */}
+                <div className="space-y-1 mt-2">
+                  {Object.entries(p.facts_snapshot.fields).slice(0, 3).map(([field, node]) => (
+                    <div key={node.fact_id} className="flex items-start gap-1.5 text-[11px]">
+                      {node.status === "VERIFIED"
+                        ? <CheckCircle2 size={11} className="text-emerald-500 mt-0.5 shrink-0" />
+                        : node.status === "CONFLICTED"
+                          ? <ShieldAlert size={11} className="text-rose-500 mt-0.5 shrink-0" />
+                          : <AlertTriangle size={11} className="text-amber-500 mt-0.5 shrink-0" />}
+                      <span className="text-[var(--fg-muted)]">
+                        <span className="font-medium text-[var(--fg)]">{node.value}</span>
+                        {node.sources[0]?.source_url && (
+                          <> — <a href={node.sources[0].source_url} target="_blank" rel="noopener"
+                                  className="underline decoration-dotted hover:text-[var(--accent)]">
+                            {truncate(node.sources[0].source_url.replace(/^https?:\/\//, ""), 34)}</a></>
+                        )}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </button>
             ))}

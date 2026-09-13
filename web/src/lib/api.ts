@@ -64,7 +64,7 @@ export type ProviderRow = {
   task: string;
   type?: string;
   priority?: number;
-  status: "active" | "degraded" | "disabled" | "exhausted" | "unknown";
+  status: "active" | "degraded" | "disabled" | "exhausted" | "cooldown" | "unknown";
   status_reason?: string | null;
   cooldown_until?: string | null;
   key_env?: string | null;

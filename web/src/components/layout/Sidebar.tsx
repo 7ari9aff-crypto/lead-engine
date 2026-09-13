@@ -31,7 +31,7 @@ const NAV_SECTIONS = [
   {
     title: "مساحة العمل",
     items: [
-      { href: "/", label: "نظرة عامة", icon: LayoutDashboard },
+      { href: "/", label: "مركز القيادة", icon: LayoutDashboard },
       { href: "/jobs", label: "الحملات", icon: Megaphone },
       { href: "/leads", label: "العملاء المحتملون", icon: Database },
       { href: "/research", label: "مهام البحث", icon: SearchCheck },
@@ -43,6 +43,7 @@ const NAV_SECTIONS = [
     items: [
       { href: "/review", label: "لوحة المراجعة", icon: ClipboardCheck },
       { href: "/verify", label: "فحص الإيميل", icon: MailCheck },
+      { href: "/analytics", label: "التحليلات", icon: Activity },
       { href: "/activity", label: "سجل النشاط", icon: Activity },
     ],
   },

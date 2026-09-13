@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 import { useUI } from "@/hooks/useTheme";
 import { OverviewPage } from "@/pages/Overview";
+import { CommandCenterPage } from "@/pages/CommandCenter";
 import { ChatPage } from "@/pages/Chat";
 import { KeysPage } from "@/pages/Keys";
 import { JobsPage } from "@/pages/Jobs";
@@ -65,6 +66,7 @@ export default function App() {
               <Route path="/integrations" component={IntegrationsPage} />
               <Route path="/agents" component={AgentsPage} />
               <Route path="/activity" component={ActivityPage} />
+              <Route path="/analytics" component={OverviewPage} />
               <Route path="/research" component={ResearchPage} />
               <Route path="/review" component={ReviewPage} />
               <Route path="/icp" component={IcpPage} />
@@ -101,7 +103,7 @@ function RootGate() {
   if (state === "guest") return <LandingPage />;
   return (
     <DashboardLayout>
-      <OverviewPage />
+      <CommandCenterPage />
     </DashboardLayout>
   );
 }

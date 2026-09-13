@@ -154,3 +154,32 @@ def test_research_stream_endpoint(client, db):
                 saw_done = True
                 break
         assert saw_progress and saw_done
+
+
+def test_openmanus_health_endpoint_reports_unconfigured(client, db, monkeypatch):
+    """Command-center services board: unreachable/unconfigured runtime is a
+    STATUS, never a crash (honest degradation)."""
+    monkeypatch.setenv("OPENMANUS_BASE_URL", "")
+    resp = client.get("/api/v1/research/openmanus/health")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["reachable"] is False and body["configured"] is False
+
+
+def test_openmanus_health_endpoint_proxies_live(client, db, monkeypatch):
+    import requests as _requests
+    from lead_engine.api import research_api
+
+    class FakeResp:
+        status_code = 200
+        def json(self):
+            return {"status": "ok", "openmanus_ready": True,
+                    "engine": "OpenManus + Model Gateway"}
+    monkeypatch.setenv("OPENMANUS_BASE_URL", "http://runner.local")
+    monkeypatch.setenv("OPENMANUS_TOKEN", "tok")
+    # requests is imported INSIDE the endpoint function — patch it globally
+    monkeypatch.setattr("requests.get", lambda *a, **k: FakeResp())
+    resp = client.get("/api/v1/research/openmanus/health")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["reachable"] is True and body["openmanus_ready"] is True

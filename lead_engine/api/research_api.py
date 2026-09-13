@@ -16,6 +16,7 @@ POST /api/v1/research/{job_id}/resume    RESEARCH_MORE from READY_FOR_REVIEW
 GET  /api/v1/research/{job_id}/events    narration trail (job_events)
 """
 import json
+import os
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -226,3 +227,27 @@ async def research_stream(job_id: str, request: Request, db=Depends(get_db),
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.get("/openmanus/health")
+def openmanus_health(db=Depends(get_db)):
+    """Proxy the OpenManus runner's health (command-center services board).
+    Never raises: an unreachable runtime is a status, not a crash."""
+    from ..research import openmanus
+
+    if not openmanus.is_configured():
+        return {"reachable": False, "configured": False,
+                "note": "OPENMANUS_BASE_URL غير مهيأ"}
+    try:
+        import requests
+
+        resp = requests.get(f"{openmanus.base_url()}/health",
+                            headers={"Authorization":
+                                     f"Bearer {os.environ.get('OPENMANUS_TOKEN', '')}"},
+                            timeout=4)
+        body = resp.json() if resp.status_code == 200 else {}
+        return {"reachable": resp.status_code == 200, "configured": True,
+                "status_code": resp.status_code, **body}
+    except Exception as exc:
+        return {"reachable": False, "configured": True,
+                "error": f"{type(exc).__name__}"}
