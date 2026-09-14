@@ -28,6 +28,7 @@ import { AlertTriangle, Home, RotateCcw, Zap } from "lucide-react";
 import { Footer } from "@/components/layout/Footer";
 import { BackToTop } from "@/components/layout/BackToTop";
 import { apiGet } from "@/lib/api";
+import { supabase, supabaseConfigured } from "@/lib/supabase";
 
 export default function App() {
   const { theme } = useUI();
@@ -85,9 +86,22 @@ function RootGate() {
   const [state, setState] = useState<"loading" | "authed" | "guest">("loading");
 
   useEffect(() => {
-    apiGet.authSession()
-      .then((r) => setState(r.authenticated ? "authed" : "guest"))
-      .catch(() => setState("guest"));
+    // Use Supabase client-side session first — avoids race condition where
+    // navigate("/") triggers RootGate before the Bearer token is ready.
+    if (supabaseConfigured) {
+      supabase.auth.getSession().then(({ data }) => {
+        setState(data.session ? "authed" : "guest");
+      }).catch(() => setState("guest"));
+      const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+        setState(session ? "authed" : "guest");
+      });
+      return () => { listener.subscription.unsubscribe(); };
+    } else {
+      // Fallback for password/open modes — ask backend
+      apiGet.authSession()
+        .then((r) => setState(r.authenticated ? "authed" : "guest"))
+        .catch(() => setState("guest"));
+    }
   }, []);
 
   if (state === "loading") {
@@ -96,11 +110,12 @@ function RootGate() {
         <span className="h-12 w-12 rounded-2xl bg-[image:var(--gradient)] flex items-center justify-center shadow-[var(--shadow-lg)]">
           <Zap className="h-5 w-5 text-white" />
         </span>
-        <span className="text-[12px] text-[var(--fg-muted)]">جارٍ التحقق من جلستك…</span>
+        <span className="text-[12px] text-[var(--fg-muted)]">جارٍّ التحقق من الجلسة...</span>
       </div>
     );
   }
-  if (state === "guest") return <LandingPage />;
+  // Guest: redirect to login (not Landing) so user knows they must sign in
+  if (state === "guest") return <Redirect to="/login" />;
   return (
     <DashboardLayout>
       <CommandCenterPage />
@@ -141,28 +156,40 @@ function AuthGate({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<string>("");
 
   useEffect(() => {
-    apiGet.authSession().then((result) => {
-      setAuthenticated(result.authenticated);
-      setMode(result.mode || "");
-      setReady(true);
-    }).catch(() => setReady(true));
+    if (supabaseConfigured) {
+      // Use Supabase client session directly — instant, no backend latency
+      supabase.auth.getSession().then(({ data }) => {
+        setAuthenticated(Boolean(data.session));
+        setMode("supabase");
+        setReady(true);
+      }).catch(() => setReady(true));
+      const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+        setAuthenticated(Boolean(session));
+        setMode("supabase");
+        setReady(true);
+      });
+      return () => { listener.subscription.unsubscribe(); };
+    } else {
+      apiGet.authSession().then((result) => {
+        setAuthenticated(result.authenticated);
+        setMode(result.mode || "");
+        setReady(true);
+      }).catch(() => setReady(true));
+    }
   }, []);
 
-  if (!ready) return <div className="py-20 text-center text-sm text-[var(--fg-muted)]">جارٍ التحقق من الجلسة…</div>;
+  if (!ready) return <div className="py-20 text-center text-sm text-[var(--fg-muted)]">جارٍّ التحقق من الجلسة...</div>;
   if (authenticated) return <>{children}</>;
   if (mode === "closed") {
     return (
       <div className="max-w-lg mx-auto mt-10 rounded-2xl border border-[var(--warn)]/40 bg-[color-mix(in_srgb,var(--warn)_8%,transparent)] p-6 text-center">
-        <h2 className="text-lg font-bold mb-2">المنصة مقفولة — محتاجة ضبط أول مرة</h2>
+        <h2 className="text-lg font-bold mb-2">المنصة مغلقة — مطلوب حساب للدخول</h2>
         <p className="text-[13px] text-[var(--fg-muted)] leading-6">
-          حماية المنصة مقفولة كل حاجة لحد ما متغيرات البيئة تتضبط على الاستضافة:
-          مفاتيح قاعدة البيانات، ومعرّف المنظمة، ومفتاح التشفير، ومفاتيح مزودي البيانات —
-          وبعدها أعد النشر وهيشتغل كل حاجة تلقائيًا.
+          تواصل مع المسؤول للحصول على صلاحيات الدخول.
         </p>
       </div>
     );
   }
-  // Not signed in → the dedicated login page (never raw dashboard content).
   return <Redirect to="/login" />;
 }
 
