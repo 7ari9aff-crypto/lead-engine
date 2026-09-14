@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, KeyboardEvent } from "react";
+import { useState, useRef, useEffect, useMemo, KeyboardEvent } from "react";
 import {
   Bot, User, Send, Wrench, CheckCircle2, XCircle, Loader2, Square,
   Plus, Trash2, Globe2, Mail, ListChecks, Activity, ChevronDown,
@@ -13,7 +13,7 @@ import { persist } from "zustand/middleware";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
-import { apiPost, apiGet } from "@/lib/api";
+import { apiPost, apiGet, streamResearchProgress, type ResearchProgress } from "@/lib/api";
 import { useLiveData } from "@/hooks/useLiveData";
 import { Link } from "wouter";
 
@@ -760,7 +760,56 @@ function MessageBubble({ msg }: { msg: Msg }) {
             </div>
           </details>
         )}
+
+        {msg.tools && <ResearchLiveChip tools={msg.tools} />}
       </div>
+    </div>
+  );
+}
+
+/** When the assistant ran start_research, follow the spawned research job
+ * LIVE (SSE) right inside the conversation — state + counters + link. */
+function ResearchLiveChip({ tools }: { tools: { name: string; summary?: string }[] }) {
+  const jobId = useMemo(() => {
+    const t = tools.find((t) => t.name === "start_research");
+    if (!t?.summary) return null;
+    try {
+      const parsed = JSON.parse(t.summary);
+      return typeof parsed.job_id === "string" ? parsed.job_id : null;
+    } catch {
+      const m = t.summary.match(/job-[a-f0-9]+/);
+      return m ? m[0] : null;
+    }
+  }, [tools]);
+
+  const [progress, setProgress] = useState<ResearchProgress | null>(null);
+  useEffect(() => {
+    if (!jobId) return;
+    const ctl = new AbortController();
+    (async () => {
+      try {
+        await streamResearchProgress(jobId, (_e: string, data: ResearchProgress) => setProgress(data), ctl.signal);
+      } catch { /* stream ends on server cap; final state via one poll */ }
+      try { setProgress(await apiGet.researchProgress(jobId)); } catch { /* gone */ }
+    })();
+    return () => ctl.abort();
+  }, [jobId]);
+
+  if (!jobId) return null;
+  const live = progress && ["QUEUED", "RUNNING", "DISCOVERING", "RESEARCHING",
+    "VERIFYING", "QUALIFYING", "PAUSED", "WAITING_FOR_USER", "RESUMING", "DEGRADED"]
+    .includes(progress.state);
+  return (
+    <div className="mt-2 rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] px-3 py-2 flex items-center gap-2.5 text-[12px] max-w-2xl">
+      {live && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+      <span className="font-semibold">{live ? "مهمة البحث شغالة" : "المهمة عند بوابة المراجعة"}</span>
+      {progress && (
+        <span className="text-[var(--fg-muted)] tnum">
+          مرشحون: {progress.stats.candidates} · حقائق: {progress.stats.all_facts}
+          {progress.stats.open_conflicts > 0 && ` · تعارضات: ${progress.stats.open_conflicts}`}
+        </span>
+      )}
+      <a href="/jobs" className="ms-auto text-[var(--accent)] hover:underline shrink-0">تابع الكامل ←</a>
     </div>
   );
 }

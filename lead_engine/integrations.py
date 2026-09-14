@@ -378,6 +378,21 @@ def connections_for_org(db, org_id: str) -> dict[str, dict]:
     } for r in rows}
 
 
+_REFRESH_LOCKS: dict = {}
+_REFRESH_LOCKS_GUARD = __import__("threading").Lock()
+
+
+def _refresh_lock(org_id: str, provider: str):
+    """In-process lock so two concurrent senders never refresh the same
+    connection twice (single-use refresh tokens on Google would burn the
+    second one). Cross-process safety comes from the DB row re-read inside."""
+    key = f"{org_id}:{provider}"
+    with _REFRESH_LOCKS_GUARD:
+        if key not in _REFRESH_LOCKS:
+            _REFRESH_LOCKS[key] = __import__("threading").Lock()
+        return _REFRESH_LOCKS[key]
+
+
 def get_valid_access_token(db, org_id: str, provider: str) -> str:
     """Credential-at-send-time resolution for workers: decrypt the stored
     access token; when it is inside the 120s expiry window and a refresh
@@ -406,34 +421,52 @@ def get_valid_access_token(db, org_id: str, provider: str) -> str:
     if not refresh_enc:
         return token
 
-    try:
-        data = _post_token_form(spec, {
-            "grant_type": "refresh_token",
-            "refresh_token": decrypt_secret(refresh_enc),
-            "client_id": os.environ.get(spec["client_id_env"], ""),
-            "client_secret": os.environ.get(spec["client_secret_env"], ""),
-        })
-    except TokenExchangeError as exc:
+    with _refresh_lock(org_id, provider):
+        # re-read INSIDE the lock: a concurrent caller may have refreshed
+        # already — only refresh if the stored token is STILL near expiry
+        row = _load_connection(db, org_id, provider)
+        if not row or row.get("status") != "connected":
+            raise ConnectionError("not connected")
+        token = decrypt_secret(row["access_token_enc"])
+        expires_at = _parse_iso(row.get("expires_at"))
+        seconds_left = ((expires_at - datetime.now(timezone.utc)).total_seconds()
+                        if expires_at else 0)
+        if seconds_left > REFRESH_WINDOW_SECONDS:
+            return token
+        refresh_enc = row.get("refresh_token_enc")
+        if not refresh_enc:
+            return token
+
+        # the WHOLE refresh runs inside the lock: Google-style single-use
+        # refresh tokens mean a concurrent double-refresh burns the second one
+        try:
+            data = _post_token_form(spec, {
+                "grant_type": "refresh_token",
+                "refresh_token": decrypt_secret(refresh_enc),
+                "client_id": os.environ.get(spec["client_id_env"], ""),
+                "client_secret": os.environ.get(spec["client_secret_env"], ""),
+            })
+        except TokenExchangeError as exc:
+            table = _t(db, _TOKEN_TABLE)
+            db.execute(
+                f"UPDATE {table} SET last_error = ?, updated_at = ?"
+                f" WHERE organization_id = ? AND provider = ?",
+                (str(exc)[:500], utcnow(), org_id, provider))
+            raise ConnectionError(f"token refresh failed: {exc}") from exc
+
+        now = utcnow()
+        new_refresh = data.get("refresh_token")
         table = _t(db, _TOKEN_TABLE)
         db.execute(
-            f"UPDATE {table} SET last_error = ?, updated_at = ?"
+            f"UPDATE {table} SET access_token_enc = ?,"
+            f" refresh_token_enc = COALESCE(?, refresh_token_enc),"
+            f" expires_at = ?, last_refresh_at = ?, last_error = NULL, updated_at = ?"
             f" WHERE organization_id = ? AND provider = ?",
-            (str(exc)[:500], utcnow(), org_id, provider))
-        raise ConnectionError(f"token refresh failed: {exc}") from exc
-
-    now = utcnow()
-    new_refresh = data.get("refresh_token")
-    table = _t(db, _TOKEN_TABLE)
-    db.execute(
-        f"UPDATE {table} SET access_token_enc = ?,"
-        f" refresh_token_enc = COALESCE(?, refresh_token_enc),"
-        f" expires_at = ?, last_refresh_at = ?, last_error = NULL, updated_at = ?"
-        f" WHERE organization_id = ? AND provider = ?",
-        (encrypt_secret(str(data["access_token"])),
-         encrypt_secret(new_refresh) if new_refresh else None,
-         _iso_in(int(data.get("expires_in") or 3600)), now, now,
-         org_id, provider))
-    return str(data["access_token"])
+            (encrypt_secret(str(data["access_token"])),
+             encrypt_secret(new_refresh) if new_refresh else None,
+             _iso_in(int(data.get("expires_in") or 3600)), now, now,
+             org_id, provider))
+        return str(data["access_token"])
 
 
 def revoke_connection(db, org_id: str, provider: str) -> dict | None:

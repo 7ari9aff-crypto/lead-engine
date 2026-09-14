@@ -123,6 +123,11 @@ def _tool_search(ctx: ToolContext, args: dict) -> dict:
                                       source_url=r.get("url"), provider=meta.get("provider"),
                                       query=query, job_id=ctx.job_id, run_id=ctx.run_id)
                 auto_saved += 1
+            if r.get("url") and not social:
+                ctx.store.record_fact(subject_kind, subject_id, "website", r.get("url"),
+                                      source_url=r.get("url"), provider=meta.get("provider"),
+                                      query=query, job_id=ctx.job_id, run_id=ctx.run_id)
+                auto_saved += 1
         except Exception as exc:  # one bad result never kills the search round
             candidates[-1]["autosave_error"] = f"{type(exc).__name__}: {exc}"
     row = ctx.db.one(
@@ -306,8 +311,14 @@ TOOLS_DOC = """الأدوات المتاحة (استخدم الأسماء حرف
 8. research_company — تحقيق عميق عبر تصفح OpenManus (لو غير مهيأ سيُقال لك)
    args: {"domain": "...", "objective": "ما تبحث عنه"}
 
+قائمة فحص الحقول المستهدفة لكل شركة (احفظ ما تلمحه من المقتطفات فورًا):
+phone · email · city · branches (ابحث عن كلمات: فرع/فروع/مجمع) ·
+decision_maker (أسماء الأطباء/الملاك ظاهرة في العناوين) · website ·
+marketing_signal (إعلانات/حملات/حجز أونلاين).
+
 ملاحظة صارمة: القيم اللي تتعلمها من مقتطفات البحث تُحفظ بـsave_fact مع
-source_url — ممنوع تعتمد على ذاكرتك بين الجولات."""
+source_url — ممنوع تعتمد على ذاكرتك بين الجولات. مقتطف لا يحتوي معلومة =
+لا تخترع منها شيء."""
 
 
 def render_tool_docs() -> str:
