@@ -1035,8 +1035,10 @@ KEY_FIELDS = [
     {"name": "GROQ_API_KEY", "group": "llm"},
     {"name": "OPENROUTER_API_KEY", "group": "llm"},
     {"name": "APOLLO_API_KEY", "group": "data"},
+    {"name": "PROSPEO_API_KEY", "group": "data"},
     {"name": "HUNTER_API_KEY", "group": "email"},
     {"name": "ABSTRACT_API_KEY", "group": "email"},
+    {"name": "MILLIONVERIFIER_API_KEY", "group": "email"},
     {"name": "SUPABASE_URL", "group": "storage", "plain": True},
     {"name": "SUPABASE_SERVICE_KEY", "group": "storage"},
     {"name": "OLLAMA_BASE_URL", "group": "local", "plain": True},
@@ -1163,14 +1165,51 @@ PROVIDER_DOCS = {
     "GROQ_API_KEY": ("groq", "https://console.groq.com/keys"),
     "OPENROUTER_API_KEY": ("openrouter", "https://openrouter.ai/settings/keys"),
     "APOLLO_API_KEY": ("apollo", "https://app.apollo.io/settings/integrations/api"),
+    "PROSPEO_API_KEY": ("prospeo", "https://prospeo.io/api"),
     "HUNTER_API_KEY": ("hunter", "https://hunter.io/api-keys"),
     "ABSTRACT_API_KEY": ("abstract", "https://app.abstractapi.com/api/email-validation"),
+    "MILLIONVERIFIER_API_KEY": ("millionverifier", "https://millionverifier.com/api"),
 }
 
 
 def _mask_key(key: str) -> str:
     return f"{key[:6]}…{key[-3:]}" if len(key) > 9 else "•••"
 
+
+
+def _prospeo_key_live(api_key: str):
+    try:
+        import requests
+        resp = requests.get(
+            "https://api.prospeo.io/account-information",
+            headers={"X-KEY": api_key}, timeout=5)
+        if resp.status_code == 200:
+            data = (resp.json() or {}).get("response") or {}
+            remaining = data.get("remaining_credits")
+            used = data.get("used_credits")
+            total = (remaining or 0) + (used or 0)
+            percent = round(100.0 * used / total, 1) if total else 0.0
+            return {"usage_source": "provider", "used": used, "limit": total,
+                    "remaining": remaining, "percent": percent}
+    except Exception:
+        pass
+    return None
+
+
+def _millionverifier_key_live(api_key: str):
+    try:
+        import requests
+        resp = requests.get(
+            f"https://api.millionverifier.com/api/v3/credits?api={api_key}",
+            timeout=5)
+        if resp.status_code == 200:
+            data = resp.json() or {}
+            credits = data.get("credits", 0)
+            return {"usage_source": "provider", "used": 0, "limit": credits,
+                    "remaining": credits, "percent": 0.0}
+    except Exception:
+        pass
+    return None
 
 def _openrouter_key_live(api_key: str):
     """Live credit usage straight from the provider for this key."""
@@ -1269,6 +1308,10 @@ def api_keys_usage(db: Database = Depends(get_db)):
         live = None
         if name == "openrouter" and keys_pool:
             live = _openrouter_key_live(keys_pool[0])
+        elif name == "prospeo" and keys_pool:
+            live = _prospeo_key_live(keys_pool[0])
+        elif name == "millionverifier" and keys_pool:
+            live = _millionverifier_key_live(keys_pool[0])
 
         out.append({
             "provider": name, "env_key": env_key, "docs_url": docs,
