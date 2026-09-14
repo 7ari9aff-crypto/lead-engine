@@ -245,7 +245,7 @@ class ResearchJobManager:
                 " ORDER BY calls DESC", (job_id,)),
             "steps_recorded": self._count(
                 "SELECT COUNT(*) AS n FROM agent_steps WHERE run_id IN"
-                " (SELECT run_id FROM agent_runs WHERE input_json LIKE ?)",
+                " (SELECT run_id FROM agent_runs WHERE CAST(input_json AS TEXT) LIKE ?)",
                 (f'%"{job_id}"%',)),
             "retries_or_errors": self._count(
                 "SELECT COUNT(*) AS n FROM usage_ledger WHERE job_id=?"

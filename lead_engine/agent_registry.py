@@ -71,6 +71,23 @@ class AgentRegistry:
         self.db = db
         self.seed()
 
+    
+    def _has_model_columns(self) -> bool:
+        if getattr(self, "_model_cols_checked", None) is not None:
+            return self._model_cols_checked
+        try:
+            if getattr(self.db, "dialect", "sqlite") == "postgres":
+                cols = self.db.query(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name='agent_versions' AND column_name='model_provider'"
+                )
+                self._model_cols_checked = bool(cols)
+            else:
+                existing = {row["name"] for row in self.db.conn.execute("PRAGMA table_info(agent_versions)")}
+                self._model_cols_checked = "model_provider" in existing
+        except Exception:
+            self._model_cols_checked = False
+        return self._model_cols_checked
+
     def seed(self):
         now = utcnow()
         from .registry import Registry
@@ -82,13 +99,21 @@ class AgentRegistry:
                 " VALUES (?,?,?,?,?,?,?,?) ON CONFLICT (agent_id) DO NOTHING",
                 (agent_id, slug, item["name"], item["description"], "active", item["version"], now, now),
             )
-            self.db.execute(
-                "INSERT OR IGNORE INTO agent_versions (agent_id, version, instructions, model_policy, model_provider, model_name, thinking_effort, tool_policy, output_schema, status, created_at)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (agent_id, item["version"], item["instructions"], json.dumps(item["model_policy"]),
-                 item.get("model_provider"), item.get("model_name"), item.get("thinking_effort"),
-                 json.dumps(item["tool_policy"]), json.dumps(item["output_schema"]), "published", now),
-            )
+            if self._has_model_columns():
+                self.db.execute(
+                    "INSERT INTO agent_versions (agent_id, version, instructions, model_policy, model_provider, model_name, thinking_effort, tool_policy, output_schema, status, created_at)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (agent_id, version) DO NOTHING",
+                    (agent_id, item["version"], item["instructions"], json.dumps(item["model_policy"]),
+                     item.get("model_provider"), item.get("model_name"), item.get("thinking_effort"),
+                     json.dumps(item["tool_policy"]), json.dumps(item["output_schema"]), "published", now),
+                )
+            else:
+                self.db.execute(
+                    "INSERT INTO agent_versions (agent_id, version, instructions, model_policy, tool_policy, output_schema, status, created_at)"
+                    " VALUES (?,?,?,?,?,?,?,?) ON CONFLICT (agent_id, version) DO NOTHING",
+                    (agent_id, item["version"], item["instructions"], json.dumps(item["model_policy"]),
+                     json.dumps(item["tool_policy"]), json.dumps(item["output_schema"]), "published", now),
+                )
         for name, description, scopes, approval in TOOL_SEED:
             self.db.execute(
                 "INSERT INTO tools (name, description, scopes, requires_approval, enabled, created_at)"

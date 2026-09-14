@@ -28,7 +28,11 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from loguru import logger
+try:
+    from loguru import logger
+except ImportError:
+    import logging as _logging
+    logger = _logging.getLogger("openmanus_wrapper")
 from pydantic import BaseModel, Field
 
 # Setup OpenManus paths

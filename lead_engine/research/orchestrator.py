@@ -416,6 +416,22 @@ class ResearchOrchestrator:
         provider = ((payload or {}).get("version") or {}).get("model_provider")
         return provider if provider and provider != "router" else None
 
+    def _has_run_id_column(self) -> bool:
+        if getattr(self, "_has_run_id_col", None) is not None:
+            return self._has_run_id_col
+        try:
+            if getattr(self.db, "dialect", "sqlite") == "postgres":
+                cols = self.db.query(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name='research_context' AND column_name='run_id'"
+                )
+                self._has_run_id_col = bool(cols)
+            else:
+                existing = {row["name"] for row in self.db.conn.execute("PRAGMA table_info(research_context)")}
+                self._has_run_id_col = "run_id" in existing
+        except Exception:
+            self._has_run_id_col = False
+        return self._has_run_id_col
+
     def _ensure_agent_run(self) -> str:
         ctx_row = self.manager.context(self.job_id) or {}
         run_id = ctx_row.get("run_id")
@@ -427,9 +443,14 @@ class ResearchOrchestrator:
             # a finished run from a previous session (RESEARCH_MORE) -> new run
         run_id = self.registry.create_run(self.agent_slug, {
             "job_id": self.job_id, "objective": ctx_row.get("objective")})
-        self.db.execute(
-            "UPDATE research_context SET run_id=?, updated_at=? WHERE job_id=?",
-            (run_id, utcnow(), self.job_id))
+        if self._has_run_id_column():
+            self.db.execute(
+                "UPDATE research_context SET run_id=?, updated_at=? WHERE job_id=?",
+                (run_id, utcnow(), self.job_id))
+        else:
+            self.db.execute(
+                "UPDATE research_context SET updated_at=? WHERE job_id=?",
+                (utcnow(), self.job_id))
         return run_id
 
     def _facts_digest(self) -> str:
