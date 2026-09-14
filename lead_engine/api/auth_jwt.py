@@ -22,7 +22,7 @@ _JWKS_URL = "/auth/v1/.well-known/jwks.json"
 
 
 def supabase_url() -> str | None:
-    url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    url = (os.environ.get("SUPABASE_URL") or os.environ.get("VITE_SUPABASE_URL") or "https://abshiqxxsvdtbdngycpb.supabase.co").rstrip("/")
     return url or None
 
 
@@ -41,9 +41,11 @@ def validate_supabase_jwt(token: str) -> dict | None:
     """
     if not token:
         return None
-    secret = os.environ.get("SUPABASE_JWT_SECRET")
     try:
-        if secret:
+        header = jwt.get_unverified_header(token)
+        alg = header.get("alg", "ES256")
+        secret = os.environ.get("SUPABASE_JWT_SECRET")
+        if alg == "HS256" and secret:
             return jwt.decode(token, secret, algorithms=["HS256"],
                               audience="authenticated")
         client = _jwks_client()

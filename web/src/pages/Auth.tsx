@@ -97,7 +97,10 @@ export function LoginPage() {
       supabase.auth.getSession().then(({ data }) => {
         if (data.session) navigate("/");
       });
-      return;
+      const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (session) navigate("/");
+      });
+      return () => { listener.subscription.unsubscribe(); };
     }
     // Fallback: ask backend for mode (password / open)
     let alive = true;

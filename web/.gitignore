@@ -31,3 +31,5 @@ pnpm-debug.log*
 Thumbs.db
 .vercel
 .env*
+
+!.env.production
