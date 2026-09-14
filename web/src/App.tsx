@@ -151,34 +151,32 @@ function DashboardLayout({ children }: { children: ReactNode }) {
 }
 
 function AuthGate({ children }: { children: ReactNode }) {
-  const [ready, setReady] = useState(false);
-  const [authenticated, setAuthenticated] = useState(false);
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [mode, setMode] = useState<string>("");
 
   useEffect(() => {
     if (supabaseConfigured) {
-      // Use Supabase client session directly — instant, no backend latency
+      // Optimistically assume authed (RootGate already checked) but verify
       supabase.auth.getSession().then(({ data }) => {
         setAuthenticated(Boolean(data.session));
         setMode("supabase");
-        setReady(true);
-      }).catch(() => setReady(true));
+      }).catch(() => setAuthenticated(false));
       const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
         setAuthenticated(Boolean(session));
         setMode("supabase");
-        setReady(true);
       });
       return () => { listener.subscription.unsubscribe(); };
     } else {
       apiGet.authSession().then((result) => {
         setAuthenticated(result.authenticated);
         setMode(result.mode || "");
-        setReady(true);
-      }).catch(() => setReady(true));
+      }).catch(() => setAuthenticated(false));
     }
   }, []);
 
-  if (!ready) return <div className="py-20 text-center text-sm text-[var(--fg-muted)]">جارٍّ التحقق من الجلسة...</div>;
+  // Still checking — show children optimistically to avoid flash
+  // (RootGate already guarded; if not authed, onAuthStateChange will catch it)
+  if (authenticated === null) return <>{children}</>;
   if (authenticated) return <>{children}</>;
   if (mode === "closed") {
     return (

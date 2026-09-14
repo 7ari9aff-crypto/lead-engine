@@ -80,7 +80,11 @@ export function AuthLayout({ children, title, subtitle }: {
 
 export function LoginPage() {
   const [, navigate] = useLocation();
-  const [mode, setMode] = useState<"loading" | "supabase" | "password" | "open">("loading");
+  // Detect mode from Supabase client directly — no backend call needed.
+  // This prevents the "loading forever" issue when the Python cold-starts.
+  const [mode, setMode] = useState<"loading" | "supabase" | "password" | "open">(
+    supabaseConfigured ? "supabase" : "loading"
+  );
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
@@ -88,6 +92,14 @@ export function LoginPage() {
   const [resetSent, setResetSent] = useState(false);
 
   useEffect(() => {
+    // If already signed in, go straight to dashboard
+    if (supabaseConfigured) {
+      supabase.auth.getSession().then(({ data }) => {
+        if (data.session) navigate("/");
+      });
+      return;
+    }
+    // Fallback: ask backend for mode (password / open)
     let alive = true;
     apiGet.authSession().then((r) => {
       if (!alive) return;
@@ -217,6 +229,7 @@ export function LoginPage() {
     </AuthLayout>
   );
 }
+
 
 export function SignupPage() {
   const [, navigate] = useLocation();
