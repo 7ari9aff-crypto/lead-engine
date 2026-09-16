@@ -14,20 +14,9 @@ from ..icp_store import ICPStore
 router = APIRouter(prefix="/api/v1/icps", tags=["icp"])
 
 
-def get_db(request: Request = None):
-    db = open_db()
-    try:
-        if request is not None:
-            claims = getattr(request.state, "claims", None)
-            if claims:
-                from .. import auth_jwt
-
-                resolved = auth_jwt.resolve_org_id(claims, db)
-                if resolved:
-                    db.org_id = resolved
-        yield db
-    finally:
-        db.conn.close()
+# Tenant resolution is unified in lead_engine.tenant (claims first;
+# fail-closed without membership; env bridge for machine contexts).
+from ..tenant import db_handle as get_db
 
 
 class ICPCreateRequest(BaseModel):

@@ -144,7 +144,8 @@ from ..observability import CorrelationIdMiddleware
 app.add_middleware(CorrelationIdMiddleware)
 
 PROTECTED_PATHS = ("/api/", "/mcp", "/leads", "/jobs", "/providers", "/benchmark/",
-                   "/sync-supabase", "/verify-email", "/report/", "/export/")
+                   "/sync-supabase", "/verify-email", "/report/", "/export/",
+                   "/docs", "/redoc", "/openapi.json")
 
 
 @app.middleware("http")
@@ -426,8 +427,8 @@ def auth_logout():
 
 
 @app.get("/api/v1/health")
-@app.get("/health")
-def health(db: Database = Depends(get_db)):
+def health_detail(db: Database = Depends(get_db)):
+    """Protected health detail: which providers are configured."""
     router = Router(db, _cache(db), settings)
     providers = router.status_report()
     live = sorted({r["name"] for r in providers if r.get("has_key")})
@@ -436,6 +437,12 @@ def health(db: Database = Depends(get_db)):
         "providers_configured": live,
         "note": "live provider pool depends on .env keys; missing keys are unavailable",
     }
+
+
+@app.get("/health")
+def health_public():
+    """Unauthenticated liveness probe - no provider or tenant details."""
+    return {"status": "ok"}
 
 
 @app.get("/api/v1/ready")

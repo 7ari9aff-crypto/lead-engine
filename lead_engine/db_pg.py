@@ -73,8 +73,10 @@ def _translate_placeholders(sql: str) -> str:
 
 
 def _inject_org(sql: str, params: list, org_id: str | None) -> tuple[str, list]:
-    """Add organization_id to INSERTs on org-scoped tables when missing."""
-    if not org_id:
+    """Add organization_id to INSERTs on org-scoped tables when missing.
+    The '__no_org__' sentinel is not a tenant: skip injection so RLS's
+    WITH CHECK rejects the write cleanly instead of an invalid-uuid error."""
+    if not org_id or str(org_id).startswith("__"):
         return sql, params
 
     def _add(match: re.Match) -> str:

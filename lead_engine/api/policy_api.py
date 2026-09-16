@@ -5,7 +5,7 @@ endpoints manage the list and let the dashboard preview decisions.
 """
 import os
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from ..db import open_db
@@ -15,16 +15,12 @@ from ..policy import PolicyGate, Suppression
 router = APIRouter(tags=["outreach-safety"])
 
 
-def get_db():
-    db = open_db()
-    try:
-        yield db
-    finally:
-        db.conn.close()
+# Tenant resolution is unified in lead_engine.tenant (claims first;
+# fail-closed without membership; env bridge for machine contexts).
+def get_db(request: Request = None):
+    from ..tenant import db_handle
 
-
-def _org_id() -> str | None:
-    return os.environ.get("LEAD_ENGINE_ORG_ID")
+    yield from db_handle(request)
 
 
 class SuppressionRequest(BaseModel):
@@ -43,7 +39,7 @@ class EvaluateRequest(BaseModel):
 @router.get("/api/v1/suppression")
 def list_suppression(channel: str | None = None, limit: int = 200,
                      db=Depends(get_db)):
-    org = _org_id()
+    org = getattr(db, "org_id", None)
     if not org:
         return {"entries": [], "note": "no org context"}
     sql = ("SELECT id, channel, value, reason, source, created_at"
@@ -59,7 +55,7 @@ def list_suppression(channel: str | None = None, limit: int = 200,
 
 @router.post("/api/v1/suppression")
 def add_suppression(req: SuppressionRequest, db=Depends(get_db)):
-    org = _org_id()
+    org = getattr(db, "org_id", None)
     if not org:
         raise HTTPException(status_code=409, detail="no organization context")
     return Suppression.add(db, org, req.channel, req.value, req.reason)
@@ -67,7 +63,7 @@ def add_suppression(req: SuppressionRequest, db=Depends(get_db)):
 
 @router.delete("/api/v1/suppression/{entry_id}")
 def delete_suppression(entry_id: str, db=Depends(get_db)):
-    org = _org_id()
+    org = getattr(db, "org_id", None)
     if not org:
         raise HTTPException(status_code=409, detail="no organization context")
     if not Suppression.remove(db, org, entry_id):
@@ -77,7 +73,7 @@ def delete_suppression(entry_id: str, db=Depends(get_db)):
 
 @router.post("/api/v1/policy/evaluate")
 def policy_evaluate(req: EvaluateRequest, db=Depends(get_db)):
-    org = _org_id()
+    org = getattr(db, "org_id", None)
     decision = PolicyGate.evaluate(db, org, req.channel, req.value,
                                    recent_sends=req.recent_sends,
                                    baseline_per_hour=req.baseline_per_hour)
@@ -87,6 +83,6 @@ def policy_evaluate(req: EvaluateRequest, db=Depends(get_db)):
 
 @router.get("/api/v1/entitlements")
 def entitlements(db=Depends(get_db)):
-    org = _org_id()
+    org = getattr(db, "org_id", None)
     limits = get_limits(db, org)
     return {"organization_id": org, "limits": limits}
