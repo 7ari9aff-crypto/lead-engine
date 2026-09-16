@@ -409,6 +409,7 @@ export const apiPost = {
   deleteLead: (id: string) =>
     api.delete<{ ok: boolean }>(`/api/v1/leads/${encodeURIComponent(id)}`),
   purgeCache: () => api.post<{ ok: boolean }>(`/api/cache/purge`),
+  drainQueued: () => api.post<{ drained: number; cancelled_job_ids: string[] }>(`/api/jobs/drain-queued`),
   resolveApproval: (id: string, status: "APPROVED" | "REJECTED") =>
     api.post<{ ok: boolean }>(`/api/approvals/${encodeURIComponent(id)}/resolve`, { status }),
   createAgent: (body: { slug: string; name: string; description?: string; status?: string }) =>

@@ -14,7 +14,28 @@ from datetime import datetime, timedelta, timezone
 
 
 def platform_mode() -> bool:
-    return bool(os.environ.get("SUPABASE_DB_URL") or os.environ.get("DATABASE_URL"))
+    """Return True only when a background worker fleet is actually running.
+
+    Rules (first match wins):
+    1. LEAD_ENGINE_QUEUE_MODE=worker  → True  (explicit opt-in)
+    2. VERCEL=1 or VERCEL_ENV is set  → False (serverless: no persistent workers)
+    3. LEAD_ENGINE_QUEUE_MODE=inline  → False (explicit opt-out)
+    4. SUPABASE_DB_URL / DATABASE_URL → False by default (same-process background
+       task; the worker CLI must be started separately with `python -m lead_engine
+       worker` — set LEAD_ENGINE_QUEUE_MODE=worker to re-enable queue mode)
+    """
+    # Explicit override always wins
+    mode = os.environ.get("LEAD_ENGINE_QUEUE_MODE", "").strip().lower()
+    if mode == "worker":
+        return True
+    if mode == "inline":
+        return False
+    # Vercel serverless — no long-running process can poll the queue
+    if os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV"):
+        return False
+    # Default: inline even when Postgres is configured (safe default).
+    # Operators who want queue mode MUST set LEAD_ENGINE_QUEUE_MODE=worker.
+    return False
 
 
 def enqueue(db, job_id: str) -> None:

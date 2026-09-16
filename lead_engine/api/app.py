@@ -567,6 +567,31 @@ def recover_jobs(db: Database = Depends(get_db)):
     return {"recovered_jobs": recovered, "reclaimed_leases": reclaimed}
 
 
+@app.post("/api/v1/jobs/drain-queued")
+@app.post("/api/jobs/drain-queued")
+def drain_queued_jobs(db: Database = Depends(get_db)):
+    """Cancel all jobs stranded in QUEUED state with no worker to pick them up.
+    Safe to call on Vercel / serverless deployments where platform_mode is False
+    and no queue worker process exists.  Returns the list of cancelled job IDs."""
+    from ..jobs import JobManager, QUEUED, CANCELLED
+    from ..db import utcnow
+
+    org_clause, org_params = _org_clause(db)
+    rows = db.query(
+        f"SELECT job_id, icp_id FROM jobs WHERE state=?{org_clause}",
+        (QUEUED, *org_params),
+    )
+    cancelled = []
+    jm = JobManager(db)
+    for r in rows:
+        try:
+            jm.transition(r["job_id"], CANCELLED, "orphaned QUEUED job — no worker running (serverless drain)")
+            cancelled.append(r["job_id"])
+        except Exception:
+            pass
+    return {"drained": len(cancelled), "cancelled_job_ids": cancelled}
+
+
 @app.get("/jobs/{job_id}")
 def get_job(job_id: str, db: Database = Depends(get_db)):
     org_clause, org_params = _org_clause(db)

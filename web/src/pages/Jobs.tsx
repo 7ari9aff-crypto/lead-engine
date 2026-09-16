@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   PlayCircle, RotateCcw, Database, FileText, Briefcase, Loader2,
-  StopCircle, Clock, CheckCircle2, XCircle, Play,
+  StopCircle, Clock, CheckCircle2, XCircle, Play, Trash2,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -57,6 +57,7 @@ export function JobsPage() {
   const { data, loading, refresh } = useLiveData(() => apiGet.jobs(), 4000);
   const [icp, setIcp] = useState("v0_saudi_dental");
   const [running, setRunning] = useState(false);
+  const [draining, setDraining] = useState(false);
   const [filter, setFilter] = useState("all");
   const [report, setReport] = useState<any>(null);
   const [reportOpen, setReportOpen] = useState(false);
@@ -72,6 +73,23 @@ export function JobsPage() {
       toast.error(friendlyError(e));
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function drainQueued() {
+    setDraining(true);
+    try {
+      const res = await apiPost.drainQueued();
+      if (res.drained > 0) {
+        toast.success(`تم إلغاء ${res.drained} مهمة عالقة في الطابور`);
+      } else {
+        toast.info("لا توجد مهام عالقة للتنظيف");
+      }
+      refresh();
+    } catch (e) {
+      toast.error(friendlyError(e));
+    } finally {
+      setDraining(false);
     }
   }
 
@@ -118,6 +136,7 @@ export function JobsPage() {
   const counts = useMemo(() => ({
     all: jobs.length,
     active: jobs.filter((j) => ["QUEUED", "RUNNING", "RESUMING"].includes(j.state)).length,
+    queued: jobs.filter((j) => j.state === "QUEUED").length,
     paused: jobs.filter((j) => j.state === "PAUSED").length,
     done: jobs.filter((j) => ["COMPLETED", "DEGRADED"].includes(j.state)).length,
     failed: jobs.filter((j) => j.state === "FAILED").length,
@@ -144,6 +163,19 @@ export function JobsPage() {
             >
               <option value="v0_saudi_dental">{ICP_LABELS["v0_saudi_dental"]}</option>
             </select>
+            {counts.queued > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={drainQueued}
+                loading={draining}
+                title={`تنظيف ${counts.queued} مهمة عالقة في الطابور (بدون worker)`}
+                className="text-[var(--warn)] border-[var(--warn)] hover:bg-[var(--warn)]/10"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                تنظيف الطابور ({counts.queued})
+              </Button>
+            )}
             <Button variant="primary" size="sm" onClick={() => run()} loading={running}>
               <Play className="h-3.5 w-3.5" />
               تشغيل جديد
