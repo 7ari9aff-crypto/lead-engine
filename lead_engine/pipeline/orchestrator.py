@@ -160,6 +160,9 @@ class PipelineOrchestrator:
 
             if used_local_llm:
                 self.jobs.transition(job_id, DEGRADED, "local LLM used for some tasks")
+            if self.jobs.current(job_id) == PAUSED:
+                self.jobs.resume(job_id)
+                self.jobs.transition(job_id, RUNNING)
             self.jobs.transition(job_id, COMPLETED)
             summary["state"] = COMPLETED
             self._emit(self.db, "job.completed", {"job_id": job_id, "icp": icp["icp_id"],

@@ -65,7 +65,8 @@ def _recover_interrupted_jobs_at_boot() -> None:
         db = open_db()
         if platform_mode():
             reclaim_expired(db)
-        JobManager(db).recover_interrupted_jobs()
+        else:
+            JobManager(db).recover_interrupted_jobs()
         db.conn.close()
     except Exception:
         pass
