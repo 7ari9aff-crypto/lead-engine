@@ -62,8 +62,8 @@ export function ConfigPage() {
 
   const settings = files.settings?.parsed ?? {};
   const cache = files.cache_policy?.parsed ?? {};
-  const icp = files.icp_v0_saudi_dental?.parsed ?? files.icp?.parsed ?? {};
-  const legal = files.legal_sa?.parsed ?? files.legal?.parsed ?? {};
+  const icp = files.icp?.parsed ?? {};
+  const legal = files.legal?.parsed ?? files.legal_sa?.parsed ?? {};
 
   function dirtyKey(key: string, working: any): boolean {
     return JSON.stringify(working) !== JSON.stringify(files[key]?.parsed ?? {});
@@ -142,8 +142,8 @@ export function ConfigPage() {
           onSave={(v) => saveKey("cache_policy", v)} />
       )}
       {tab === "icp" && (
-        <IcpTab icp={icp} dirty={dirtyKey(files.icp_v0_saudi_dental ? "icp_v0_saudi_dental" : "icp", icp)} saving={saving}
-          onSave={(v) => saveKey(files.icp_v0_saudi_dental ? "icp_v0_saudi_dental" : "icp", v)} />
+        <IcpTab icp={icp} dirty={dirtyKey("icp", icp)} saving={saving}
+          onSave={(v) => saveKey("icp", v)} />
       )}
       {tab === "legal" && <LegalTab legal={legal} />}
     </div>
@@ -397,10 +397,10 @@ function IcpTab({ icp, dirty, saving, onSave }: {
               placeholder="اكتب مدينة واضغط إضافة" />
             <ChipsField label="كلمات البحث بالعربي" items={icp.keywords_ar ?? []}
               onChange={(items) => { icp.keywords_ar = items; onSave({ ...icp }); }}
-              placeholder="مثال: عيادة أسنان" />
+              placeholder="مثال: برمجيات سحابية / SaaS" />
             <ChipsField label="كلمات البحث بالإنجليزي" items={icp.keywords_en ?? []}
               onChange={(items) => { icp.keywords_en = items; onSave({ ...icp }); }}
-              placeholder="مثال: dental clinic" />
+              placeholder="مثال: b2b software" />
           </div>
           <div className="space-y-4">
             <NumField label="أقل عدد فروع مؤهل" value={criteria.min_branches ?? 3} unit="فرع" min={1} max={50}
@@ -435,7 +435,7 @@ function LegalTab({ legal }: { legal: any }) {
       <Card className="p-5">
         <div className="flex items-center gap-2 mb-1">
           <ShieldCheck className="h-4 w-4 text-[var(--success)]" />
-          <h3 className="text-sm font-bold">سياسة جمع البيانات — {legal.country === "SA" ? "السعودية" : "عامة"}</h3>
+          <h3 className="text-sm font-bold">سياسة جمع البيانات — {legal.country === "SA" ? "نطاق محلي" : "عام وعالمي"}</h3>
         </div>
         <p className="text-[12px] text-[var(--fg-muted)]">
           المنصة بتجمع وتخزن البيانات بس من المصادر المسموح بيها صراحةً — أي مصدر مش معرّف هنا محجوب تلقائيًا.

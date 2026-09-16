@@ -12,14 +12,12 @@ import {
   Download,
   MailCheck,
   Sun,
-  Moon,
-  ExternalLink,
   ArrowRight,
-  Command,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiGet, type LeadRow } from "@/lib/api";
+import { useUI } from "@/hooks/useTheme";
 
 type CommandItem = {
   id: string;
@@ -42,6 +40,7 @@ export function CommandPalette({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const [, setLocation] = useLocation();
+  const { toggleTheme } = useUI();
 
   // Load leads once for quick search
   useEffect(() => {
@@ -86,7 +85,7 @@ export function CommandPalette({
         subtitle: "تحليلات الأداء والنشاط والـ Funnel",
         category: "تنقل",
         icon: <LayoutDashboard className="h-4 w-4 text-emerald-500" />,
-        action: () => { setLocation("/overview"); onClose(); },
+        action: () => { setLocation("/analytics"); onClose(); },
       },
       {
         id: "nav-research",
@@ -137,14 +136,7 @@ export function CommandPalette({
         category: "إجراءات",
         icon: <Sun className="h-4 w-4 text-amber-400" />,
         action: () => {
-          const isDark = document.documentElement.classList.contains("dark");
-          if (isDark) {
-            document.documentElement.classList.remove("dark");
-            localStorage.setItem("theme", "light");
-          } else {
-            document.documentElement.classList.add("dark");
-            localStorage.setItem("theme", "dark");
-          }
+          toggleTheme();
           onClose();
         },
       },
@@ -185,7 +177,7 @@ export function CommandPalette({
         item.title.toLowerCase().includes(q) ||
         (item.subtitle && item.subtitle.toLowerCase().includes(q))
     );
-  }, [query, leads, setLocation, onClose]);
+  }, [query, leads, setLocation, onClose, toggleTheme]);
 
   // Handle arrow key navigation
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -206,7 +198,10 @@ export function CommandPalette({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 sm:pt-28 px-4 animate-fade-in">
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center pt-20 sm:pt-28 px-4 animate-fade-in"
+      role="presentation"
+    >
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
@@ -217,11 +212,15 @@ export function CommandPalette({
       <div
         className="relative w-full max-w-xl rounded-2xl border border-[var(--border)] bg-[var(--bg-elev)] shadow-2xl overflow-hidden z-10 animate-scale-in"
         dir="rtl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="command-palette-title"
         onKeyDown={handleKeyDown}
       >
         {/* Search Input Bar */}
         <div className="flex items-center px-4 py-3.5 border-b border-[var(--border-soft)] gap-3 bg-[var(--bg)]">
-          <Search className="h-5 w-5 text-[var(--accent)] shrink-0" />
+          <Search className="h-5 w-5 text-[var(--accent)] shrink-0" aria-hidden="true" />
+          <span id="command-palette-title" className="sr-only">البحث والتنقل</span>
           <input
             ref={inputRef}
             type="text"
@@ -231,11 +230,16 @@ export function CommandPalette({
               setSelectedIndex(0);
             }}
             placeholder="اكتب أمراً أو ابحث عن صفحة، عميل، أو إجراء... (Ctrl + K)"
+            aria-label="ابحث عن صفحة أو عميل أو إجراء"
+            aria-controls="command-palette-results"
+            aria-activedescendant={items[selectedIndex] ? `command-item-${items[selectedIndex].id}` : undefined}
             className="flex-1 bg-transparent border-none outline-none text-[14px] text-[var(--fg)] placeholder-[var(--fg-muted)]"
           />
           {query && (
             <button
+              type="button"
               onClick={() => setQuery("")}
+              aria-label="مسح البحث"
               className="p-1 text-[var(--fg-muted)] hover:text-[var(--fg)] rounded"
             >
               <X className="h-4 w-4" />
@@ -247,7 +251,12 @@ export function CommandPalette({
         </div>
 
         {/* Results List */}
-        <div className="max-h-[380px] overflow-y-auto p-2 divide-y divide-[var(--border-soft)]/50">
+        <div
+          id="command-palette-results"
+          className="max-h-[380px] overflow-y-auto p-2 divide-y divide-[var(--border-soft)]/50"
+          role="listbox"
+          aria-label="نتائج البحث"
+        >
           {items.length === 0 ? (
             <div className="py-10 text-center text-sm text-[var(--fg-muted)]">
               لا توجد نتائج تطابق "{query}"
@@ -257,12 +266,16 @@ export function CommandPalette({
               {items.map((item, index) => {
                 const isSelected = index === selectedIndex;
                 return (
-                  <div
+                  <button
+                    id={`command-item-${item.id}`}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
                     key={item.id}
-                    onClick={() => item.action()}
+                    onClick={item.action}
                     onMouseEnter={() => setSelectedIndex(index)}
                     className={cn(
-                      "flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all",
+                      "w-full text-right flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all",
                       isSelected
                         ? "bg-[var(--accent)] text-white shadow-sm"
                         : "hover:bg-[var(--bg-hover)] text-[var(--fg)]"
@@ -306,7 +319,7 @@ export function CommandPalette({
                     {isSelected && (
                       <ArrowRight className="h-4 w-4 shrink-0 text-white rotate-180" />
                     )}
-                  </div>
+                  </button>
                 );
               })}
             </div>

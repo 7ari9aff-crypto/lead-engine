@@ -54,7 +54,7 @@ export function AgentsPage() {
   async function runAgent() {
     setRunning(true);
     try {
-      await apiPost.runBenchmark({ icp: "v0_saudi_dental" });
+      await apiPost.runBenchmark({ icp: "v0" });
       toast.success("بدأ تشغيل الوكيل — تابع حالته من صفحة المهام");
       await load();
     } catch (error: unknown) {
@@ -455,7 +455,7 @@ function CreateAgentDialog({
               id="agent-instructions"
               value={instructions}
               onChange={(e) => setInstructions(e.target.value)}
-              placeholder="أنت وكيل تأهيل leads. تتكلم بالعربية. تركز على الشركات في الرياض..."
+              placeholder="أنت وكيل تأهيل leads متخصص. تفحص بيانات الشركات وتؤهل الفرص الواعدة بدقة..."
               rows={3}
               dir="rtl"
             />

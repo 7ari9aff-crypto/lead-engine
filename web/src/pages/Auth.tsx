@@ -57,7 +57,7 @@ export function AuthLayout({ children, title, subtitle }: {
             })}
           </div>
         </div>
-        <div className="relative text-white/60 text-[11px]">صنع في السعودية</div>
+        <div className="relative text-white/60 text-[11px]">Lead Engine · B2B Intelligence</div>
       </div>
 
       {/* Form side */}
@@ -182,24 +182,24 @@ export function LoginPage() {
         <form onSubmit={submit} className="space-y-3.5">
           {mode === "supabase" && (
             <div>
-              <label className="text-[12px] font-medium text-[var(--fg-muted)] block mb-1.5">البريد الإلكتروني</label>
+              <label htmlFor="login-email" className="text-[12px] font-medium text-[var(--fg-muted)] block mb-1.5">البريد الإلكتروني</label>
               <div className="relative">
                 <Mail className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--fg-soft)]" />
                 <Input
-                  type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                  id="login-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
                   placeholder="name@company.com" dir="ltr" className="pe-10" required autoFocus
                 />
               </div>
             </div>
           )}
           <div>
-            <label className="text-[12px] font-medium text-[var(--fg-muted)] block mb-1.5">
+            <label htmlFor="login-password" className="text-[12px] font-medium text-[var(--fg-muted)] block mb-1.5">
               {mode === "supabase" ? "كلمة المرور" : "كلمة مرور اللوحة"}
             </label>
             <div className="relative">
               <Lock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--fg-soft)]" />
               <Input
-                type={show ? "text" : "password"} value={password}
+                id="login-password" type={show ? "text" : "password"} value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••" dir="ltr" className="pe-10 pe-10" required autoFocus={mode === "password"}
               />
@@ -207,6 +207,8 @@ export function LoginPage() {
                 type="button" onClick={() => setShow(!show)}
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--fg-soft)] hover:text-[var(--fg)] transition-colors"
                 title={show ? "إخفاء" : "إظهار"}
+                aria-label={show ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}
+                aria-pressed={show}
               >
                 {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
@@ -285,31 +287,31 @@ export function SignupPage() {
       ) : (
         <form onSubmit={submit} className="space-y-3.5">
           <div>
-            <label className="text-[12px] font-medium text-[var(--fg-muted)] block mb-1.5">الاسم</label>
+            <label htmlFor="signup-name" className="text-[12px] font-medium text-[var(--fg-muted)] block mb-1.5">الاسم</label>
             <div className="relative">
               <UserIcon className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--fg-soft)]" />
               <Input
-                value={name} onChange={(e) => setName(e.target.value)}
+                id="signup-name" value={name} onChange={(e) => setName(e.target.value)}
                 placeholder="اسمك الكامل" className="pe-10" required autoFocus
               />
             </div>
           </div>
           <div>
-            <label className="text-[12px] font-medium text-[var(--fg-muted)] block mb-1.5">البريد الإلكتروني</label>
+            <label htmlFor="signup-email" className="text-[12px] font-medium text-[var(--fg-muted)] block mb-1.5">البريد الإلكتروني</label>
             <div className="relative">
               <Mail className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--fg-soft)]" />
               <Input
-                type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                id="signup-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
                 placeholder="name@company.com" dir="ltr" className="pe-10" required
               />
             </div>
           </div>
           <div>
-            <label className="text-[12px] font-medium text-[var(--fg-muted)] block mb-1.5">كلمة المرور</label>
+            <label htmlFor="signup-password" className="text-[12px] font-medium text-[var(--fg-muted)] block mb-1.5">كلمة المرور</label>
             <div className="relative">
               <Lock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--fg-soft)]" />
               <Input
-                type={show ? "text" : "password"} value={password}
+                id="signup-password" type={show ? "text" : "password"} value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="٨ أحرف على الأقل" dir="ltr" className="pe-10 pe-10" required minLength={8}
               />
@@ -317,6 +319,8 @@ export function SignupPage() {
                 type="button" onClick={() => setShow(!show)}
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--fg-soft)] hover:text-[var(--fg)] transition-colors"
                 title={show ? "إخفاء" : "إظهار"}
+                aria-label={show ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}
+                aria-pressed={show}
               >
                 {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>

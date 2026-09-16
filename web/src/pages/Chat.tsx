@@ -63,7 +63,7 @@ const newId = () => Math.random().toString(36).slice(2, 10);
 const now = () => Date.now();
 
 const WELCOME =
-  "أهلاً 👋 أنا مساعد محرك الـLeads.\n\nأقدر:\n- أشغّل خط توليد leads في أي مدينة سعودية\n- أفحص أي إيميل بخمس حالات مع كشف catch-all\n- أعرض حالة النظام والمهام والنتائج\n\nجرّب تطلب: «اعمل ليد جينيراشن في الرياض»";
+  "أهلاً 👋 أنا مساعد محرك الـLeads.\n\nأقدر:\n- أشغّل خط توليد leads لأي مدينة أو قطاع مستهدف حول العالم\n- أفحص أي إيميل بخمس حالات مع كشف catch-all\n- أعرض حالة النظام والمهام والنتائج\n\nجرّب تطلب: «اعمل ليد جينيراشن في دبي» أو «ابحث عن شركات تقنية في لندن»";
 
 const useChat = create<ChatState>()(
   persist(
@@ -175,9 +175,9 @@ const TOOLS = [
 ];
 
 const QUICK_PROMPTS = [
-  { icon: Globe2, title: "توليد leads في الرياض", prompt: "اعمل ليد جينيراشن في الرياض — عيادات أسنان" },
+  { icon: Globe2, title: "استقطاب شركات B2B", prompt: "ابحث عن شركات برمجيات B2B واستخرج صناع القرار المؤهلين" },
   { icon: ListChecks, title: "عرض آخر النتائج", prompt: "اعرض آخر 10 leads مقبولة من قاعدة البيانات" },
-  { icon: Mail, title: "فحص إيميل", prompt: "افحص الإيميل: info@clinic.sa" },
+  { icon: Mail, title: "فحص إيميل", prompt: "افحص الإيميل: info@example.com" },
   { icon: Activity, title: "حالة النظام", prompt: "إيش حالة النظام والمزوّدين الحين؟" },
 ];
 

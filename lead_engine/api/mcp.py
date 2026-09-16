@@ -14,13 +14,13 @@ PROTOCOL_VERSION = "2025-03-26"
 MCP_TOOLS = [
     {
         "name": "run_lead_generation",
-        "description": "شغّل خط توليد الـleads بالكامل لمدينة سعودية: بحث حقيقي + إزالة تكرار + فلترة + تأهيل AI. يعيد الـleads مع الأرقام والإيميلات المتاحة من مقتطفات البحث.",
+        "description": "شغّل خط توليد الـleads بالكامل لأي مدينة أو سوق مستهدف: بحث حقيقي + إزالة تكرار + فلترة + تأهيل بالذكاء الاصطناعي. يعيد الـleads مع الأرقام والإيميلات المتاحة.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "city": {"type": "string", "description": "المدينة مثل: الرياض، جدة"},
-                "industry": {"type": "string", "enum": ["dental"], "description": "افتراضي dental"},
-                    "approval_id": {"type": "string", "description": "معرف موافقة التشغيل الحي"},
+                "city": {"type": "string", "description": "المدينة أو المنطقة المستهدفة (مثال: دبي، لندن، الرياض، القاهرة، نيويورك...)"},
+                "industry": {"type": "string", "description": "القطاع المستهدف (افتراضي b2b)"},
+                "approval_id": {"type": "string", "description": "معرف موافقة التشغيل الحي"},
             },
             "required": ["city"],
         },
@@ -82,7 +82,7 @@ def handle_jsonrpc(body: dict, router, db):
                 "version": __import__("lead_engine", fromlist=["__version__"]).__version__,
             },
             "instructions": "أدوات تشغيل توليد leads حقيقية: run_lead_generation لتشغيل "
-                            "الخط لمدينة سعودية، list_leads للنتائج، verify_email للفحص، "
+                            "الخط لأي مدينة أو مجال مستهدف، list_leads للنتائج، verify_email للفحص، "
                             "system_status للحالة.",
         }), 200
 

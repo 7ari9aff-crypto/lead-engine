@@ -38,6 +38,15 @@ export default defineConfig(({ mode }) => {
       outDir: "dist",
       sourcemap: false,
       target: "es2022",
+      chunkSizeWarningLimit: 1000,
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            "vendor-react": ["react", "react-dom", "wouter"],
+            "vendor-ui": ["lucide-react", "sonner", "clsx", "tailwind-merge"],
+          },
+        },
+      },
     },
   };
 });

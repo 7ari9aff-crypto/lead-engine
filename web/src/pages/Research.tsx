@@ -96,7 +96,7 @@ export function ResearchPage() {
           <textarea
             value={objective}
             onChange={(e) => setObjective(e.target.value)}
-            placeholder="مثال: دور لي على شركات SaaS في السعودية بين 100 و500 موظف عندهم نشاط توظيف"
+            placeholder="مثال: ابحث عن شركات برمجيات B2B توظف 50 إلى 200 موظف ولديها نشاط نمو سريع"
             rows={2}
             className="w-full rounded-xl border border-[var(--border-soft)] bg-[var(--bg-soft)] px-3 py-2.5 text-[14px] leading-6 outline-none focus:border-[var(--accent)]"
           />

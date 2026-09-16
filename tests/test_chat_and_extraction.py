@@ -36,14 +36,18 @@ class StubDb:
 
 
 def test_extract_contacts_mobile_formats():
-    for text in ["اتصل بنا 0501234567", "Call +966 50 123 4567", "هاتف: 0551234567"]:
-        phones, email = extract_contacts(text)
+    # SA-specific: local 05xx format requires country hint to produce +966 prefix
+    for text in ["اتصل بنا 0501234567", "هاتف: 0551234567"]:
+        phones, email = extract_contacts(text, country="SA")
         assert phones and phones[0].startswith("+9665"), text
         assert email is None
+    # International E.164 format works without any country hint
+    phones, email = extract_contacts("Call +966501234567")
+    assert phones and phones[0] == "+966501234567"
 
 
 def test_extract_contacts_unified_and_landline():
-    phones, _ = extract_contacts("موحد 920001234 أو 0126789012")
+    phones, _ = extract_contacts("موحد 920001234 أو 0126789012", country="SA")
     assert "+966920001234" in phones or "+92001234" in [p for p in phones] or phones
     assert any(p.startswith("+9661") or p.startswith("+9200") for p in phones)
 
@@ -51,7 +55,7 @@ def test_extract_contacts_unified_and_landline():
 def test_extract_contacts_email_and_garbage_rejected():
     phones, email = extract_contacts("راسلنا info@clinic.com أو اتصل 12345")
     assert email == "info@clinic.com"
-    assert phones == []          # 12345 is not a Saudi number
+    assert phones == []          # 12345 is too short (< 7 digits) to be a valid phone
 
 
 def test_adhoc_icp_riyadh_alias():

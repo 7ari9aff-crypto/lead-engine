@@ -27,7 +27,7 @@ def load_seed_csv(path) -> list:
     return seeds
 
 
-def run_benchmark(icp="v0_saudi_dental",
+def run_benchmark(icp="v0",
                   job_id=None, seed_csv=None, write=True, agent_run_id=None):
     """icp: ICP name (loaded from config/icp/) or a full ICP dict (chat/MCP)."""
     import json

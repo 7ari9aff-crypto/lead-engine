@@ -49,43 +49,59 @@ def clean_title(title: str) -> str:
     return t.strip()
 
 
-def normalize_phone(phone: str, country: str = "SA") -> str:
+def normalize_phone(phone: str, country: str = "") -> str:
+    """Normalize a phone number to E.164 format.
+    Supports any international phone number; country hint is optional."""
     digits = re.sub(r"\D", "", phone or "")
     if not digits:
         return ""
+    # Already has country code (starts with international prefix digits)
+    if phone.strip().startswith("+"):
+        return "+" + digits
+    # KSA local format hint
     if country == "SA":
         if digits.startswith("966"):
             return "+" + digits
         if digits.startswith("0") and len(digits) == 10:
             return "+966" + digits[1:]
+    # Generic: strip leading zero (common local prefix in many countries)
+    if digits.startswith("0") and len(digits) >= 8:
+        digits = digits[1:]
     return "+" + digits
 
 
 # ---------------------------------------------------------------- contacts
 EMAIL_TEXT_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+
+# International phone patterns — ordered from most specific to most generic.
+# Matches: +CC, 00CC, or local formats with 7-15 digits (ITU-T E.164 range).
 PHONE_PATTERNS = [
-    re.compile(r"(?:\+?966[\s\-]?|0)?5\d[\d\s\-]{7,11}"),       # KSA mobile
-    re.compile(r"\b9200\d{5}\b"),                                # unified numbers
-    re.compile(r"(?:\+?966[\s\-]?|0)1[2-4][\d\s\-]{7,10}"),     # KSA landlines
+    # E.164 with leading +
+    re.compile(r"\+[1-9]\d{6,14}"),
+    # 00-prefixed international dialing (e.g. 00966...)
+    re.compile(r"00[1-9]\d{6,13}"),
+    # KSA specifics (kept for backwards-compat when country='SA')
+    re.compile(r"(?:9200\d{5})"),                               # KSA unified 920x
+    re.compile(r"(?:0[5-9]\d{8})"),                            # local mobile 0XXX (10 digits)
+    # Generic local: 7–12 digits possibly with spaces/dashes
+    re.compile(r"\b\d{2,4}[\s\-]?\d{3,4}[\s\-]?\d{3,5}\b"),
 ]
 
 
-def extract_contacts(text: str, country: str = "SA"):
+def extract_contacts(text: str, country: str = ""):
     """Pull phone numbers / emails straight from search snippets.
     Evidence-backed contacts (the snippet cites its source URL) — they make
-    the pipeline useful before Apollo/Hunter keys are configured."""
+    the pipeline useful before Apollo/Hunter keys are configured.
+    Works internationally for any market."""
     text = text or ""
     phones = []
     for pat in PHONE_PATTERNS:
         for match in pat.findall(text):
             norm = normalize_phone(match, country)
             digits = re.sub(r"\D", "", norm)
-            if country == "SA":
-                is_mobile = digits.startswith("9665") and len(digits) == 12
-                is_landline = digits.startswith("9661") and len(digits) == 12
-                is_unified = digits.startswith("9200") and len(digits) == 9
-                if not (is_mobile or is_landline or is_unified):
-                    continue
+            # Minimum 7 digits (local) to maximum 15 (E.164)
+            if not (7 <= len(digits) <= 16):
+                continue
             if norm not in phones:
                 phones.append(norm)
     email_match = EMAIL_TEXT_RE.search(text)

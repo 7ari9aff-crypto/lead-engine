@@ -33,40 +33,29 @@ import { Spinner } from "@/components/ui/EmptyState";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-// Curated Saudi B2B Industry Presets
+// Industry Presets — globally applicable across any market
 const PRESETS = [
   {
-    id: "dental",
-    label: "عيادات ومجمعات الأسنان",
-    icon: "🦷",
-    industry: "dental",
-    keywords_ar: ["عيادة أسنان", "مجمع طب أسنان", "مركز زراعة أسنان", "تقويم أسنان"],
-    keywords_en: ["dental clinic", "dental center", "orthodontics", "dental implant"],
-    negative_keywords: ["دليل", "حراج", "سوق", "وظائف", "ويكيبيديا", "مستشفى حكومي"],
-    decision_makers: ["owner", "practice manager", "طبيب أسنان", "المدير الطبي", "مالك"],
-    notes: "عيادات ومراكز أسنان خاصة — استبعاد الأدلة والمستشفيات الحكومية",
+    id: "saas",
+    label: "شركات البرمجيات والـSaaS",
+    icon: "💻",
+    industry: "saas",
+    keywords_ar: ["شركة برمجيات", "حلول سحابية", "أنظمة SaaS", "تقنية معلومات"],
+    keywords_en: ["saas company", "software development", "cloud solutions", "b2b software"],
+    negative_keywords: ["دليل", "وظائف", "تدريب", "تحميل مجاني"],
+    decision_makers: ["CEO", "Founder", "CTO", "Head of Sales", "الرئيس التنفيذي", "مؤسس"],
+    notes: "شركات برمجيات ومنتجات رقمية B2B مستقلة",
   },
   {
-    id: "dermatology",
-    label: "مراكز التجميل والجلدية",
-    icon: "💉",
-    industry: "dermatology",
-    keywords_ar: ["عيادة جلدية", "مركز تجميل", "عيادات ليزر", "حقن فلر وبوتوكس"],
-    keywords_en: ["dermatology clinic", "cosmetic clinic", "laser clinic", "aesthetic center"],
-    negative_keywords: ["دليل", "حراج", "وظائف", "صالون حلاقة", "تجهيز صالونات"],
-    decision_makers: ["owner", "medical director", "المدير الطبي", "أخصائي جلدية", "مالك"],
-    notes: "مراكز تجميل وجلدية وعيادات ليزر مرخصة",
-  },
-  {
-    id: "law",
-    label: "مكاتب وشركات المحاماة",
-    icon: "⚖️",
-    industry: "legal",
-    keywords_ar: ["مكتب محاماة", "استشارات قانونية", "محامي معتمد", "شركة محاماة"],
-    keywords_en: ["law firm", "legal consultation", "attorney", "lawyers"],
-    negative_keywords: ["دليل", "حراج", "وظائف", "منتدى قانوني", "وزارة العدل"],
-    decision_makers: ["managing partner", "attorney", "محامي", "الشريك المدير", "مستشار"],
-    notes: "مكاتب ومؤسسات محاماة مرخصة بالسعودية",
+    id: "marketing",
+    label: "وكالات التسويق الرقمي",
+    icon: "📈",
+    industry: "marketing",
+    keywords_ar: ["وكالة تسويق", "تسويق رقمي", "دعاية وإعلان", "إدارة حملات"],
+    keywords_en: ["marketing agency", "digital advertising", "performance marketing", "media agency"],
+    negative_keywords: ["وظائف", "دليل", "مستقلين"],
+    decision_makers: ["Managing Director", "Founder", "CEO", "المدير العام", "مؤسس"],
+    notes: "وكالات تسويق رقمي وإعلانات B2B نشطة",
   },
   {
     id: "realestate",
@@ -75,33 +64,44 @@ const PRESETS = [
     industry: "contracting",
     keywords_ar: ["شركة مقاولات", "تطوير عقاري", "تشطيب وديكور", "استشارات هندسية"],
     keywords_en: ["contracting company", "real estate development", "interior design", "construction"],
-    negative_keywords: ["حراج", "وسيط فردي", "شقق للإيجار", "وظائف"],
+    negative_keywords: ["وسيط فردي", "شقق للإيجار", "وظائف"],
     decision_makers: ["ceo", "general manager", "الرئيس التنفيذي", "المدير العام", "مهندس"],
-    notes: "شركات مقاولات وتطوير عقاري معتمدة بسجل تجاري",
+    notes: "شركات مقاولات وتطوير عقاري معتمدة",
   },
   {
     id: "accounting",
-    label: "المحاسبة والخدمات المالية",
+    label: "المحاسبة والاستشارات المالية",
     icon: "🏢",
     industry: "accounting",
     keywords_ar: ["مكتب محاسبة", "مراجعة حسابات", "مستشار ضريبي", "استشارات مالية"],
     keywords_en: ["accounting firm", "auditing", "tax consultant", "financial advisor"],
     negative_keywords: ["برنامج محاسبة", "تحميل", "وظائف", "دورات تدريبية"],
     decision_makers: ["partner", "certified accountant", "محاسب قانوني", "شريك", "المدير"],
-    notes: "مكاتب مراجعة ومحاسبة معتمدة من هيئة المحاسبين (SOCPA)",
+    notes: "مكاتب مراجعة ومحاسبة معتمدة",
+  },
+  {
+    id: "healthcare",
+    label: "المراكز والعيادات الطبية",
+    icon: "🏥",
+    industry: "healthcare",
+    keywords_ar: ["مجمع طبي", "مركز رعاية", "مستشفى تخصصي", "مركز عيادات"],
+    keywords_en: ["medical center", "healthcare clinic", "specialized clinic"],
+    negative_keywords: ["دليل", "وظائف", "مستشفى حكومي"],
+    decision_makers: ["owner", "medical director", "المدير الطبي", "المدير التنفيذي"],
+    notes: "مجمعات ومراكز طبية خاصة",
   },
 ];
 
-// Major Saudi Regional Commercial Hubs
-const SAUDI_CITIES = [
+// Suggested global locations — user can add any city freely
+const SUGGESTED_LOCATIONS = [
+  { name: "Dubai", ar: "دبي" },
   { name: "Riyadh", ar: "الرياض" },
-  { name: "Jeddah", ar: "جدة" },
-  { name: "Dammam", ar: "الدمام والخبر" },
-  { name: "Makkah", ar: "مكة المكرمة" },
-  { name: "Madinah", ar: "المدينة المنورة" },
-  { name: "Qassim", ar: "القصيم / بريدة" },
-  { name: "Ahsa", ar: "الأحساء" },
-  { name: "Asir", ar: "أبها وخميس مشيط" },
+  { name: "Cairo", ar: "القاهرة" },
+  { name: "London", ar: "لندن" },
+  { name: "New York", ar: "نيويورك" },
+  { name: "Istanbul", ar: "إسطنبول" },
+  { name: "Berlin", ar: "برلين" },
+  { name: "Singapore", ar: "سنغافورة" },
 ];
 
 export function IcpPage() {
@@ -113,12 +113,9 @@ export function IcpPage() {
   const [mode, setMode] = useState<"visual" | "json">("visual");
 
   // Form states for Visual Builder
-  const [selectedPresetId, setSelectedPresetId] = useState<string>("dental");
-  const [industry, setIndustry] = useState("dental");
-  const [cities, setCities] = useState<Array<{ name: string; ar: string }>>([
-    { name: "Riyadh", ar: "الرياض" },
-    { name: "Jeddah", ar: "جدة" },
-  ]);
+  const [selectedPresetId, setSelectedPresetId] = useState<string>("saas");
+  const [industry, setIndustry] = useState("saas");
+  const [cities, setCities] = useState<Array<{ name: string; ar: string }>>([]);
   const [keywordsAr, setKeywordsAr] = useState<string[]>(PRESETS[0].keywords_ar);
   const [keywordsEn, setKeywordsEn] = useState<string[]>(PRESETS[0].keywords_en);
   const [negativeKeywords, setNegativeKeywords] = useState<string[]>(PRESETS[0].negative_keywords);
@@ -138,11 +135,10 @@ export function IcpPage() {
 
   // Construct current definition object from visual fields
   const currentDefinition = useMemo(() => {
+    const cityLabel = cities.length > 0 ? cities.map((c) => c.ar || c.name).join("، ") : "عالمي";
     return {
       industry,
-      name: `معايير ${industry} — ${cities.map((c) => c.ar).join("، ")}`,
-      country: "SA",
-      legal_policy: "sa",
+      name: `معايير ${industry} — ${cityLabel}`,
       cities,
       keywords_en: keywordsEn,
       keywords_ar: keywordsAr,
@@ -154,7 +150,7 @@ export function IcpPage() {
       },
       v0_limits: {
         search_results_per_query: 10,
-        max_search_queries: cities.length * (keywordsAr.length + keywordsEn.length),
+        max_search_queries: Math.max(1, cities.length) * (keywordsAr.length + keywordsEn.length),
         enrichment_budget_credits: 0,
         enrichment_max_people: 0,
       },
@@ -201,10 +197,6 @@ export function IcpPage() {
   function toggleCity(city: { name: string; ar: string }) {
     const exists = cities.some((c) => c.name.toLowerCase() === city.name.toLowerCase());
     if (exists) {
-      if (cities.length <= 1) {
-        toast.error("يجب اختيار مدينة سعودية واحدة على الأقل للاستهداف");
-        return;
-      }
       setCities(cities.filter((c) => c.name.toLowerCase() !== city.name.toLowerCase()));
     } else {
       setCities([...cities, city]);
@@ -258,8 +250,9 @@ export function IcpPage() {
       definition = currentDefinition;
     }
 
-    if (!definition.cities || definition.cities.length === 0) {
-      return toast.error("يرجى تحديد مدينة سعودية واحدة على الأقل للاستهداف");
+    // cities is optional — empty means global/unrestricted search
+    if (!definition.cities) {
+      definition.cities = [];
     }
 
     setSaving(true);
@@ -367,9 +360,9 @@ export function IcpPage() {
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-[var(--fg)] flex items-center gap-1.5">
                       <Building2 className="h-4 w-4 text-[var(--accent)]" />
-                      الخطوة 1: اختيار القطاع المستهدف (Saudi Niche)
+                      الخطوة 1: اختيار القطاع المستهدف
                     </span>
-                    <span className="text-[11px] text-[var(--fg-muted)]">قوالب جاهزة ومهيأة للسوق المحلي</span>
+                    <span className="text-[11px] text-[var(--fg-muted)]">قوالب جاهزة لأبرز القطاعات</span>
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -414,21 +407,21 @@ export function IcpPage() {
                 </CardContent>
               </Card>
 
-              {/* Step 2: Saudi Target Cities */}
+              {/* Step 2: Target Locations */}
               <Card>
                 <CardContent className="p-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-[var(--fg)] flex items-center gap-1.5">
                       <MapPin className="h-4 w-4 text-emerald-400" />
-                      الخطوة 2: المدن والمناطق المستهدفة بالمملكة
+                      الخطوة 2: المدن والمناطق المستهدفة
                     </span>
                     <span className="text-[11px] text-[var(--fg-muted)]">
-                      تم اختيار <strong>{cities.length}</strong> مدينة
+                      {cities.length === 0 ? "بحث عالمي (غير محدد)" : <>{cities.length} مدينة محددة</>}
                     </span>
                   </div>
 
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    {SAUDI_CITIES.map((c) => {
+                    {SUGGESTED_LOCATIONS.map((c) => {
                       const isSelected = cities.some((item) => item.name.toLowerCase() === c.name.toLowerCase());
                       return (
                         <button
@@ -453,7 +446,7 @@ export function IcpPage() {
                   <div className="flex items-center gap-2 pt-1 border-t border-[var(--border-soft)]">
                     <span className="text-[11px] text-[var(--fg-muted)] shrink-0">مدينة أخرى:</span>
                     <Input
-                      placeholder="مثال: ينبع، تبوك، حائل…"
+                      placeholder="مثال: Lagos, Manila, Toronto…"
                       value={customCityName}
                       onChange={(e) => setCustomCityName(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Enter") addCustomCity(); }}
@@ -526,7 +519,7 @@ export function IcpPage() {
                     </div>
                     <div className="flex items-center gap-2">
                       <Input
-                        placeholder="Add english term (e.g. dental clinic) and press Enter…"
+                        placeholder="Add english term (e.g. b2b software, fintech) and press Enter…"
                         value={newKwEn}
                         onChange={(e) => setNewKwEn(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addKwEn(); } }}
@@ -583,7 +576,7 @@ export function IcpPage() {
                     <Input
                       value={notes}
                       onChange={(e) => setNotes(e.target.value)}
-                      placeholder="مثال: التركيز على المراكز والعيادات الخاصة ذات العلامة التجارية المستقلة…"
+                      placeholder="مثال: التركيز على الشركات والمنشآت المستقلة ذات الحضور الرقمي النشط…"
                       className="text-xs"
                     />
                   </div>

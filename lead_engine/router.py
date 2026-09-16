@@ -33,6 +33,11 @@ class ProviderUnavailable(ProviderError):
     pass
 
 
+class ProviderAuthError(ProviderUnavailable):
+    """Authentication failed (401/403) — credentials rejected, do not sleep-retry."""
+    pass
+
+
 class NoProviderAvailable(Exception):
     def __init__(self, task, tried=None):
         self.task = task
@@ -101,7 +106,7 @@ class Router:
             if not row.get("_usable"):
                 tried.append(f"{name}:{row['status'] or 'blocked'}")
                 continue
-            if row["rpm_limit"] and self.registry.count_recent_requests(name, rate_window) >= row["rpm_limit"]:
+            if row["rpm_limit"] and self.registry.count_recent_requests(name, task, rate_window) >= row["rpm_limit"]:
                 self.registry.mark(name, task, COOLDOWN, "local RPM window", cooldown_seconds=rate_window)
                 tried.append(f"{name}:rpm")
                 continue
@@ -143,6 +148,17 @@ class Router:
                         continue
                     self.registry.mark(name, task, EXHAUSTED, str(exc))
                     tried.append(f"{name}:quota")
+                    break
+                except ProviderAuthError as exc:
+                    self.registry.record_usage(name, task, job_id, 0, row["quota_kind"],
+                                               "auth_error", int((time.time() - started) * 1000))
+                    if adapter.rotate_key():
+                        key_try += 1
+                        tried.append(f"{name}:key{adapter._key_index}(auth)")
+                        continue
+                    self.registry.mark(name, task, COOLDOWN, str(exc),
+                                       cooldown_seconds=unavailable_cooldown)
+                    tried.append(f"{name}:auth_rejected")
                     break
                 except ProviderUnavailable as exc:
                     if retry_5xx < 2:

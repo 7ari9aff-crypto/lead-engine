@@ -28,7 +28,7 @@ class Discovery:
         social = is_social(domain)
         phones, email = extract_contacts(
             f"{result.get('title', '')} {result.get('snippet', '')}",
-            icp.get("country") or "SA")
+            icp.get("country") or "")
         return {
             "name": clean_title(result.get("title", "")),
             "domain": None if social else domain,

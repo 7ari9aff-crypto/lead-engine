@@ -23,17 +23,17 @@ const PERIODS = [
 ] as const;
 
 export function OverviewPage() {
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, error: statusError, refetch } = useQuery({
     queryKey: ["status"],
     queryFn: apiGet.status,
     refetchInterval: 8000,
   });
-  const { data: analytics } = useQuery({
+  const { data: analytics, error: analyticsError } = useQuery({
     queryKey: ["analytics"],
     queryFn: apiGet.analytics,
     refetchInterval: 20000,
   });
-  const { data: integrationsData } = useQuery({
+  const { data: integrationsData, error: integrationsError } = useQuery({
     queryKey: ["integrations"],
     queryFn: apiGet.integrations,
     refetchInterval: 60000,
@@ -49,6 +49,23 @@ export function OverviewPage() {
   }, [analytics, period]);
 
   if (isLoading && !data) return <PageSkeleton />;
+
+  if (statusError && !data) {
+    return (
+      <div className="rounded-xl border border-[var(--danger)]/30 bg-[var(--danger)]/5 p-6" role="alert">
+        <div className="flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-[var(--danger)] mt-0.5 shrink-0" />
+          <div>
+            <h1 className="font-bold">تعذر تحميل الملخص</h1>
+            <p className="text-sm text-[var(--fg-muted)] mt-1">{friendlyError(statusError)}</p>
+            <Button variant="outline" size="sm" className="mt-4" onClick={() => void refetch()}>
+              إعادة المحاولة
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const providers: ProviderRow[] = data?.providers ?? [];
   const recentJobs = data?.recent_jobs ?? [];
@@ -90,6 +107,17 @@ export function OverviewPage() {
 
   return (
     <div className="space-y-6">
+      {(statusError || analyticsError || integrationsError) && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-[var(--warn)]/30 bg-[var(--warn)]/5 px-4 py-3 text-[12px] text-[var(--fg-muted)]" role="status">
+          <AlertTriangle className="h-4 w-4 text-[var(--warn)] mt-0.5 shrink-0" />
+          <span>
+            بعض بيانات الملخص لم تُحدّث: {friendlyError(statusError || analyticsError || integrationsError)}
+            <button type="button" onClick={() => void refetch()} className="ms-2 font-semibold text-[var(--accent)] hover:underline">
+              إعادة المحاولة
+            </button>
+          </span>
+        </div>
+      )}
       {/* Header: workspace identity + primary action */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>

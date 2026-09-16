@@ -17,7 +17,7 @@ const FEATURES = [
   {
     icon: Search,
     title: "توليد حقيقي، مش وعود",
-    desc: "كل مهمة بتدوّر فعليًا في السوق السعودي عبر مزوّدين حقيقيين بمفاتيحك — من أول البحث لحد العميل المؤهل، وكل خطوة موثقة بمصدرها.",
+    desc: "كل مهمة تبحث وتكتشف الشركات والعملاء المؤهلين عبر مزوّدين حقيقيين بمفاتيحك — من أول البحث حتى العميل المؤهل، وكل خطوة موثقة بمصدرها.",
   },
   {
     icon: Target,
@@ -108,7 +108,7 @@ export function LandingPage() {
         <div className="max-w-6xl mx-auto px-5 pt-16 pb-10 md:pt-24 text-center relative">
           <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full border border-[var(--accent)]/40 bg-[var(--accent-soft)] text-[var(--accent)] text-[11px] font-semibold mb-5">
             <span className="h-1.5 w-1.5 rounded-full bg-[var(--success)] animate-pulse" />
-            شغّال فعليًا على السوق السعودي — بأرقام حقيقية
+            محرك استقطاب عالمي دقيق — بأرقام ونتائج حقيقية
           </span>
           <h1 className="text-4xl md:text-6xl font-black leading-[1.15] max-w-3xl mx-auto">
             محرك توليد عملاء محتملين
@@ -268,7 +268,7 @@ export function LandingPage() {
             <span>·</span>
             <span className="flex items-center gap-1">
               <Globe2 className="h-3.5 w-3.5" />
-              صنع في السعودية
+              Lead Engine — Global B2B Lead Intelligence
             </span>
           </div>
           <div className="flex items-center gap-4">

@@ -15,21 +15,24 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { FilterPills } from "@/components/ui/FilterPills";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiGet, type ActivityEvent } from "@/lib/api";
+import { loadAuditLog, type AuditAction } from "@/lib/audit";
 import { useLiveData } from "@/hooks/useLiveData";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { describePayload } from "@/lib/friendly";
 
-type FilterMode = "all" | "job." | "agent." | "approval.";
+type FilterMode = "all" | "operator" | "job." | "agent." | "approval.";
 
 const FILTERS: { value: FilterMode; label: string }[] = [
   { value: "all", label: "الكل" },
+  { value: "operator", label: "عمليات المشغل (Audit)" },
   { value: "job.", label: "المهام" },
   { value: "agent.", label: "الوكلاء" },
   { value: "approval.", label: "الموافقات" },
 ];
 
 function iconForKind(kind: string) {
+  if (kind.startsWith("operator.")) return <ShieldCheck className="h-4 w-4 text-emerald-400" />;
   if (kind.startsWith("agent.")) return <Bot className="h-4 w-4" />;
   if (kind.startsWith("approval.")) return <ShieldCheck className="h-4 w-4" />;
   if (kind.startsWith("job.")) return <ActivityIcon className="h-4 w-4" />;
@@ -37,6 +40,7 @@ function iconForKind(kind: string) {
 }
 
 function toneForKind(kind: string): "info" | "accent" | "warn" | "default" {
+  if (kind.startsWith("operator.")) return "accent";
   if (kind.startsWith("agent.")) return "accent";
   if (kind.startsWith("approval.")) return "warn";
   if (kind.startsWith("job.")) return "info";
@@ -56,6 +60,12 @@ const KIND_LABELS: Record<string, string> = {
   "approval.rejected": "تم الرفض",
   "lead.accepted": "قُبل عميل محتمل",
   "lead.rejected": "رُفض عميل محتمل",
+  "operator.export.csv": "تنزيل ملف CSV",
+  "operator.export.instantly": "تصدير Instantly / Smartlead",
+  "operator.export.webhook": "ترحيل إلى Webhook / CRM",
+  "operator.icp.saved": "حفظ معايير الاستهداف",
+  "operator.icp.activated": "تفعيل نسخة معايير جديدة",
+  "operator.leads.verified": "فحص إيميلات جماعي",
 };
 
 function displayLabel(kind: string): string {
@@ -96,11 +106,26 @@ export function ActivityPage() {
     5000,
   );
 
+  const auditActions = useMemo(() => loadAuditLog(), [data]);
+
   const events = useMemo<ActivityEvent[]>(() => {
     const raw = data?.events ?? [];
-    if (filter === "all") return raw;
-    return raw.filter((e) => e.kind?.startsWith(filter));
-  }, [data, filter]);
+    const auditMapped: ActivityEvent[] = auditActions.map((a, idx) => ({
+      id: -1000 - idx,
+      kind: `operator.${a.kind}`,
+      ts: a.timestamp,
+      payload: { title: a.title, desc: a.description, count: a.targetCount },
+      correlation_id: null,
+    }));
+
+    const all = [...auditMapped, ...raw].sort(
+      (a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime()
+    );
+
+    if (filter === "all") return all;
+    if (filter === "operator") return all.filter((e) => e.kind?.startsWith("operator."));
+    return all.filter((e) => e.kind?.startsWith(filter));
+  }, [data, auditActions, filter]);
 
   async function handleRefresh() {
     await refresh();
@@ -111,8 +136,8 @@ export function ActivityPage() {
     <div className="space-y-5">
       <PageHeader
         icon={<ActivityIcon className="h-4 w-4 text-white" />}
-        title="سجل النشاط"
-        description="آخر أحداث المنصة بالترتيب الزمني — مهام، تشغيل وكلاء، وموافقات"
+        title="سجل النشاط والتدقيق (Audit Trail)"
+        description="خط زمني موثق لكافة إجراءات المشغل، عمليات التصدير، قرارات الوكلاء، والمهام المنفذة"
         action={
           <Button
             variant="outline"

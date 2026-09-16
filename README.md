@@ -92,15 +92,15 @@ python3 -m lead_engine serve --port 8000
 
 ## الـV0 Benchmark
 
-الهدف: إثبات إن الـfree stack يعطي 20–30 lead حقيقيين قبل بناء أي حاجة أكبر.
-الـICP: عيادات أسنان سعودية (جدة/الرياض) بـ3+ فروع ونشاط تسويقي — `config/icp/v0_saudi_dental.yaml`.
+الهدف: إثبات إن الـfree stack يعطي 20–30 lead حقيقيين ومؤهلين لأي قطاع مستهدف.
+الـICP: ملف استهداف مرن ومفتوح لأي سوق أو مجال — `config/icp/v0.yaml`.
 
 المقاييس المحسوبة تلقائيًا في `outputs/report.md`:
 discovery candidates، duplicate rate، qualification scored، enrichment success،
 contact coverage، email validity، **quota units per lead**، total cost (هدف V0: $0).
 
-ملاحظة تغطية: أخطر افتراض في V0 هو إن مصادر الـAPIs تغطي العيادات السعودية الصغيرة
-(كتير منها بدون دومين، شغّالة واتساب/انستجرام). لو النتايج ناقصة، المسار البديل:
+ملاحظة تغطية: مصادر البحث تدعم الشركات والمنشآت العالمية والمحلية في أي دولة.
+إذا كانت بعض المنشآت المحلية تعتمد على قنوات التواصل أو بدون نطاقات مخصصة، يدعم النظام مسار البذور اليدوية:
 
 ```bash
 python3 -m lead_engine benchmark --seed my_seed_list.csv

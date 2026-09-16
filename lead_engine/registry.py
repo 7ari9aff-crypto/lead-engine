@@ -125,9 +125,12 @@ class Registry:
         return rows
 
     def usage_summary(self):
+        org_id = getattr(self.db, "org_id", None)
+        clause = " WHERE organization_id = ?" if org_id else ""
         return self.db.query(
             "SELECT provider, task, COUNT(*) AS calls, SUM(units) AS units,"
-            " AVG(latency_ms) AS avg_latency FROM usage_ledger GROUP BY provider, task"
+            f" AVG(latency_ms) AS avg_latency FROM usage_ledger{clause} GROUP BY provider, task",
+            (org_id,) if org_id else (),
         )
 
     # ----------------------------------------------------------------- write
@@ -166,13 +169,19 @@ class Registry:
         )
         return cur.rowcount > 0
 
-    def count_recent_requests(self, provider, window_seconds=60):
+    def count_recent_requests(self, provider, task, window_seconds=60):
         since = (datetime.now(timezone.utc) - timedelta(seconds=window_seconds)).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
+        org_id = getattr(self.db, "org_id", None)
+        clause = ""
+        params = [provider, task, since]
+        if org_id:
+            clause = " AND organization_id = ?"
+            params.append(org_id)
         row = self.db.one(
-            "SELECT COUNT(*) AS n FROM usage_ledger WHERE provider=? AND ts >= ?",
-            (provider, since),
+            f"SELECT COUNT(*) AS n FROM usage_ledger WHERE provider=? AND task=? AND ts >= ?{clause}",
+            tuple(params),
         )
         return row["n"] if row else 0
 

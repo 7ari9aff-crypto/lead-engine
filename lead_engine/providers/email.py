@@ -71,14 +71,19 @@ class HunterProvider(BaseProvider):
         mapping = {
             "valid": (STATUS_DELIVERABLE, score),
             "risky": (STATUS_RISKY, min(score, 0.5)),
-            "invalid": (STATUS_INVALID, 0.9),
+            "invalid": (STATUS_INVALID, max(score, 0.85)),  # high score → high certainty it's invalid
             "unknown": (STATUS_UNKNOWN, 0.2),
         }
         status, confidence = mapping.get(result, (STATUS_UNKNOWN, 0.2))
-        if data.get("status") in ("catch_all", "webmail_disposable"):
+        # catch_all / webmail_disposable / disposable sub-statuses
+        hunter_status = data.get("status") or ""
+        if hunter_status in ("catch_all",):
             status, confidence = STATUS_CATCH_ALL, 0.3
+        elif hunter_status in ("webmail", "webmail_disposable", "disposable"):
+            status, confidence = STATUS_INVALID, 0.9
         return {"provider": self.name, "status": status, "confidence": confidence,
-                "details": {"hunter_result": result, "score": score}, "units": 1}
+                "details": {"hunter_result": result, "hunter_status": hunter_status,
+                             "score": score}, "units": 1}
 
     def find(self, domain: str) -> dict:
         data = self._json(self._http(
@@ -149,31 +154,41 @@ class LocalSMTPVerifier(BaseProvider):
 
         host = mx[0][1]
         try:
-            with smtplib.SMTP(timeout=timeout) as smtp:
+            # FIX: pass host explicitly — SMTP() without host opens a disconnected
+            # socket and ehlo_or_helo_if_needed() raises SMTPServerDisconnected.
+            with smtplib.SMTP(host, timeout=timeout) as smtp:
                 smtp.ehlo_or_helo_if_needed()
                 code, _ = smtp.docmd("MAIL", f"FROM:<{mail_from}>")
                 if code != 250:
                     return {"provider": self.name, "status": STATUS_UNKNOWN, "confidence": 0.2,
-                            "details": {"reason": f"mail_from_rejected_{code}"}, "units": 0}
+                            "details": {"reason": f"mail_from_rejected_{code}",
+                                        "host": host}, "units": 0}
                 code, _ = smtp.docmd("RCPT", f"TO:<{email}>")
                 if code in (450, 451, 452):
                     return {"provider": self.name, "status": STATUS_UNKNOWN, "confidence": 0.2,
-                            "details": {"reason": "greylisted"}, "units": 0}
+                            "details": {"reason": "greylisted", "host": host}, "units": 0}
                 if code != 250:
                     return {"provider": self.name, "status": STATUS_INVALID, "confidence": 0.85,
-                            "details": {"reason": f"rcpt_rejected_{code}"}, "units": 0}
+                            "details": {"reason": f"rcpt_rejected_{code}",
+                                        "host": host}, "units": 0}
                 if probe_catch_all:
+                    # Reset MAIL FROM before issuing a second RCPT
+                    smtp.docmd("RSET")
+                    smtp.docmd("MAIL", f"FROM:<{mail_from}>")
                     code_rand, _ = smtp.docmd(
                         "RCPT", f"TO:<{random_local_part()}@{domain}>")
                     if code_rand == 250:
                         return {"provider": self.name, "status": STATUS_CATCH_ALL,
                                 "confidence": 0.3,
-                                "details": {"reason": "catch_all_domain"}, "units": 0}
+                                "details": {"reason": "catch_all_domain",
+                                            "host": host}, "units": 0}
                 return {"provider": self.name, "status": STATUS_DELIVERABLE,
-                        "confidence": 0.75, "details": {"reason": "smtp_accepted"}, "units": 0}
+                        "confidence": 0.75, "details": {"reason": "smtp_accepted",
+                                                         "host": host}, "units": 0}
         except (smtplib.SMTPException, OSError) as exc:
             return {"provider": self.name, "status": STATUS_UNKNOWN, "confidence": 0.15,
-                    "details": {"reason": f"smtp_unreachable: {exc.__class__.__name__}"}, "units": 0}
+                    "details": {"reason": f"smtp_unreachable: {exc.__class__.__name__}",
+                                "host": host}, "units": 0}
 
 
 class VerificationPipeline:

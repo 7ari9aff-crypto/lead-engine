@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 
 _SCHEMA_SQLITE = """CREATE TABLE IF NOT EXISTS activity_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    organization_id TEXT,
     ts TEXT NOT NULL,
     kind TEXT NOT NULL,
     payload_json TEXT,
@@ -17,6 +18,7 @@ _SCHEMA_SQLITE = """CREATE TABLE IF NOT EXISTS activity_events (
 
 _SCHEMA_PG = """CREATE TABLE IF NOT EXISTS activity_events (
     id bigint generated always as identity primary key,
+    organization_id text,
     ts timestamptz not null default now(),
     kind text not null,
     payload_json jsonb,
@@ -38,19 +40,36 @@ class ActivityStore:
             _SCHEMA_PG if getattr(db, "dialect", "sqlite") == "postgres"
             else _SCHEMA_SQLITE
         )
+        self._migrate_schema()
+
+    def _migrate_schema(self):
+        """Add tenant scope to pre-existing activity tables without data loss."""
+        if getattr(self.db, "dialect", "sqlite") == "postgres":
+            self.db.execute(
+                "ALTER TABLE activity_events ADD COLUMN IF NOT EXISTS organization_id TEXT"
+            )
+            return
+        existing = {row["name"] for row in self.db.conn.execute(
+            "PRAGMA table_info(activity_events)"
+        )}
+        if "organization_id" not in existing:
+            self.db.execute("ALTER TABLE activity_events ADD COLUMN organization_id TEXT")
 
     def record(self, kind: str, payload: dict,
                correlation_id: str | None = None) -> dict:
         ts = _utcnow()
         payload_json = json.dumps(payload or {}, ensure_ascii=False, default=str)
+        organization_id = getattr(self.db, "org_id", None)
         cur = self.db.execute(
-            "INSERT INTO activity_events (ts, kind, payload_json, correlation_id)"
-            " VALUES (?, ?, ?, ?)",
-            (ts, kind, payload_json, correlation_id),
+            "INSERT INTO activity_events"
+            " (organization_id, ts, kind, payload_json, correlation_id)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (organization_id, ts, kind, payload_json, correlation_id),
         )
         row_id = getattr(cur, "lastrowid", None)
         return self._row_to_dict({
             "id": row_id,
+            "organization_id": organization_id,
             "ts": ts,
             "kind": kind,
             "payload_json": payload_json,

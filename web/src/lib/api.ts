@@ -21,16 +21,16 @@ async function request<T = any>(
   init: RequestInit = {}
 ): Promise<T> {
   const url = `${BASE}${path}`;
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...((init.headers as Record<string, string>) || {}),
-  };
+  const headers = new Headers(init.headers);
+  if (!headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
   const token = await getAccessToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
+  if (token) headers.set("Authorization", `Bearer ${token}`);
   const res = await fetch(url, {
+    ...init,
     credentials: "include",
     headers,
-    ...init,
   });
   const text = await res.text();
   let body: any = text;

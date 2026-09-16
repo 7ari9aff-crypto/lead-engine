@@ -38,7 +38,7 @@ export function Footer() {
           <a href="#" className="hover:text-[var(--fg-muted)]" aria-label="Twitter"><Twitter className="h-3.5 w-3.5" /></a>
           <a href="#" className="hover:text-[var(--fg-muted)]" aria-label="LinkedIn"><Linkedin className="h-3.5 w-3.5" /></a>
           <span className="hidden sm:flex items-center gap-1">
-            صنع بـ <Heart className="h-3 w-3 text-[var(--danger)] fill-current" /> في السعودية
+            صنع بـ <Heart className="h-3 w-3 text-[var(--danger)] fill-current" /> لرواد الأعمال وفرق النمو
           </span>
         </div>
       </div>

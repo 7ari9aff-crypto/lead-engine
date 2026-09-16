@@ -13,14 +13,19 @@ services:
       - LEAD_ENGINE_DATA_DIR=/app/data
       - LEAD_ENGINE_OUTPUTS_DIR=/app/outputs
       - LEAD_ENGINE_COOKIE_SECURE=0
+    # Base44 may mount /run/base44/app.env; local runs may not have either file.
+    # Compose's required:false keeps the existing injection points without
+    # making `docker compose up` fail when an external env file is absent.
     env_file:
-      - ./.env.base44-defaults
-      - /run/base44/app.env
+      - path: ./.env.base44-defaults
+        required: false
+      - path: /run/base44/app.env
+        required: false
     command: sh -c "pip install -r requirements.txt && python -m lead_engine init && uvicorn lead_engine.api.app:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/lead_engine"
     ports:
       - "8000:8000"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready')"]
       interval: 10s
       timeout: 5s
       retries: 6

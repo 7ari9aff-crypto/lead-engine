@@ -1,0 +1,46 @@
+# ============================================================
+# V0 Default ICP — ملف استهداف قابل للتخصيص لأي سوق
+# عدّل المعايير والمدن والكلمات المفتاحية حسب سوقك المستهدف.
+# ============================================================
+
+icp_id: v0
+name: Default Targeting Profile V0
+
+# حدّد أي دولة تستهدفها (ISO 3166-1 alpha-2)
+# country: SA
+
+# حدّد السياسة القانونية المناسبة (اسم ملف في config/legal_policies/)
+# legal_policy: sa
+
+cities: []
+
+industry: ""
+keywords_en: []
+keywords_ar: []
+
+criteria:
+  min_branches: 1
+  marketing_signals: []
+  decision_maker_roles:
+    - owner
+    - manager
+    - director
+    - ceo
+
+# حدود التشغيل القياسية
+v0_limits:
+  search_results_per_query: 8
+  max_search_queries: 8
+  candidate_target: "50-100"
+  final_leads_target: "20-30"
+  enrichment_budget_credits: 50
+  enrichment_max_people: 30
+
+metrics:
+  - discovery_precision
+  - enrichment_success_rate
+  - contact_coverage
+  - email_validity
+  - duplicate_rate
+  - ai_qualification_accuracy
+  - quota_consumed_per_lead

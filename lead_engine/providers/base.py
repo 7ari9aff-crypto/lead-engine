@@ -13,7 +13,9 @@ import time as _time
 
 import requests
 
-from ..router import ProviderError, ProviderUnavailable, QuotaExhausted, RateLimited
+from ..router import (
+    ProviderAuthError, ProviderError, ProviderUnavailable, QuotaExhausted, RateLimited,
+)
 
 RETRY_AFTER_KEYS = ("retry-after",)
 REMAINING_KEYS = ("x-ratelimit-remaining-requests", "x-ratelimit-remaining",
@@ -33,10 +35,12 @@ class BaseProvider:
     def __init__(self, settings: dict):
         self.settings = settings or {}
         self.timeout = (self.settings.get("router", {}) or {}).get("timeout_seconds", 30)
-        self.api_key = os.environ.get(self.env_key) if self.env_key else None
+        self._api_key = None
         self._key_index = 0
         self.endpoint_url = None
         self.configured_model_name = None
+        self._session = None
+        self._last_rate_info = {}
 
     def configure(self, provider_row: dict):
         """Apply non-secret settings from the provider registry for this call."""
@@ -44,6 +48,16 @@ class BaseProvider:
         self.configured_model_name = provider_row.get("model_name") or None
 
     # ------------------------------------------------------------ key pool
+    @property
+    def api_key(self) -> str | None:
+        if self._api_key is not None:
+            return self._api_key
+        return os.environ.get(self.env_key) if self.env_key else None
+
+    @api_key.setter
+    def api_key(self, value: str | None) -> None:
+        self._api_key = value
+
     @property
     def keys(self) -> list:
         """Multiple keys per provider, comma-separated in the env var.
@@ -69,18 +83,25 @@ class BaseProvider:
             return True
         return False
 
+    def reset_keys(self) -> None:
+        """Reset key index back to the first key."""
+        self._key_index = 0
+
     def request(self, task: str, payload: dict) -> dict:
         raise NotImplementedError
 
     # ------------------------------------------------------------------ http
     def _http(self, method: str, url: str, **kwargs):
         kwargs.setdefault("timeout", self.timeout)
+        if self._session is None:
+            self._session = requests.Session()
         try:
-            resp = requests.request(method, url, **kwargs)
+            resp = self._session.request(method, url, **kwargs)
         except requests.ConnectionError as exc:
             raise ProviderUnavailable(f"connection failed: {exc}") from exc
         except requests.Timeout as exc:
             raise ProviderUnavailable(f"timeout: {exc}") from exc
+        self._last_rate_info = self._rate_info(resp.headers)
         if resp.status_code == 429:
             retry_after = resp.headers.get("retry-after")
             try:
@@ -89,7 +110,7 @@ class BaseProvider:
                 retry_after = None
             raise RateLimited(f"{self.name}: 429 rate limited", retry_after=retry_after)
         if resp.status_code in (401, 403):
-            raise ProviderUnavailable(f"{self.name}: auth rejected ({resp.status_code})")
+            raise ProviderAuthError(f"{self.name}: auth rejected ({resp.status_code})")
         if resp.status_code in (402,):
             raise QuotaExhausted(f"{self.name}: payment required")
         if resp.status_code >= 500:

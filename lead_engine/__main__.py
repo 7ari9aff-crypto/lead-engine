@@ -21,7 +21,7 @@ def main(argv=None):
     sub.add_parser("providers", help="show provider registry status + usage")
 
     bench = sub.add_parser("benchmark", help="run the live lead generation pipeline")
-    bench.add_argument("--icp", default="v0_saudi_dental")
+    bench.add_argument("--icp", default="v0")
     bench.add_argument("--seed", help="CSV path with manually collected clinics")
     bench.add_argument("--no-report", action="store_true")
 

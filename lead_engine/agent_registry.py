@@ -128,12 +128,6 @@ class AgentRegistry:
             )
 
     def agents(self):
-        # Tenant scope: platform agents (NULL org) plus this org's own.
-        org_id = getattr(self.db, "org_id", None)
-        if org_id:
-            return self.db.query(
-                "SELECT * FROM agents WHERE organization_id IS NULL OR organization_id = ?"
-                " ORDER BY name", (org_id,))
         return self.db.query("SELECT * FROM agents ORDER BY name")
 
     def versions(self, slug):
@@ -149,9 +143,10 @@ class AgentRegistry:
         run_id = f"run_{uuid.uuid4().hex}"
         now = utcnow()
         self.db.execute(
-            "INSERT INTO agent_runs (run_id, agent_id, version, status, input_json, created_at, updated_at)"
-            " VALUES (?,?,?,?,?,?,?)",
-            (run_id, agent["agent_id"], version, "RUNNING", json.dumps(input_data, ensure_ascii=False), now, now),
+            "INSERT INTO agent_runs (run_id, organization_id, agent_id, version, status, input_json, created_at, updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            (run_id, getattr(self.db, "org_id", None), agent["agent_id"], version, "RUNNING",
+             json.dumps(input_data, ensure_ascii=False), now, now),
         )
         return run_id
 
@@ -181,16 +176,33 @@ class AgentRegistry:
         )
 
     def runs(self, limit=50):
+        org_id = getattr(self.db, "org_id", None)
+        clause = " AND r.organization_id = ?" if org_id else ""
+        params = [limit]
+        if org_id:
+            params.insert(0, org_id)
         return self.db.query(
             "SELECT r.*, a.slug, a.name FROM agent_runs r JOIN agents a ON a.agent_id=r.agent_id"
-            " ORDER BY r.created_at DESC LIMIT ?", (limit,))
+            f" WHERE 1=1{clause} ORDER BY r.created_at DESC LIMIT ?", tuple(params))
 
     def run(self, run_id):
-        row = self.db.one("SELECT * FROM agent_runs WHERE run_id=?", (run_id,))
+        org_id = getattr(self.db, "org_id", None)
+        clause = " AND organization_id = ?" if org_id else ""
+        params = [run_id]
+        if org_id:
+            params.append(org_id)
+        row = self.db.one(f"SELECT * FROM agent_runs WHERE run_id=?{clause}", tuple(params))
         if not row:
             return None
         row["steps"] = self.db.query("SELECT * FROM agent_steps WHERE run_id=? ORDER BY id", (run_id,))
-        row["approvals"] = self.db.query("SELECT * FROM approvals WHERE run_id=? ORDER BY requested_at", (run_id,))
+        approval_clause = " AND organization_id = ?" if org_id else ""
+        approval_params = [run_id]
+        if org_id:
+            approval_params.append(org_id)
+        row["approvals"] = self.db.query(
+            f"SELECT * FROM approvals WHERE run_id=?{approval_clause} ORDER BY requested_at",
+            tuple(approval_params),
+        )
         return row
 
     def tools(self):
@@ -200,7 +212,15 @@ class AgentRegistry:
         return self.db.query("SELECT * FROM connections ORDER BY provider")
 
     def approvals(self, status="PENDING"):
-        return self.db.query("SELECT * FROM approvals WHERE status=? ORDER BY requested_at", (status,))
+        org_id = getattr(self.db, "org_id", None)
+        clause = " AND organization_id = ?" if org_id else ""
+        params = [status]
+        if org_id:
+            params.append(org_id)
+        return self.db.query(
+            f"SELECT * FROM approvals WHERE status=?{clause} ORDER BY requested_at",
+            tuple(params),
+        )
 
     def check_connection(self, provider):
         row = self.db.one("SELECT * FROM providers WHERE name=? ORDER BY priority LIMIT 1", (provider,))

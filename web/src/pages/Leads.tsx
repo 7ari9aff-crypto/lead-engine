@@ -27,6 +27,7 @@ import {
   Check,
   MessageCircle,
   FileSpreadsheet,
+  Send,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -41,6 +42,9 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { StatCard } from "@/components/ui/FilterPills";
 import { ReviewPanel } from "@/components/review/ReviewPanel";
 import { toast } from "sonner";
+import { parseAndValidatePhone } from "@/lib/phone";
+import { logAuditAction } from "@/lib/audit";
+import { WebhookExportModal } from "@/components/leads/WebhookExportModal";
 
 // Saved searches — persisted locally per browser.
 const SAVED_KEY = "leadEngine.savedSearches";
@@ -55,23 +59,11 @@ function loadSaved(): SavedSearch[] {
 }
 
 export function getWhatsAppUrl(phone?: string | null, companyName?: string | null): string | null {
-  if (!phone) return null;
-  const digits = phone.replace(/[^0-9]/g, "");
-  let normalized = digits;
-  if (digits.startsWith("05") && digits.length === 10) {
-    normalized = "966" + digits.substring(1);
-  } else if (digits.startsWith("5") && digits.length === 9) {
-    normalized = "966" + digits;
-  } else if (digits.startsWith("00966")) {
-    normalized = digits.substring(2);
-  }
-  if (!normalized || normalized.length < 9) return null;
-  const greeting = `السلام عليكم ورحمة الله، بخصوص خدمات ${companyName || "العيادة"} الكريمة.. حاب أستفسر من حضرتكم`;
-  return `https://wa.me/${normalized}?text=${encodeURIComponent(greeting)}`;
+  return parseAndValidatePhone(phone, companyName).whatsappUrl;
 }
 
 export function LeadsPage() {
-  const { data, loading, refresh } = useLiveData(() => apiGet.leads({ limit: 500 }), 5000);
+  const { data, loading, error, refresh } = useLiveData(() => apiGet.leads({ limit: 500 }), 5000);
   const [search, setSearch] = useState("");
   const [stage, setStage] = useState("");
   const [jobId, setJobId] = useState("");
@@ -87,6 +79,7 @@ export function LeadsPage() {
   const [bulkProgress, setBulkProgress] = useState<string | null>(null);
   const [quickFilter, setQuickFilter] = useState<"all" | "whatsapp" | "verified_email" | "tier_a" | "review" | "accepted">("all");
   const [selectedCity, setSelectedCity] = useState<string>("");
+  const [webhookModalOpen, setWebhookModalOpen] = useState(false);
 
   const leads = data ?? [];
   const jobs = Array.from(new Set(leads.map((l) => l.job_id).filter(Boolean))) as string[];
@@ -161,6 +154,7 @@ export function LeadsPage() {
     );
     const csv = [headers.join(","), ...csvRows].join("\n");
     downloadFile(`leads${suffix}_${Date.now()}.csv`, csv, "text/csv;charset=utf-8");
+    logAuditAction("export.csv", "تنزيل ملف CSV", `تم تصدير ${rows.length} عميل بصيغة CSV`, rows.length);
   }
 
   function exportInstantlyCSV(rows: LeadRow[]) {
@@ -169,8 +163,8 @@ export function LeadsPage() {
       "email", "first_name", "company_name", "website", "phone", "city", "custom_icebreaker"
     ];
     const csvRows = rows.map((l) => {
-      const dm = l.decision_maker || "دكتور / مدير المركز";
-      const icebreaker = `لفت انتباهي تميز عيادات ${l.name} في ${l.city || "المملكة"}`;
+      const dm = l.decision_maker || "المدير التنفيذي / المسؤول";
+      const icebreaker = `لفت انتباهي تميز ونمو ${l.name}${l.city ? ` في ${l.city}` : ""}`;
       return [
         `"${String(l.email || "").replace(/"/g, '""')}"`,
         `"${String(dm).replace(/"/g, '""')}"`,
@@ -184,6 +178,7 @@ export function LeadsPage() {
     const csv = [headers.join(","), ...csvRows].join("\n");
     downloadFile(`leads_instantly_${Date.now()}.csv`, csv, "text/csv;charset=utf-8");
     toast.success(`تم تصدير ${rows.length} عميل بتنسيق Instantly / Smartlead`);
+    logAuditAction("export.instantly", "تصدير Instantly / Smartlead", `تم تصدير ${rows.length} عميل بصيغة مخصصة للـ Cold Email`, rows.length);
   }
 
 
@@ -277,6 +272,17 @@ export function LeadsPage() {
         description={`${formatNumber(stats.total)} إجمالي · ${formatNumber(stats.accepted)} مقبولة · ${formatNumber(stats.review)} مراجعة · ${formatNumber(stats.rejected)} مرفوضة`}
         action={
           <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setWebhookModalOpen(true)}
+              disabled={filtered.length === 0}
+              className="border-[var(--accent)]/40 text-[var(--accent)] hover:bg-[var(--accent)]/10"
+              title="ترحيل فوري إلى Zapier أو Make أو n8n أو CRM"
+            >
+              <Send className="h-4 w-4" />
+              إرسال لـ Webhook / CRM
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -443,7 +449,7 @@ export function LeadsPage() {
                   )}
                 >
                   <button onClick={() => applySaved(s)}>{s.name}</button>
-                  <button onClick={() => removeSaved(s.name)} title="حذف البحث المحفوظ" className="hover:text-[var(--danger)]">
+                  <button onClick={() => removeSaved(s.name)} title="حذف البحث المحفوظ" aria-label={`حذف البحث المحفوظ: ${s.name}`} className="hover:text-[var(--danger)]">
                     <X className="h-3 w-3" />
                   </button>
                 </span>
@@ -463,6 +469,10 @@ export function LeadsPage() {
           <Button variant="primary" size="sm" onClick={() => exportInstantlyCSV(selectedRows)} className="text-xs">
             <FileSpreadsheet className="h-3.5 w-3.5" />
             تصدير Instantly ({selected.size})
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setWebhookModalOpen(true)} className="text-xs border-[var(--accent)] text-[var(--accent)] hover:bg-[var(--accent)]/10">
+            <Send className="h-3.5 w-3.5" />
+            ترحيل Webhook ({selected.size})
           </Button>
           <Button
             variant="outline"
@@ -510,6 +520,14 @@ export function LeadsPage() {
         </div>
       )}
 
+      {/* Webhook Export Modal */}
+      <WebhookExportModal
+        open={webhookModalOpen}
+        onClose={() => setWebhookModalOpen(false)}
+        leads={selectedRows.length > 0 ? selectedRows : filtered}
+        selectedCount={selected.size}
+      />
+
       {/* Table */}
       <Card>
         <CardContent className="p-0">
@@ -517,6 +535,19 @@ export function LeadsPage() {
             <div className="flex items-center justify-center py-20">
               <Spinner className="h-6 w-6 text-[var(--accent)]" />
             </div>
+          ) : error && !data ? (
+            <EmptyState
+              icon={<XCircle className="h-8 w-8 text-[var(--danger)]" />}
+              title="تعذر تحميل العملاء المحتملين"
+              description={friendlyError(error)}
+              action={
+                <Button variant="outline" size="sm" onClick={() => void refresh()}>
+                  <Search className="h-3.5 w-3.5" />
+                  إعادة المحاولة
+                </Button>
+              }
+              className="m-4"
+            />
           ) : filtered.length === 0 ? (
             <EmptyState
               icon={<Database className="h-8 w-8" />}
@@ -535,6 +566,7 @@ export function LeadsPage() {
                         onChange={toggleAll}
                         className="accent-[var(--accent)]"
                         title="تحديد الكل"
+                        aria-label="تحديد كل العملاء الظاهرين"
                       />
                     </th>
                     <th>الاسم</th>
@@ -671,30 +703,34 @@ function LeadRowBlock({ lead, selected, onToggleSelect, onOpenDrawer }: {
             <Building2 className="h-3.5 w-3.5 text-[var(--fg-soft)] shrink-0" />
             <span>
               <span className="font-medium group-hover:text-[var(--accent)] transition-colors block">{l.name || "—"}</span>
-              {l.phone && (
-                <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className="text-[10px] text-[var(--fg-muted)] flex items-center gap-1" dir="ltr">
-                    <Phone className="h-3 w-3" /> {l.phone}
-                  </span>
-                  {(() => {
-                    const waUrl = getWhatsAppUrl(l.phone, l.name);
-                    if (!waUrl) return null;
-                    return (
+              {l.phone && (() => {
+                const pInfo = parseAndValidatePhone(l.phone, l.name);
+                return (
+                  <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                    <span className="text-[10px] text-[var(--fg-muted)] flex items-center gap-1 font-mono" dir="ltr">
+                      <Phone className="h-2.5 w-2.5" /> {pInfo.e164 || l.phone}
+                    </span>
+                    {pInfo.whatsappUrl && (
                       <a
-                        href={waUrl}
+                        href={pInfo.whatsappUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
                         className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-medium bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 transition-colors border border-emerald-500/30"
-                        title="تواصل مباشر عبر واتساب"
+                        title={pInfo.statusLabel}
                       >
                         <MessageCircle className="h-2.5 w-2.5" />
                         واتساب
                       </a>
-                    );
-                  })()}
-                </div>
-              )}
+                    )}
+                    {pInfo.countryCode && pInfo.country !== "—" && (
+                      <span className="text-[9px] text-[var(--fg-muted)] px-1 rounded bg-[var(--bg-soft)] border border-[var(--border-soft)]">
+                        {pInfo.country}
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
             </span>
           </button>
         </td>
@@ -805,7 +841,7 @@ function LeadPitchTab({ lead }: { lead: LeadRow }) {
   const [copiedSubject, setCopiedSubject] = useState(false);
   const [copiedBody, setCopiedBody] = useState(false);
   const [copiedWa, setCopiedWa] = useState(false);
-  const [angle, setAngle] = useState("زيادة إيرادات العيادة وجلب مرضى جدد");
+  const [angle, setAngle] = useState("زيادة الإيرادات واكتساب عملاء جدد مؤهلين");
   const [operatorPhone, setOperatorPhone] = useState(() => localStorage.getItem("leadEngine.operatorPhone") || "");
   const [editingPhone, setEditingPhone] = useState(false);
   const [tempPhone, setTempPhone] = useState("");
@@ -864,26 +900,20 @@ function LeadPitchTab({ lead }: { lead: LeadRow }) {
 
   const waUrl = useMemo(() => {
     if (!lead.phone) return null;
-    const digits = lead.phone.replace(/[^0-9]/g, "");
-    let normalized = digits;
-    if (digits.startsWith("05") && digits.length === 10) normalized = "966" + digits.substring(1);
-    else if (digits.startsWith("5") && digits.length === 9) normalized = "966" + digits;
-    else if (digits.startsWith("00966")) normalized = digits.substring(2);
-    if (!normalized || normalized.length < 9) return null;
-    const text = pitch?.whatsapp_message || `السلام عليكم ورحمة الله، بخصوص خدمات ${lead.name || "العيادة"} الكريمة.. حاب أستفسر من حضرتكم`;
-    return `https://wa.me/${normalized}?text=${encodeURIComponent(text)}`;
+    let digits = lead.phone.replace(/[^0-9]/g, "");
+    if (digits.startsWith("00")) digits = digits.substring(2);
+    if (!digits || digits.length < 7) return null;
+    const text = pitch?.whatsapp_message || `السلام عليكم ورحمة الله، بخصوص خدمات ${lead.name || "المنشأة"} الكريمة.. حاب أستفسر من حضرتكم`;
+    return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
   }, [lead.phone, lead.name, pitch]);
 
   const operatorWaUrl = useMemo(() => {
     if (!operatorPhone || !pitch) return null;
-    const digits = operatorPhone.replace(/[^0-9]/g, "");
-    let normalized = digits;
-    if (digits.startsWith("05") && digits.length === 10) normalized = "966" + digits.substring(1);
-    else if (digits.startsWith("5") && digits.length === 9) normalized = "966" + digits;
-    else if (digits.startsWith("00966")) normalized = digits.substring(2);
-    if (!normalized || normalized.length < 9) return null;
+    let digits = operatorPhone.replace(/[^0-9]/g, "");
+    if (digits.startsWith("00")) digits = digits.substring(2);
+    if (!digits || digits.length < 7) return null;
     const msg = `[معاينة تجريبية لمسؤول الحملة - ${lead.name || "المنشأة"}]\n\n${pitch.whatsapp_message}`;
-    return `https://wa.me/${normalized}?text=${encodeURIComponent(msg)}`;
+    return `https://wa.me/${digits}?text=${encodeURIComponent(msg)}`;
   }, [operatorPhone, lead.name, pitch]);
 
   return (
@@ -895,15 +925,15 @@ function LeadPitchTab({ lead }: { lead: LeadRow }) {
             <Sparkles className="h-3.5 w-3.5 text-amber-400" />
             توليد العرض الترويجي المخصص
           </div>
-          <Badge variant="outline" className="text-[10px]">مخصص للسوق السعودي</Badge>
+          <Badge variant="outline" className="text-[10px]">مخصص لجمهورك المستهدف</Badge>
         </div>
         <div className="space-y-1.5">
           <label className="text-[11px] text-[var(--fg-muted)] block">الزاوية التسويقية / عرض القيمة:</label>
           <div className="flex items-center gap-1 flex-wrap mb-1">
             {[
-              { label: "🚀 زيادة المرضى", value: "زيادة إيرادات العيادة وجلب مرضى جدد" },
-              { label: "📉 خفض إلغاء المواعيد", value: "خفض إلغاء المواعيد (No-shows) وتأكيد الحجوزات" },
-              { label: "⚡ أتمتة الردود 24/7", value: "أتمتة الردود على استفسارات واتساب الفورية" },
+              { label: "🚀 اكتساب عملاء مؤهلين", value: "زيادة الإيرادات واكتساب عملاء جدد مؤهلين" },
+              { label: "📉 تسريع إغلاق الصفقات", value: "تقليل دورة المبيعات وتأكيد الاجتماعات بجودة عالية" },
+              { label: "⚡ أتمتة المتابعة الفورية", value: "أتمتة المتابعة والتفاعل السريع عبر قنوات التواصل" },
             ].map((p, idx) => (
               <button
                 key={idx}
@@ -925,10 +955,10 @@ function LeadPitchTab({ lead }: { lead: LeadRow }) {
             onChange={(e) => setAngle(e.target.value)}
             className="text-xs"
           >
-            <option value="زيادة إيرادات العيادة وجلب مرضى جدد">زيادة إيرادات العيادة وجلب مرضى جدد</option>
-            <option value="خفض إلغاء المواعيد (No-shows) وتأكيد الحجوزات">خفض إلغاء المواعيد وتأكيد الحجوزات</option>
-            <option value="أتمتة الردود على استفسارات واتساب الفورية">أتمتة الردود على استفسارات واتساب الفورية</option>
-            <option value="تحسين التقييمات وجذب عملاء زراعة وتقويم">تحسين التقييمات وجذب عملاء زراعة وتقويم</option>
+            <option value="زيادة الإيرادات واكتساب عملاء جدد مؤهلين">زيادة الإيرادات واكتساب عملاء جدد مؤهلين</option>
+            <option value="تقليل دورة المبيعات وتأكيد الاجتماعات بجودة عالية">تقليل دورة المبيعات وتأكيد الاجتماعات بجودة عالية</option>
+            <option value="أتمتة المتابعة والتفاعل السريع عبر قنوات التواصل">أتمتة المتابعة والتفاعل السريع عبر قنوات التواصل</option>
+            <option value="بناء شراكات تجارية B2B طويلة الأجل">بناء شراكات تجارية B2B طويلة الأجل</option>
           </Select>
         </div>
         <Button

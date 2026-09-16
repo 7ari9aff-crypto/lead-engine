@@ -107,14 +107,19 @@ class Rest:
 
 
 def sync_job_to_supabase(db, engine_job_id: str) -> dict:
-    """Push one completed engine job into Supabase. Idempotent per job."""
+    """Push one completed engine job in the current tenant to Supabase."""
     rest = Rest()
-    job = db.one("SELECT * FROM jobs WHERE job_id=?", (engine_job_id,))
+    org_id = getattr(db, "org_id", None)
+    org_clause = " AND organization_id = ?" if org_id else ""
+    org_params = (org_id,) if org_id else ()
+    job = db.one(f"SELECT * FROM jobs WHERE job_id=?{org_clause}",
+                 (engine_job_id, *org_params))
     if not job:
-        raise SupabaseError(f"unknown engine job {engine_job_id}")
-    leads = db.leads_for_job(engine_job_id)
-    usage = db.query("SELECT provider, task, units FROM usage_ledger WHERE job_id=?",
-                     (engine_job_id,))
+        raise SupabaseError("unknown engine job")
+    leads = db.query(f"SELECT * FROM leads WHERE job_id=?{org_clause}",
+                     (engine_job_id, *org_params))
+    usage = db.query(f"SELECT provider, task, units FROM usage_ledger WHERE job_id=?{org_clause}",
+                     (engine_job_id, *org_params))
     icp = _load_icp_for(db, engine_job_id)
 
     campaign_name = f"{job['icp_id']}::{engine_job_id}"
@@ -199,7 +204,10 @@ def sync_job_to_supabase(db, engine_job_id: str) -> dict:
 def _load_icp_for(db, engine_job_id):
     from .config import load_icp
 
-    job = db.one("SELECT icp_id FROM jobs WHERE job_id=?", (engine_job_id,))
+    org_id = getattr(db, "org_id", None)
+    org_clause = " AND organization_id = ?" if org_id else ""
+    job = db.one(f"SELECT icp_id FROM jobs WHERE job_id=?{org_clause}",
+                 (engine_job_id, *((org_id,) if org_id else ())))
     try:
         return load_icp(job["icp_id"])
     except Exception:

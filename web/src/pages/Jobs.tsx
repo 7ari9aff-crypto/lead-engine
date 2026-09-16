@@ -54,8 +54,8 @@ const TEMPLATES: { id: string; title: string; desc: string; limits: string; over
 ];
 
 export function JobsPage() {
-  const { data, loading, refresh } = useLiveData(() => apiGet.jobs(), 4000);
-  const [icp, setIcp] = useState("v0_saudi_dental");
+  const { data, loading, error, refresh } = useLiveData(() => apiGet.jobs(), 4000);
+  const [icp, setIcp] = useState("v0");
   const [running, setRunning] = useState(false);
   const [draining, setDraining] = useState(false);
   const [filter, setFilter] = useState("all");
@@ -161,7 +161,7 @@ export function JobsPage() {
               onChange={(e) => setIcp(e.target.value)}
               className="h-8 rounded-lg border border-[var(--border)] bg-[var(--bg-soft)] px-2.5 text-[13px] focus:outline-none focus:border-[var(--accent)]"
             >
-              <option value="v0_saudi_dental">{ICP_LABELS["v0_saudi_dental"]}</option>
+              <option value="v0">{ICP_LABELS["v0"] ?? "ملف الاستهداف الافتراضي"}</option>
             </select>
             {counts.queued > 0 && (
               <Button
@@ -170,6 +170,7 @@ export function JobsPage() {
                 onClick={drainQueued}
                 loading={draining}
                 title={`تنظيف ${counts.queued} مهمة عالقة في الطابور (بدون worker)`}
+                aria-label={`تنظيف ${counts.queued} مهمة عالقة في الطابور`}
                 className="text-[var(--warn)] border-[var(--warn)] hover:bg-[var(--warn)]/10"
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -224,6 +225,20 @@ export function JobsPage() {
         <div className="flex items-center justify-center py-20">
           <Spinner className="h-6 w-6 text-[var(--accent)]" />
         </div>
+      ) : error && !data ? (
+        <Card className="p-6" role="alert">
+          <EmptyState
+            icon={<XCircle className="h-8 w-8 text-[var(--danger)]" />}
+            title="تعذر تحميل المهام"
+            description={friendlyError(error)}
+            action={
+              <Button variant="outline" size="sm" onClick={() => void refresh()}>
+                <RotateCcw className="h-3.5 w-3.5" />
+                إعادة المحاولة
+              </Button>
+            }
+          />
+        </Card>
       ) : filtered.length === 0 ? (
         <Card>
           <EmptyState

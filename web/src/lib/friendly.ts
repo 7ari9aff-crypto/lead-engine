@@ -37,7 +37,7 @@ export function friendlyError(e: unknown): string {
 // ===== Shared label maps =====
 
 export const ICP_LABELS: Record<string, string> = {
-  v0_saudi_dental: "عيادات الأسنان — السعودية",
+  v0: "ملف الاستهداف الافتراضي",
 };
 
 export const TASK_LABELS: Record<string, string> = {

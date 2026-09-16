@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import {
-  Sun, Moon, RefreshCw, WifiOff, Menu, Search, Zap, LogOut, Settings2,
+  Sun, Moon, RefreshCw, WifiOff, Menu, Search, Zap, LogOut, Settings2, Globe,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useUI } from "@/hooks/useTheme";
+import { useLanguage } from "@/hooks/useLanguage";
 import { useLiveData } from "@/hooks/useLiveData";
 import { apiGet, apiPost } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
@@ -33,6 +34,7 @@ import { CommandPalette } from "./CommandPalette";
 
 export function Topbar() {
   const { theme, toggleTheme, sidebar, setSidebar } = useUI();
+  const { lang, toggleLang } = useLanguage();
   const qc = useQueryClient();
   const [location] = useLocation();
   const { data: usage } = useLiveData<any>(() => apiGet.keysUsage(), 60000);
@@ -126,6 +128,16 @@ export function Topbar() {
 
         <Button size="icon-sm" variant="ghost" onClick={() => qc.invalidateQueries()} title="تحديث الآن">
           <RefreshCw className="h-4 w-4" />
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={toggleLang}
+          className="text-xs h-8 px-2.5 font-medium gap-1 text-[var(--fg-soft)] hover:text-[var(--fg)] border border-[var(--border-soft)] hover:border-[var(--border)]"
+          title={lang === "ar" ? "Switch interface to English" : "تحويل الواجهة للعربية"}
+        >
+          <Globe className="h-3.5 w-3.5 text-[var(--accent)]" />
+          <span className="font-semibold">{lang === "ar" ? "EN" : "عربي"}</span>
         </Button>
         <Button size="icon-sm" variant="ghost" onClick={toggleTheme} title={theme === "dark" ? "وضع نهاري" : "وضع ليلي"}>
           {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}

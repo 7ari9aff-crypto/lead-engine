@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from ..cache import CacheLayer
 from ..config import load_cache_policy, load_legal_policy
 from ..db import utcnow
-from ..jobs import COMPLETED, DEGRADED, JobManager, PAUSED, RUNNING
+from ..jobs import COMPLETED, DEGRADED, FAILED, JobManager, PAUSED, RUNNING
 from ..router import NoProviderAvailable, Router
 from .dedup import DedupEngine
 from .discovery import Discovery
@@ -183,6 +183,29 @@ class PipelineOrchestrator:
             summary["pause_reason"] = str(exc)
             summary["resume_at"] = resume_at
             return summary
+
+        except Exception as exc:  # noqa: BLE001 — broad catch to prevent zombie jobs
+            import traceback
+            import logging
+            _log = logging.getLogger(__name__)
+            _log.exception("Unhandled error in run_job(%s): %s", job_id, exc)
+            err_msg = f"{type(exc).__name__}: {exc}"
+            try:
+                # Transition to FAILED only if the job is still in a live state
+                current = self.jobs.current(job_id)
+                if current not in (COMPLETED, FAILED):
+                    # PAUSED cannot go directly to FAILED — resume first
+                    if current == PAUSED:
+                        self.jobs.transition(job_id, "RESUMING", "error recovery")
+                        self.jobs.transition(job_id, RUNNING, "error recovery")
+                    self.jobs.mark_failed(job_id, err_msg)
+            except Exception:
+                pass  # best-effort; don't mask the original error
+            self._emit(self.db, "job.failed", {"job_id": job_id, "error": err_msg})
+            summary["state"] = FAILED
+            summary["error"] = err_msg
+            self._store_summary(job_id, summary)
+            raise
 
     def _emit(self, db, event_type: str, payload: dict) -> None:
         """Domain event -> outbox (at-least-once; consumers deduplicate)."""
