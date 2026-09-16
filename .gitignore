@@ -11,6 +11,8 @@ venv/
 .vercel
 .pnpm-store/
 .freebuff/
+supabase/.temp/
+web/.vercel
 
 # secrets — never commit
 .env

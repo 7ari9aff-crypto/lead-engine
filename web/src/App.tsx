@@ -22,6 +22,7 @@ import { ActivityPage } from "@/pages/Activity";
 import { ResearchPage } from "@/pages/Research";
 import { ReviewPage } from "@/pages/Review";
 import { IcpPage } from "@/pages/Icp";
+import { DocsPage } from "@/pages/Docs";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/Button";
 import { AlertTriangle, Home, RotateCcw, Zap } from "lucide-react";
@@ -71,6 +72,7 @@ export default function App() {
               <Route path="/research" component={ResearchPage} />
               <Route path="/review" component={ReviewPage} />
               <Route path="/icp" component={IcpPage} />
+              <Route path="/docs" component={DocsPage} />
               <Route>
                 <NotFound />
               </Route>
@@ -143,6 +145,7 @@ function DashboardLayout({ children }: { children: ReactNode }) {
               <AuthGate>{children}</AuthGate>
             </main>
             <Footer />
+            <BackToTop />
           </>
         )}
       </div>

@@ -22,8 +22,13 @@ _JWKS_URL = "/auth/v1/.well-known/jwks.json"
 
 
 def supabase_url() -> str | None:
-    url = (os.environ.get("SUPABASE_URL") or os.environ.get("VITE_SUPABASE_URL") or "https://abshiqxxsvdtbdngycpb.supabase.co").rstrip("/")
-    return url or None
+    raw = (os.environ.get("SUPABASE_URL") or os.environ.get("VITE_SUPABASE_URL") or "").rstrip("/")
+    if raw:
+        return raw
+    if (os.environ.get("LEAD_ENGINE_DEV_OPEN") == "1"
+            and os.environ.get("LEAD_ENGINE_ENV") != "production"):
+        return None
+    return "https://abshiqxxsvdtbdngycpb.supabase.co"
 
 
 @lru_cache(maxsize=1)
@@ -106,13 +111,13 @@ def auth_mode() -> str:
     (every protected request 401s). An explicit LEAD_ENGINE_DEV_OPEN=1 is
     required to run open — and is ignored when the environment is flagged
     as production."""
+    if (os.environ.get("LEAD_ENGINE_DEV_OPEN") == "1"
+            and os.environ.get("LEAD_ENGINE_ENV") != "production"):
+        return "open"
     if supabase_url():
         return "supabase"
     if os.environ.get("LEAD_ENGINE_ADMIN_PASSWORD"):
         return "password"
-    if (os.environ.get("LEAD_ENGINE_DEV_OPEN") == "1"
-            and os.environ.get("LEAD_ENGINE_ENV") != "production"):
-        return "open"
     return "closed"
 
 
