@@ -541,3 +541,27 @@ export async function streamResearchProgress(
     }
   }
 }
+
+export type PitchData = {
+  cold_email_subject: string;
+  cold_email_body: string;
+  whatsapp_message: string;
+  hook: string;
+  pain_points: string[];
+};
+
+export const apiPitch = {
+  generate: (data: {
+    lead_id?: string;
+    name: string;
+    city?: string | null;
+    domain?: string | null;
+    website?: string | null;
+    decision_maker?: string | null;
+    snippet?: string | null;
+    industry?: string;
+    offer?: string;
+  }) => api.post<PitchData>("/api/v1/pitch/generate", data),
+  generateForLead: (leadId: string) =>
+    api.post<PitchData>(`/api/v1/leads/${encodeURIComponent(leadId)}/pitch`, {}),
+};

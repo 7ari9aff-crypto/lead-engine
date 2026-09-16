@@ -22,13 +22,18 @@ import {
   ChevronDown,
   Briefcase,
   ShieldCheck,
+  Sparkles,
+  Copy,
+  Check,
+  MessageCircle,
+  FileSpreadsheet,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge, StatusDot } from "@/components/ui/Badge";
 import { Input, Select } from "@/components/ui/Input";
 import { useLiveData } from "@/hooks/useLiveData";
-import { apiGet, apiPost, type LeadRow } from "@/lib/api";
+import { apiGet, apiPost, apiPitch, type LeadRow, type PitchData } from "@/lib/api";
 import { downloadFile, formatNumber, truncate, cn } from "@/lib/utils";
 import { friendlyError, ICP_LABELS } from "@/lib/friendly";
 import { Spinner, EmptyState } from "@/components/ui/EmptyState";
@@ -47,6 +52,22 @@ function loadSaved(): SavedSearch[] {
   } catch {
     return [];
   }
+}
+
+export function getWhatsAppUrl(phone?: string | null, companyName?: string | null): string | null {
+  if (!phone) return null;
+  const digits = phone.replace(/[^0-9]/g, "");
+  let normalized = digits;
+  if (digits.startsWith("05") && digits.length === 10) {
+    normalized = "966" + digits.substring(1);
+  } else if (digits.startsWith("5") && digits.length === 9) {
+    normalized = "966" + digits;
+  } else if (digits.startsWith("00966")) {
+    normalized = digits.substring(2);
+  }
+  if (!normalized || normalized.length < 9) return null;
+  const greeting = `السلام عليكم ورحمة الله، بخصوص خدمات ${companyName || "العيادة"} الكريمة.. حاب أستفسر من حضرتكم`;
+  return `https://wa.me/${normalized}?text=${encodeURIComponent(greeting)}`;
 }
 
 export function LeadsPage() {
@@ -133,6 +154,30 @@ export function LeadsPage() {
     downloadFile(`leads${suffix}_${Date.now()}.csv`, csv, "text/csv;charset=utf-8");
   }
 
+  function exportInstantlyCSV(rows: LeadRow[]) {
+    if (rows.length === 0) return;
+    const headers = [
+      "email", "first_name", "company_name", "website", "phone", "city", "custom_icebreaker"
+    ];
+    const csvRows = rows.map((l) => {
+      const dm = l.decision_maker || "دكتور / مدير المركز";
+      const icebreaker = `لفت انتباهي تميز عيادات ${l.name} في ${l.city || "المملكة"}`;
+      return [
+        `"${String(l.email || "").replace(/"/g, '""')}"`,
+        `"${String(dm).replace(/"/g, '""')}"`,
+        `"${String(l.name || "").replace(/"/g, '""')}"`,
+        `"${String(l.website || l.domain || "").replace(/"/g, '""')}"`,
+        `"${String(l.phone || "").replace(/"/g, '""')}"`,
+        `"${String(l.city || "").replace(/"/g, '""')}"`,
+        `"${String(icebreaker).replace(/"/g, '""')}"`,
+      ].join(",");
+    });
+    const csv = [headers.join(","), ...csvRows].join("\n");
+    downloadFile(`leads_instantly_${Date.now()}.csv`, csv, "text/csv;charset=utf-8");
+    toast.success(`تم تصدير ${rows.length} عميل بتنسيق Instantly / Smartlead`);
+  }
+
+
   const selectedRows = filtered.filter((l, i) => selected.has(leadKey(l, i)));
 
   function toggleAll() {
@@ -188,10 +233,27 @@ export function LeadsPage() {
         title="العملاء المحتملون"
         description={`${formatNumber(stats.total)} إجمالي · ${formatNumber(stats.accepted)} مقبولة · ${formatNumber(stats.review)} مراجعة · ${formatNumber(stats.rejected)} مرفوضة`}
         action={
-          <Button variant="primary" onClick={() => exportCSV(filtered)} disabled={filtered.length === 0}>
-            <Download className="h-4 w-4" />
-            تنزيل الملف ({filtered.length})
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => exportInstantlyCSV(filtered)}
+              disabled={filtered.length === 0}
+              title="تصدير مهيأ مباشرة لأدوات الإيميل البارد مثل Instantly و Smartlead"
+            >
+              <FileSpreadsheet className="h-4 w-4 text-emerald-500" />
+              تصدير Instantly / Smartlead
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => exportCSV(filtered)}
+              disabled={filtered.length === 0}
+            >
+              <Download className="h-4 w-4" />
+              تنزيل CSV ({filtered.length})
+            </Button>
+          </div>
         }
       />
 
@@ -411,9 +473,28 @@ function LeadRowBlock({ lead, selected, onToggleSelect, onOpenDrawer }: {
             <span>
               <span className="font-medium group-hover:text-[var(--accent)] transition-colors block">{l.name || "—"}</span>
               {l.phone && (
-                <span className="text-[10px] text-[var(--fg-muted)] flex items-center gap-1" dir="ltr">
-                  <Phone className="h-3 w-3" /> {l.phone}
-                </span>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="text-[10px] text-[var(--fg-muted)] flex items-center gap-1" dir="ltr">
+                    <Phone className="h-3 w-3" /> {l.phone}
+                  </span>
+                  {(() => {
+                    const waUrl = getWhatsAppUrl(l.phone, l.name);
+                    if (!waUrl) return null;
+                    return (
+                      <a
+                        href={waUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-medium bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 transition-colors border border-emerald-500/30"
+                        title="تواصل مباشر عبر واتساب"
+                      >
+                        <MessageCircle className="h-2.5 w-2.5" />
+                        واتساب
+                      </a>
+                    );
+                  })()}
+                </div>
               )}
             </span>
           </button>
@@ -513,79 +594,411 @@ function Detail({ label, value, ltr }: { label: string; value?: string | null; l
   );
 }
 
+function LeadPitchTab({ lead }: { lead: LeadRow }) {
+  const [pitch, setPitch] = useState<PitchData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [copiedSubject, setCopiedSubject] = useState(false);
+  const [copiedBody, setCopiedBody] = useState(false);
+  const [copiedWa, setCopiedWa] = useState(false);
+  const [angle, setAngle] = useState("زيادة إيرادات العيادة وجلب مرضى جدد");
+
+  const generate = async () => {
+    setLoading(true);
+    try {
+      let res: PitchData;
+      if (lead.lead_id) {
+        try {
+          res = await apiPitch.generateForLead(lead.lead_id);
+        } catch {
+          res = await apiPitch.generate({
+            lead_id: lead.lead_id,
+            name: lead.name,
+            city: lead.city,
+            domain: lead.domain,
+            website: lead.website,
+            decision_maker: lead.decision_maker,
+            offer: angle,
+          });
+        }
+      } else {
+        res = await apiPitch.generate({
+          name: lead.name,
+          city: lead.city,
+          domain: lead.domain,
+          website: lead.website,
+          decision_maker: lead.decision_maker,
+          offer: angle,
+        });
+      }
+      setPitch(res);
+      toast.success("تم توليد رسائل العرض بنجاح عبر الذكاء الاصطناعي!");
+    } catch (e: any) {
+      toast.error("تعذر توليد العرض: " + (e.message || "خطأ غير متوقع"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const copyText = (text: string, type: "subject" | "body" | "wa") => {
+    navigator.clipboard.writeText(text);
+    if (type === "subject") {
+      setCopiedSubject(true);
+      setTimeout(() => setCopiedSubject(false), 2000);
+    } else if (type === "body") {
+      setCopiedBody(true);
+      setTimeout(() => setCopiedBody(false), 2000);
+    } else {
+      setCopiedWa(true);
+      setTimeout(() => setCopiedWa(false), 2000);
+    }
+    toast.success("تم النسخ للحافظة");
+  };
+
+  const waUrl = useMemo(() => {
+    if (!lead.phone) return null;
+    const digits = lead.phone.replace(/[^0-9]/g, "");
+    let normalized = digits;
+    if (digits.startsWith("05") && digits.length === 10) normalized = "966" + digits.substring(1);
+    else if (digits.startsWith("5") && digits.length === 9) normalized = "966" + digits;
+    else if (digits.startsWith("00966")) normalized = digits.substring(2);
+    if (!normalized || normalized.length < 9) return null;
+    const text = pitch?.whatsapp_message || `السلام عليكم ورحمة الله، بخصوص خدمات ${lead.name || "العيادة"} الكريمة.. حاب أستفسر من حضرتكم`;
+    return `https://wa.me/${normalized}?text=${encodeURIComponent(text)}`;
+  }, [lead.phone, lead.name, pitch]);
+
+  return (
+    <div className="space-y-4">
+      {/* Configuration & Trigger */}
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] p-3.5 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="text-xs font-semibold text-[var(--fg)] flex items-center gap-1.5">
+            <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+            توليد العرض الترويجي المخصص
+          </div>
+          <Badge variant="outline" className="text-[10px]">مخصص للسوق السعودي</Badge>
+        </div>
+        <div>
+          <label className="text-[11px] text-[var(--fg-muted)] block mb-1">الزاوية التسويقية / عرض القيمة:</label>
+          <Select
+            value={angle}
+            onChange={(e) => setAngle(e.target.value)}
+            className="text-xs"
+          >
+            <option value="زيادة إيرادات العيادة وجلب مرضى جدد">زيادة إيرادات العيادة وجلب مرضى جدد</option>
+            <option value="خفض إلغاء المواعيد (No-shows) وتأكيد الحجوزات">خفض إلغاء المواعيد وتأكيد الحجوزات</option>
+            <option value="أتمتة الردود على استفسارات واتساب الفورية">أتمتة الردود على استفسارات واتساب الفورية</option>
+            <option value="تحسين التقييمات وجذب عملاء زراعة وتقويم">تحسين التقييمات وجذب عملاء زراعة وتقويم</option>
+          </Select>
+        </div>
+        <Button
+          variant="primary"
+          className="w-full text-xs py-2"
+          onClick={generate}
+          disabled={loading}
+        >
+          {loading ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              جارٍ تحليل النشاط وصياغة العرض…
+            </>
+          ) : (
+            <>
+              <Sparkles className="h-3.5 w-3.5" />
+              {pitch ? "إعادة صياغة العرض بالذكاء الاصطناعي" : "توليد العرض ورسائل التواصل الآن"}
+            </>
+          )}
+        </Button>
+      </div>
+
+      {pitch ? (
+        <div className="space-y-4 animate-fade-in">
+          {/* Hook / Icebreaker */}
+          {pitch.hook && (
+            <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+              <div className="text-[11px] font-semibold text-amber-400 mb-1 flex items-center gap-1">
+                <Sparkles className="h-3 w-3" />
+                المدخل الافتتاحي المقترح (Icebreaker Hook)
+              </div>
+              <p className="text-xs text-[var(--fg-soft)] leading-relaxed">
+                "{pitch.hook}"
+              </p>
+            </div>
+          )}
+
+          {/* Pain Points */}
+          {pitch.pain_points && pitch.pain_points.length > 0 && (
+            <div className="rounded-lg border border-[var(--border-soft)] bg-[var(--bg-soft)] p-3">
+              <div className="text-[11px] font-semibold text-[var(--fg-soft)] mb-1.5">
+                تحديات مستهدفة تم رصدها للمنشأة:
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {pitch.pain_points.map((p, idx) => (
+                  <Badge key={idx} variant="outline" className="text-[10px] bg-[var(--bg-elev)]">
+                    • {p}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* WhatsApp Pitch */}
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3.5 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5">
+                <MessageCircle className="h-3.5 w-3.5" />
+                رسالة واتساب مخصصة (WhatsApp Outreach)
+              </div>
+              <button
+                onClick={() => copyText(pitch.whatsapp_message, "wa")}
+                className="text-[11px] flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-colors"
+                title="نسخ الرسالة"
+              >
+                {copiedWa ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                {copiedWa ? "تم النسخ" : "نسخ النص"}
+              </button>
+            </div>
+            <div className="rounded-lg bg-[var(--bg-elev)] p-2.5 text-xs text-[var(--fg)] whitespace-pre-wrap font-mono leading-relaxed border border-emerald-500/20">
+              {pitch.whatsapp_message}
+            </div>
+            {waUrl ? (
+              <a
+                href={waUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shadow-xs"
+              >
+                <MessageCircle className="h-4 w-4" />
+                فتح في واتساب فوراً مع الرسالة
+              </a>
+            ) : (
+              <div className="text-[11px] text-[var(--fg-muted)] text-center">
+                (لا يتوفر رقم هاتف لإطلاق واتساب تلقائياً، يمكنك نسخ النص والتواصل يدوياً)
+              </div>
+            )}
+          </div>
+
+          {/* Cold Email Pitch */}
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] p-3.5 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-semibold text-[var(--fg)] flex items-center gap-1.5">
+                <Mail className="h-3.5 w-3.5 text-[var(--accent)]" />
+                البريد الإلكتروني البارد (Cold Email)
+              </div>
+            </div>
+
+            {/* Subject */}
+            <div>
+              <div className="flex items-center justify-between text-[11px] text-[var(--fg-muted)] mb-1">
+                <span>عنوان الإيميل (Subject):</span>
+                <button
+                  onClick={() => copyText(pitch.cold_email_subject, "subject")}
+                  className="flex items-center gap-1 text-[var(--accent)] hover:underline"
+                >
+                  {copiedSubject ? <Check className="h-2.5 w-2.5" /> : <Copy className="h-2.5 w-2.5" />}
+                  {copiedSubject ? "تم النسخ" : "نسخ"}
+                </button>
+              </div>
+              <div className="rounded-lg bg-[var(--bg-elev)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] border border-[var(--border-soft)] truncate">
+                {pitch.cold_email_subject}
+              </div>
+            </div>
+
+            {/* Body */}
+            <div>
+              <div className="flex items-center justify-between text-[11px] text-[var(--fg-muted)] mb-1">
+                <span>نص الإيميل:</span>
+                <button
+                  onClick={() => copyText(pitch.cold_email_body, "body")}
+                  className="flex items-center gap-1 text-[var(--accent)] hover:underline"
+                >
+                  {copiedBody ? <Check className="h-2.5 w-2.5" /> : <Copy className="h-2.5 w-2.5" />}
+                  {copiedBody ? "تم النسخ" : "نسخ النص"}
+                </button>
+              </div>
+              <div className="rounded-lg bg-[var(--bg-elev)] p-2.5 text-xs text-[var(--fg)] whitespace-pre-wrap leading-relaxed border border-[var(--border-soft)] max-h-56 overflow-y-auto">
+                {pitch.cold_email_body}
+              </div>
+            </div>
+
+            {lead.email && (
+              <a
+                href={`mailto:${lead.email}?subject=${encodeURIComponent(pitch.cold_email_subject)}&body=${encodeURIComponent(pitch.cold_email_body)}`}
+                className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold bg-[var(--accent)] hover:opacity-90 text-white transition-opacity"
+              >
+                <Mail className="h-4 w-4" />
+                فتح تطبيق البريد الإلكتروني
+              </a>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="py-8 text-center text-xs text-[var(--fg-muted)] border border-dashed border-[var(--border)] rounded-xl">
+          <Sparkles className="h-8 w-8 text-[var(--fg-soft)] mx-auto mb-2 opacity-50" />
+          اضغط على زر التوليد أعلاه لصياغة رسالة بريد بارد وواتساب مخصصة فوراً لهذه المنشأة
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LeadDrawer({ lead, onClose }: { lead: LeadRow; onClose: () => void }) {
   const l = lead;
+  const [activeTab, setActiveTab] = useState<"details" | "pitch" | "audit">("details");
+  const waUrl = getWhatsAppUrl(l.phone, l.name);
+
   return (
     <>
       <div className="fixed inset-0 bg-black/50 z-40 animate-fade-in" onClick={onClose} />
       <aside
-        className="fixed inset-y-0 left-0 w-full max-w-md bg-[var(--bg-elev)] border-e border-[var(--border)] shadow-[var(--shadow-lg)] z-50 overflow-y-auto animate-slide-up"
+        className="fixed inset-y-0 left-0 w-full max-w-lg bg-[var(--bg-elev)] border-e border-[var(--border)] shadow-[var(--shadow-lg)] z-50 overflow-y-auto animate-slide-up flex flex-col"
         dir="rtl"
       >
-        <div className="sticky top-0 bg-[var(--bg-elev)] border-b border-[var(--border)] px-5 py-4 flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-[16px] font-bold truncate flex items-center gap-2">
-              <Building2 className="h-4.5 w-4.5 text-[var(--accent)] shrink-0" />
-              {l.name || "—"}
+        {/* Sticky Header */}
+        <div className="sticky top-0 bg-[var(--bg-elev)] border-b border-[var(--border)] px-5 py-4 z-10">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[16px] font-bold truncate flex items-center gap-2">
+                <Building2 className="h-4.5 w-4.5 text-[var(--accent)] shrink-0" />
+                {l.name || "—"}
+              </div>
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                <Badge variant={l.stage === "ACCEPTED" ? "success" : l.stage === "REVIEW" ? "warn" : "danger"} className="text-[10px]">
+                  {l.stage === "ACCEPTED" ? "مقبول" : l.stage === "REVIEW" ? "مراجعة" : "مرفوض"}
+                </Badge>
+                {l.score != null && (
+                  <span className="text-[12px] tnum font-bold">
+                    الدرجة {l.score.toFixed(0)}
+                    {l.tier && <span className="text-[var(--fg-soft)] font-medium"> · {l.tier.toUpperCase().startsWith("A") ? "ممتاز" : l.tier.toUpperCase().startsWith("B") ? "جيد" : "عادي"}</span>}
+                  </span>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-              <Badge variant={l.stage === "ACCEPTED" ? "success" : l.stage === "REVIEW" ? "warn" : "danger"} className="text-[10px]">
-                {l.stage === "ACCEPTED" ? "مقبول" : l.stage === "REVIEW" ? "مراجعة" : "مرفوض"}
-              </Badge>
-              {l.score != null && (
-                <span className="text-[12px] tnum font-bold">
-                  الدرجة {l.score.toFixed(0)}
-                  {l.tier && <span className="text-[var(--fg-soft)] font-medium"> · {l.tier.toUpperCase().startsWith("A") ? "ممتاز" : l.tier.toUpperCase().startsWith("B") ? "جيد" : "عادي"}</span>}
-                </span>
-              )}
-            </div>
+            <button onClick={onClose} className="p-1.5 rounded-lg text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)] transition-colors" title="إغلاق">
+              <X className="h-5 w-5" />
+            </button>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)] transition-colors" title="إغلاق">
-            <X className="h-5 w-5" />
-          </button>
+
+          {/* Modern Tabs */}
+          <div className="flex items-center gap-1 mt-4 p-1 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-soft)]">
+            <button
+              onClick={() => setActiveTab("details")}
+              className={cn(
+                "flex-1 py-1.5 px-3 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1.5",
+                activeTab === "details"
+                  ? "bg-[var(--bg-elev)] text-[var(--fg)] shadow-xs font-semibold"
+                  : "text-[var(--fg-muted)] hover:text-[var(--fg)]"
+              )}
+            >
+              <Building2 className="h-3.5 w-3.5" />
+              التفاصيل
+            </button>
+            <button
+              onClick={() => setActiveTab("pitch")}
+              className={cn(
+                "flex-1 py-1.5 px-3 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1.5",
+                activeTab === "pitch"
+                  ? "bg-[var(--bg-elev)] text-amber-400 shadow-xs font-semibold"
+                  : "text-[var(--fg-muted)] hover:text-[var(--fg)]"
+              )}
+            >
+              <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+              صياغة العرض (AI)
+            </button>
+            <button
+              onClick={() => setActiveTab("audit")}
+              className={cn(
+                "flex-1 py-1.5 px-3 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1.5",
+                activeTab === "audit"
+                  ? "bg-[var(--bg-elev)] text-[var(--accent)] shadow-xs font-semibold"
+                  : "text-[var(--fg-muted)] hover:text-[var(--fg)]"
+              )}
+            >
+              <ShieldCheck className="h-3.5 w-3.5" />
+              سجل الأدلة والتقييم
+            </button>
+          </div>
         </div>
 
-        <div className="p-5 space-y-5">
-          <section>
-            <h3 className="text-[12px] font-semibold text-[var(--fg-soft)] mb-2">التواصل</h3>
-            <div className="space-y-1.5">
-              <DrawerRow icon={<Mail className="h-3.5 w-3.5" />} label="البريد" value={l.email} ltr
-                href={l.email ? `mailto:${l.email}` : undefined} />
-              <DrawerRow icon={<Phone className="h-3.5 w-3.5" />} label="الهاتف" value={l.phone} ltr
-                href={l.phone ? `tel:${l.phone}` : undefined} />
-              <DrawerRow icon={<Globe className="h-3.5 w-3.5" />} label="الموقع" value={l.website || l.domain} ltr
-                href={l.domain ? `https://${l.domain}` : undefined} />
-            </div>
-          </section>
+        {/* Tab Content */}
+        <div className="p-5 space-y-5 flex-1">
+          {activeTab === "details" && (
+            <div className="space-y-5">
+              {/* Quick Actions */}
+              <div className="grid grid-cols-2 gap-2">
+                {waUrl && (
+                  <a
+                    href={waUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shadow-xs"
+                  >
+                    <MessageCircle className="h-3.5 w-3.5" />
+                    محادثة واتساب
+                  </a>
+                )}
+                {l.email && (
+                  <a
+                    href={`mailto:${l.email}`}
+                    className={cn(
+                      "flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold bg-[var(--accent)] hover:opacity-90 text-white transition-opacity shadow-xs",
+                      !waUrl && "col-span-2"
+                    )}
+                  >
+                    <Mail className="h-3.5 w-3.5" />
+                    مراسلة بالبريد
+                  </a>
+                )}
+              </div>
 
-          <section>
-            <h3 className="text-[12px] font-semibold text-[var(--fg-soft)] mb-2">تفاصيل الشركة</h3>
-            <div className="space-y-1.5">
-              <DrawerRow icon={<Building2 className="h-3.5 w-3.5" />} label="المدينة" value={l.city} />
-              <DrawerRow icon={<User className="h-3.5 w-3.5" />} label="صانع القرار" value={l.decision_maker} />
-              <DrawerRow icon={<CheckCircle2 className="h-3.5 w-3.5" />} label="حالة البريد"
-                value={l.email_status === "DELIVERABLE" ? "صالح" : l.email_status === "INVALID" ? "غير صالح" : l.email_status ? "محتاج مراجعة" : undefined} />
-              <DrawerRow icon={<ShieldCheck className="h-3.5 w-3.5" />} label="القوانين"
-                value={l.legal_status === "ALLOWED" ? "مسموح" : l.legal_status === "BLOCKED" ? "محجوب" : "خلال الحدود المسموحة"} />
-            </div>
-          </section>
+              <section>
+                <h3 className="text-[12px] font-semibold text-[var(--fg-soft)] mb-2">التواصل</h3>
+                <div className="space-y-1.5">
+                  <DrawerRow icon={<Mail className="h-3.5 w-3.5" />} label="البريد" value={l.email} ltr
+                    href={l.email ? `mailto:${l.email}` : undefined} />
+                  <DrawerRow icon={<Phone className="h-3.5 w-3.5" />} label="الهاتف" value={l.phone} ltr
+                    href={l.phone ? `tel:${l.phone}` : undefined} />
+                  <DrawerRow icon={<Globe className="h-3.5 w-3.5" />} label="الموقع" value={l.website || l.domain} ltr
+                    href={l.domain ? `https://${l.domain}` : undefined} />
+                </div>
+              </section>
 
-          <section>
-            <h3 className="text-[12px] font-semibold text-[var(--fg-soft)] mb-2">المصدر</h3>
-            <div className="space-y-1.5">
-              <DrawerRow icon={<Briefcase className="h-3.5 w-3.5" />} label="الحملة"
-                value={l.job_id ? (ICP_LABELS[l.job_id] ?? "حملة توليد عملاء") : undefined} />
-            </div>
-          </section>
+              <section>
+                <h3 className="text-[12px] font-semibold text-[var(--fg-soft)] mb-2">تفاصيل الشركة</h3>
+                <div className="space-y-1.5">
+                  <DrawerRow icon={<Building2 className="h-3.5 w-3.5" />} label="المدينة" value={l.city} />
+                  <DrawerRow icon={<User className="h-3.5 w-3.5" />} label="صانع القرار" value={l.decision_maker} />
+                  <DrawerRow icon={<CheckCircle2 className="h-3.5 w-3.5" />} label="حالة البريد"
+                    value={l.email_status === "DELIVERABLE" ? "صالح" : l.email_status === "INVALID" ? "غير صالح" : l.email_status ? "محتاج مراجعة" : undefined} />
+                  <DrawerRow icon={<ShieldCheck className="h-3.5 w-3.5" />} label="القوانين"
+                    value={l.legal_status === "ALLOWED" ? "مسموح" : l.legal_status === "BLOCKED" ? "محجوب" : "خلال الحدود المسموحة"} />
+                </div>
+              </section>
 
-          {l.email && (
-            <Button variant="primary" className="w-full" onClick={() => { window.location.href = `mailto:${l.email}`; }}>
-              <Mail className="h-4 w-4" />
-              راسلهم الآن
-            </Button>
+              <section>
+                <h3 className="text-[12px] font-semibold text-[var(--fg-soft)] mb-2">المصدر</h3>
+                <div className="space-y-1.5">
+                  <DrawerRow icon={<Briefcase className="h-3.5 w-3.5" />} label="الحملة"
+                    value={l.job_id ? (ICP_LABELS[l.job_id] ?? "حملة توليد عملاء") : undefined} />
+                </div>
+              </section>
+            </div>
           )}
 
-          {l.lead_id && <ReviewPanel leadId={l.lead_id} />}
+          {activeTab === "pitch" && (
+            <LeadPitchTab lead={l} />
+          )}
+
+          {activeTab === "audit" && (
+            <div>
+              {l.lead_id ? (
+                <ReviewPanel leadId={l.lead_id} />
+              ) : (
+                <div className="py-8 text-center text-xs text-[var(--fg-muted)]">
+                  لا يتوفر معرف للعميل لعرض سجل الأدلة
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </aside>
     </>

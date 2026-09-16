@@ -1422,10 +1422,12 @@ from .integrations_api import router as integrations_router
 from .events_api import router as events_router
 from .data_api import router as data_router
 from .platform_api import router as platform_router
+from .pitch_api import router as pitch_router
 app.include_router(integrations_router)
 app.include_router(events_router)
 app.include_router(data_router)
 app.include_router(platform_router)
+app.include_router(pitch_router)
 
 
 # SPA fallback — any non-API path that didn't match above returns the SPA

@@ -29,6 +29,8 @@ const NAV_PATHS = [
   "/integrations", "/agents", "/activity", "/config",
 ];
 
+import { CommandPalette } from "./CommandPalette";
+
 export function Topbar() {
   const { theme, toggleTheme, sidebar, setSidebar } = useUI();
   const qc = useQueryClient();
@@ -36,9 +38,7 @@ export function Topbar() {
   const { data: usage } = useLiveData<any>(() => apiGet.keysUsage(), 60000);
   const { data: session, error } = useLiveData<any>(() => apiGet.authSession(), 120000);
   const needsSetup = !error && session?.mode === "closed";
-  const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(false);
-  const searchRef = useRef<HTMLInputElement>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   // One quiet usage chip — the details live in the Consumption page.
   const usageRows: any[] = usage?.providers ?? [];
@@ -51,30 +51,16 @@ export function Topbar() {
     maxQuota >= 85 ? "var(--danger)" :
     maxQuota >= 60 ? "var(--warn)" : "var(--success)";
 
-  const results = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return NAV_PATHS;
-    return NAV_PATHS.filter((p) => (PAGE_TITLES[p] ?? "").toLowerCase().includes(q));
-  }, [query]);
-
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        searchRef.current?.focus();
-        setOpen(true);
+        setPaletteOpen((prev) => !prev);
       }
-      if (event.key === "Escape") setOpen(false);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-
-  function go(href: string) {
-    setOpen(false);
-    setQuery("");
-    window.location.assign(href);
-  }
 
   return (
     <header className="sticky top-0 z-20 glass border-b border-[var(--border)] h-14 flex items-center px-4 gap-3 shrink-0">
@@ -95,47 +81,21 @@ export function Topbar() {
 
       {/* Command search — centered */}
       <div className="relative hidden md:block w-full max-w-sm mx-auto" dir="rtl">
-        <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--fg-soft)] pointer-events-none" />
-        <input
-          ref={searchRef}
-          type="text"
-          value={query}
-          onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
-          onFocus={() => setOpen(true)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && results[0]) go(results[0]);
-          }}
-          placeholder="ابحث عن صفحة…  Ctrl K"
-          className="w-full h-8.5 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-soft)] pr-9 pl-12 text-[13px] text-[var(--fg)] placeholder:text-[var(--fg-soft)] focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] transition-colors"
-        />
-        <kbd className="absolute left-2.5 top-1/2 -translate-y-1/2 hidden lg:inline-flex items-center h-5 px-1.5 rounded border border-[var(--border)] bg-[var(--bg-elev)] text-[10px] font-mono text-[var(--fg-soft)]">
-          ⌘K
-        </kbd>
-        {open && (
-          <>
-            <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
-            <div className="absolute top-full mt-1.5 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] shadow-[var(--shadow-lg)] z-40 overflow-hidden animate-scale-in">
-              {results.length === 0 ? (
-                <div className="px-4 py-6 text-center text-sm text-[var(--fg-muted)]">لا نتائج مطابقة</div>
-              ) : (
-                <ul className="py-1.5 max-h-72 overflow-y-auto">
-                  {results.map((p) => (
-                    <li key={p}>
-                      <button
-                        onClick={() => go(p)}
-                        className="w-full flex items-center gap-2.5 px-3.5 h-9 text-[13px] text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)] transition-colors"
-                      >
-                        <Zap className="h-3.5 w-3.5 text-[var(--fg-soft)]" />
-                        {PAGE_TITLES[p]}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </>
-        )}
+        <button
+          onClick={() => setPaletteOpen(true)}
+          className="w-full h-9 py-1.5 px-3 rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] text-right flex items-center justify-between text-[13px] text-[var(--fg-soft)] hover:border-[var(--accent)] hover:bg-[var(--bg-hover)] transition-all cursor-pointer group shadow-xs"
+        >
+          <div className="flex items-center gap-2.5">
+            <Search className="h-4 w-4 text-[var(--fg-soft)] group-hover:text-[var(--accent)] transition-colors" />
+            <span className="group-hover:text-[var(--fg)] transition-colors">ابحث عن صفحة، عميل، أو إجراء…</span>
+          </div>
+          <kbd className="inline-flex items-center h-5 px-2 rounded-md border border-[var(--border)] bg-[var(--bg-elev)] text-[11px] font-mono text-[var(--fg-muted)] group-hover:border-[var(--accent)] transition-colors">
+            Ctrl K
+          </kbd>
+        </button>
       </div>
+
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
 
       {/* Right: one usage chip + actions */}
       <div className="ms-auto flex items-center gap-1.5 shrink-0">

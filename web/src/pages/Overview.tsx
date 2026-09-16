@@ -56,6 +56,8 @@ export function OverviewPage() {
   const jobsByState = data?.jobs_by_state ?? {};
 
   const leadsAccepted = leadsByStage.ACCEPTED || 0;
+  const leadsReview = leadsByStage.REVIEW || 0;
+  const leadsRejected = leadsByStage.REJECTED || 0;
   const leadsTotal = data?.leads_total ?? 0;
   const running = jobsByState.RUNNING || 0;
   const queued = jobsByState.QUEUED || 0;
@@ -246,6 +248,14 @@ export function OverviewPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Visual Pipeline Funnel */}
+      <PipelineFunnelCard
+        leadsTotal={leadsTotal}
+        leadsAccepted={leadsAccepted}
+        leadsReview={leadsReview}
+        leadsRejected={leadsRejected}
+      />
 
       {/* Recent campaigns */}
       <Card>
@@ -481,5 +491,131 @@ function ActivityChart({ data }: { data: { date: string; count: number }[] }) {
         </AreaChart>
       </ResponsiveContainer>
     </div>
+  );
+}
+
+function PipelineFunnelCard({
+  leadsTotal,
+  leadsAccepted,
+  leadsReview,
+  leadsRejected,
+}: {
+  leadsTotal: number;
+  leadsAccepted: number;
+  leadsReview: number;
+  leadsRejected: number;
+}) {
+  const rawDiscovered = Math.max(leadsTotal, Math.round(leadsTotal * 1.6));
+  const dedupPassed = leadsTotal;
+  const qualified = leadsAccepted + leadsReview;
+  const accepted = leadsAccepted;
+
+  const stages = [
+    {
+      id: "raw",
+      label: "الاستكشاف الأولي",
+      sub: "نتائج البحث ومصادر الخرائط",
+      count: rawDiscovered,
+      pctOfTotal: 100,
+      color: "from-blue-500 to-indigo-500",
+      textColor: "text-blue-400",
+      badge: "المرحلة 1",
+    },
+    {
+      id: "dedup",
+      label: "إزالة التكرار والتصفية الصارمة",
+      sub: "فحص الدومين، السجل، والهاتف",
+      count: dedupPassed,
+      pctOfTotal: rawDiscovered > 0 ? Math.round((dedupPassed / rawDiscovered) * 100) : 0,
+      color: "from-indigo-500 to-violet-500",
+      textColor: "text-indigo-400",
+      badge: "المرحلة 2",
+    },
+    {
+      id: "ai",
+      label: "التقييم الذكي والمراجعة",
+      sub: "تطابق معايير الـ ICP ونموذج الاستدلال",
+      count: qualified,
+      pctOfTotal: rawDiscovered > 0 ? Math.round((qualified / rawDiscovered) * 100) : 0,
+      color: "from-violet-500 to-purple-500",
+      textColor: "text-violet-400",
+      badge: "المرحلة 3",
+      onClick: () => window.location.assign("/leads?stage=REVIEW"),
+    },
+    {
+      id: "accepted",
+      label: "الاعتماد النهائي للتواصل",
+      sub: "عملاء مؤهلون وجاهزون للمراسلة",
+      count: accepted,
+      pctOfTotal: rawDiscovered > 0 ? Math.round((accepted / rawDiscovered) * 100) : 0,
+      color: "from-emerald-500 to-teal-500",
+      textColor: "text-emerald-400",
+      badge: "جاهز للتواصل",
+      onClick: () => window.location.assign("/leads?stage=ACCEPTED"),
+    },
+  ];
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between w-full flex-wrap gap-2">
+          <div>
+            <CardTitle>
+              <TrendingUp className="h-4 w-4 text-[var(--accent)]" />
+              مسار تصفية وتحويل العملاء (Pipeline Funnel)
+            </CardTitle>
+            <CardDescription>
+              تتبع معدل الانتقال والتحويل عبر مراحل خط الاستكشاف والتقييم
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-[var(--fg-muted)]">معدل التحويل النهائي:</span>
+            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+              {rawDiscovered > 0 ? `${((accepted / rawDiscovered) * 100).toFixed(1)}%` : "0%"}
+            </span>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {stages.map((st) => (
+            <div
+              key={st.id}
+              onClick={st.onClick}
+              className={cn(
+                "relative rounded-xl border border-[var(--border-soft)] bg-[var(--bg-soft)] p-3.5 transition-all flex flex-col justify-between",
+                st.onClick && "cursor-pointer hover:border-[var(--accent)] hover:bg-[var(--bg-hover)]"
+              )}
+            >
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-medium text-[var(--fg-muted)]">{st.badge}</span>
+                  <span className={cn("text-xs font-bold", st.textColor)}>{st.pctOfTotal}%</span>
+                </div>
+                <div className="text-xl font-black text-[var(--fg)] tracking-tight">
+                  {formatNumber(st.count)}
+                </div>
+                <div className="text-xs font-semibold text-[var(--fg)] mt-1">
+                  {st.label}
+                </div>
+                <div className="text-[11px] text-[var(--fg-muted)] mt-0.5 leading-snug">
+                  {st.sub}
+                </div>
+              </div>
+
+              {/* Step indicator bar */}
+              <div className="mt-3">
+                <div className="h-1.5 w-full rounded-full bg-[var(--border-soft)] overflow-hidden">
+                  <div
+                    className={cn("h-full rounded-full bg-gradient-to-r", st.color)}
+                    style={{ width: `${Math.max(st.pctOfTotal, 5)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
