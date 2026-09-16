@@ -117,6 +117,7 @@ def main(argv=None):
 
         from . import queue
         from .benchmark.run import run_benchmark
+        from .events import dispatch_pending
 
         worker_id = f"worker-{socket.gethostname()}-{os.getpid()}"
         print(f"worker {worker_id} polling every {args.poll}s")
@@ -163,6 +164,12 @@ def main(argv=None):
                 else:
                     queue.complete(db, job_id)
                 print(f"{job_id} -> {state}")
+                # Flush outbox: send webhooks/notifications without a
+                # separate event-worker process (serverless-safe).
+                try:
+                    dispatch_pending(db)
+                except Exception:
+                    pass
             except Exception as exc:
                 state = queue.fail(db, job_id, f"{type(exc).__name__}: {exc}")
                 print(f"{job_id} failed -> {state}: {exc}")
@@ -172,6 +179,7 @@ def main(argv=None):
                     emit(db, os.environ.get("LEAD_ENGINE_ORG_ID"), "job.failed",
                          "job", job_id, {"job_id": job_id,
                                          "error": f"{type(exc).__name__}: {exc}"})
+                    dispatch_pending(db)
                 except Exception:
                     pass
             if args.once:

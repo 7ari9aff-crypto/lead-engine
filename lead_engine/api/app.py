@@ -89,6 +89,9 @@ app = FastAPI(
                 "(n8n = orchestration, FastAPI = brain, Supabase = storage)",
 )
 
+from ..observability import CorrelationIdMiddleware
+app.add_middleware(CorrelationIdMiddleware)
+
 PROTECTED_PATHS = ("/api/", "/mcp", "/leads", "/jobs", "/providers", "/benchmark/",
                    "/sync-supabase", "/verify-email", "/report/", "/export/")
 

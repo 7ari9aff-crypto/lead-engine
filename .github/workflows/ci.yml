@@ -16,7 +16,7 @@ jobs:
       - name: Dependency audit
         run: |
           pip install pip-audit
-          pip-audit -r requirements.txt --skip-editable || true
+          pip-audit -r requirements.txt --skip-editable
   frontend:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: web } }
@@ -30,4 +30,4 @@ jobs:
       - run: pnpm run typecheck
       - run: pnpm run build
       - name: Dependency audit
-        run: pnpm audit --prod || true
+        run: pnpm audit --prod

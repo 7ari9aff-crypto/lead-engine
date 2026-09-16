@@ -139,3 +139,20 @@ def usage_reconciliation(db=Depends(get_db)):
     drifted = [r for r in report if r["drift"] not in (None, 0, 0.0)]
     return {"lines": report, "drifted": drifted,
             "status": "drifted" if drifted else "reconciled"}
+
+
+@router.post("/api/v1/events/dispatch")
+def dispatch_outbox(request: Request, db=Depends(get_db)):
+    """Flush pending outbox events (webhooks + notifications).
+
+    Safe to call from cron triggers, n8n schedulers, or Vercel serverless
+    functions that cannot run a persistent event-worker process.
+    Idempotent: already-dispatched events are skipped automatically.
+    """
+    from ..events import dispatch_pending
+
+    counts = dispatch_pending(db)
+    return {"ok": True, "dispatched": counts.get("dispatched", 0),
+            "retried": counts.get("retried", 0),
+            "dead_lettered": counts.get("dead_lettered", 0)}
+

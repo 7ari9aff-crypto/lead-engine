@@ -17,18 +17,17 @@
 
 | الجانب | مصمَّم | منفَّذ حاليًا |
 |---|---|---|
-| Lead Engine (pipeline كامل) | ✅ | ✅ **جاهز ومختبر (50+ توستس)** |
+| Lead Engine (pipeline كامل) | ✅ | ✅ **منفَّذ ومختبر (259 اختباراً أخضر 100%)** |
 | Provider Router (quotas/rotation/fallback) | ✅ | ✅ |
-| Auth | ✅ JWT/RBAC | ⚠️ كلمة سر واحدة (يُستبدل في المرحلة 1) |
-| Database | ✅ Postgres/Supabase + RLS | ⚠️ SQLite تشغيلي + Supabase مزامنة (يتحول في المرحلة 1) |
-| Tenancy | ✅ | ❌ (تُبنى في المرحلة 1) |
-| Jobs/Workers/Queue | ✅ | ❌ تشغيل متزامن داخل العملية (مرحلة 2) |
-| Events/Outbox | ✅ | ❌ (مرحلة 2) |
-| Billing/Entitlements | ✅ | ❌ (مرحلة 2) |
-| Backup/DR | ✅ PITR + RPO/RTO | ❌ (مرحلة 1 — تفعيل واختبار) |
-| Security Engineering | ✅ controls | ⚠️ جزئي (CI scanning في المرحلة 1) |
-| API Lifecycle | ✅ /api/v1 | ⚠️ aliases فقط (البادئة في المرحلة 1) |
-| Frontend | ✅ Next.js مُؤجل بشروط | ✅ React 19 + Vite SPA (redesign حديث) |
+| Auth | ✅ JWT/RBAC | ✅ Supabase JWT + RBAC فعّال (المسار القديم مُغلق في وضع supabase) |
+| Database | ✅ Postgres/Supabase + RLS | ✅ Postgres/Supabase أساسي + RLS + schema `engine` منفصلة (SQLite للـdev/tests فقط) |
+| Tenancy | ✅ | ✅ مطبقة (organization_id على كافة الجداول التشغيلية، ORG_TABLES + حقن تلقائي) |
+| Jobs/Workers/Queue | ✅ | ✅ SKIP LOCKED، lease، reclaim، backoff (Postgres قوائم انتظار كاملة) |
+| Events/Outbox | ✅ | ✅ transactional outbox + idempotent consumers + DLQ + webhooks HMAC |
+| Billing/Entitlements | ✅ | ⚠️ Entitlements يومية منفَّذة — Stripe/Subscription غير منفَّذ بعد |
+| Backup/DR | ✅ PITR + RPO/RTO | ⚠️ runbook موثق، تجربة استعادة حقيقية متبقية |
+| Security Engineering | ✅ controls | ✅ CI حازم (بلا || true)، vercel.json بلا أسرار، pip-audit + pnpm audit |
+| API Lifecycle | ✅ /api/v1 | ✅ /api/v1 للمسارات الجديدة + aliases القديمة محفوظة |
 
 ## 3) المراحل المعتمدة وDefinition of Done
 
@@ -120,7 +119,9 @@
 ### Tenant-scoped — organization_id إلزامي في الكتابة
 
 jobs · leads · usage_ledger · agent_runs · agent_steps · approvals ·
-job_events · evidence · cache · notifications · activity_events · agents
+job_events · evidence · cache · notifications · activity_events · agents ·
+research_facts · fact_sources · fact_conflicts · open_questions · visited_sources ·
+icp_versions · research_context
 
 - NULL organization_id في agents فقط = وكيل منصة (system agent)
 - activity_events القديمة (قبل migration 6) بدون org = صفوف منصة تراثية
