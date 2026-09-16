@@ -85,16 +85,25 @@ export function LeadsPage() {
   const [drawerLead, setDrawerLead] = useState<LeadRow | null>(null);
   const [bulkBusy, setBulkBusy] = useState<string | null>(null);
   const [bulkProgress, setBulkProgress] = useState<string | null>(null);
+  const [quickFilter, setQuickFilter] = useState<"all" | "whatsapp" | "verified_email" | "tier_a" | "review" | "accepted">("all");
+  const [selectedCity, setSelectedCity] = useState<string>("");
 
   const leads = data ?? [];
   const jobs = Array.from(new Set(leads.map((l) => l.job_id).filter(Boolean))) as string[];
+  const availableCities = useMemo(() => Array.from(new Set(leads.map((l) => l.city).filter(Boolean))) as string[], [leads]);
 
-  useEffect(() => { setSelected(new Set()); }, [search, stage, jobId]);
+  useEffect(() => { setSelected(new Set()); }, [search, stage, jobId, quickFilter, selectedCity]);
 
   const filtered = useMemo(() => {
     return leads.filter((l) => {
       if (stage && l.stage !== stage) return false;
       if (jobId && l.job_id !== jobId) return false;
+      if (selectedCity && l.city !== selectedCity) return false;
+      if (quickFilter === "whatsapp" && !getWhatsAppUrl(l.phone, l.name)) return false;
+      if (quickFilter === "verified_email" && !(l.email && l.email_status === "DELIVERABLE")) return false;
+      if (quickFilter === "tier_a" && !((l.score ?? 0) >= 80 || (l.tier && l.tier.toUpperCase().startsWith("A")))) return false;
+      if (quickFilter === "review" && l.stage !== "REVIEW") return false;
+      if (quickFilter === "accepted" && l.stage !== "ACCEPTED") return false;
       if (search) {
         const q = search.toLowerCase();
         return (
@@ -106,7 +115,7 @@ export function LeadsPage() {
       }
       return true;
     });
-  }, [leads, search, stage, jobId]);
+  }, [leads, search, stage, jobId, selectedCity, quickFilter]);
 
   const stats = useMemo(() => {
     return {
@@ -226,6 +235,40 @@ export function LeadsPage() {
     refresh();
   }
 
+  async function bulkApprove() {
+    const targets = selectedRows.filter((l) => l.lead_id);
+    if (targets.length === 0) return;
+    setBulkBusy("approve");
+    let ok = 0;
+    for (const l of targets) {
+      try {
+        await apiPost.leadDecision(l.lead_id!, "APPROVE_CONTACT");
+        ok += 1;
+      } catch { /* continue */ }
+    }
+    setBulkBusy(null);
+    setSelected(new Set());
+    toast.success(`تم اعتماد ${ok} عميل للتواصل النهائي`);
+    refresh();
+  }
+
+  async function bulkReject() {
+    const targets = selectedRows.filter((l) => l.lead_id);
+    if (targets.length === 0) return;
+    setBulkBusy("reject");
+    let ok = 0;
+    for (const l of targets) {
+      try {
+        await apiPost.leadDecision(l.lead_id!, "REJECT");
+        ok += 1;
+      } catch { /* continue */ }
+    }
+    setBulkBusy(null);
+    setSelected(new Set());
+    toast.success(`تم استبعاد ${ok} عميل`);
+    refresh();
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -268,7 +311,68 @@ export function LeadsPage() {
       {/* Filters + saved searches */}
       <Card>
         <CardContent className="p-3 space-y-2.5">
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Quick Smart Filters Bar */}
+          <div className="flex items-center gap-1.5 flex-wrap pb-2 border-b border-[var(--border-soft)]">
+            <span className="text-[11px] font-semibold text-[var(--fg-muted)] shrink-0 me-1">تصفية سريعة:</span>
+            {[
+              { id: "all", label: "الكل", count: leads.length },
+              { id: "whatsapp", label: "📱 له واتساب", count: leads.filter((l) => getWhatsAppUrl(l.phone, l.name)).length },
+              { id: "verified_email", label: "✉️ إيميل صالح", count: leads.filter((l) => l.email && l.email_status === "DELIVERABLE").length },
+              { id: "tier_a", label: "⭐ النخبة (Tier A)", count: leads.filter((l) => (l.score ?? 0) >= 80 || l.tier?.toUpperCase().startsWith("A")).length },
+              { id: "review", label: "🔍 مراجعة", count: leads.filter((l) => l.stage === "REVIEW").length },
+              { id: "accepted", label: "✅ معتمد", count: leads.filter((l) => l.stage === "ACCEPTED").length },
+            ].map((p) => (
+              <button
+                key={p.id}
+                onClick={() => setQuickFilter(p.id as any)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-xs font-medium transition-all",
+                  quickFilter === p.id
+                    ? "bg-[var(--accent)] text-white shadow-xs font-semibold"
+                    : "bg-[var(--bg-soft)] text-[var(--fg-soft)] hover:text-[var(--fg)] border border-[var(--border-soft)]"
+                )}
+              >
+                <span>{p.label}</span>
+                <span className={cn(
+                  "text-[10px] px-1.5 py-0.2 rounded-full",
+                  quickFilter === p.id ? "bg-white/20 text-white" : "bg-[var(--bg-elev)] text-[var(--fg-muted)]"
+                )}>
+                  {p.count}
+                </span>
+              </button>
+            ))}
+
+            {/* City Chips */}
+            {availableCities.length > 0 && (
+              <div className="ms-auto flex items-center gap-1 flex-wrap">
+                <span className="text-[10px] text-[var(--fg-muted)]">المدينة:</span>
+                {availableCities.map((city) => (
+                  <button
+                    key={city}
+                    onClick={() => setSelectedCity(selectedCity === city ? "" : city)}
+                    className={cn(
+                      "text-[11px] h-6 px-2 rounded-md font-medium transition-colors border",
+                      selectedCity === city
+                        ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-hover)] font-bold"
+                        : "border-[var(--border-soft)] bg-[var(--bg-soft)] text-[var(--fg-muted)] hover:border-[var(--border)]"
+                    )}
+                  >
+                    {city}
+                  </button>
+                ))}
+                {selectedCity && (
+                  <button
+                    onClick={() => setSelectedCity("")}
+                    className="text-[10px] text-rose-400 hover:underline px-1"
+                  >
+                    إلغاء الفلتر
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 pt-1">
             <div className="relative flex-1 min-w-[200px]">
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--fg-soft)]" />
               <Input
@@ -349,42 +453,61 @@ export function LeadsPage() {
         </CardContent>
       </Card>
 
-      {/* Bulk actions bar */}
+      {/* Sticky Floating Dock for Bulk Operations */}
       {selected.size > 0 && (
-        <Card className="border-[var(--accent)]/50 animate-slide-up">
-          <CardContent className="p-3 flex items-center gap-2 flex-wrap">
-            <Badge variant="accent" className="text-[11px]">
-              محدد: {selected.size} من {filtered.length}
-            </Badge>
-            <Button variant="outline" size="sm" disabled={bulkBusy != null} onClick={() => exportCSV(selectedRows, "_selected")}>
-              <Download className="h-3.5 w-3.5" />
-              تصدير المحدد
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={bulkBusy != null || !selectedRows.some((l) => l.email)}
-              onClick={bulkVerify}
-              title="فحص إيميلات العملاء المحددة واحدًا واحدًا"
-            >
-              {bulkBusy === "verify" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MailCheck className="h-3.5 w-3.5" />}
-              فحص المحدد{bulkProgress ? ` ${bulkProgress}` : ""}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-[var(--danger)]"
-              disabled={bulkBusy != null || !selectedRows.some((l) => l.lead_id)}
-              onClick={bulkDelete}
-            >
-              {bulkBusy === "delete" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-              حذف المحدد
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())} className="ms-auto">
-              إلغاء التحديد
-            </Button>
-          </CardContent>
-        </Card>
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-5 py-3 rounded-2xl bg-[var(--bg-elev)]/95 border border-[var(--accent)] shadow-2xl backdrop-blur-md animate-slide-up flex-wrap justify-center max-w-[95vw]">
+          <span className="text-xs font-bold text-[var(--fg)] flex items-center gap-1.5 pe-2 border-e border-[var(--border)]">
+            <span className="h-2 w-2 rounded-full bg-[var(--accent)] animate-pulse" />
+            تم تحديد {selected.size} من {filtered.length}
+          </span>
+          <Button variant="primary" size="sm" onClick={() => exportInstantlyCSV(selectedRows)} className="text-xs">
+            <FileSpreadsheet className="h-3.5 w-3.5" />
+            تصدير Instantly ({selected.size})
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={bulkApprove}
+            disabled={bulkBusy != null}
+            className="text-xs text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10"
+          >
+            {bulkBusy === "approve" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+            اعتماد المحددين
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={bulkReject}
+            disabled={bulkBusy != null}
+            className="text-xs text-rose-400 border-rose-500/30 hover:bg-rose-500/10"
+          >
+            {bulkBusy === "reject" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <XCircle className="h-3.5 w-3.5" />}
+            استبعاد المحددين
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={bulkBusy != null || !selectedRows.some((l) => l.email)}
+            onClick={bulkVerify}
+            className="text-xs"
+          >
+            {bulkBusy === "verify" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MailCheck className="h-3.5 w-3.5" />}
+            فحص الإيميلات{bulkProgress ? ` ${bulkProgress}` : ""}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-[var(--danger)] text-xs hover:bg-[var(--danger)]/10"
+            disabled={bulkBusy != null || !selectedRows.some((l) => l.lead_id)}
+            onClick={bulkDelete}
+          >
+            {bulkBusy === "delete" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+            حذف
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())} className="text-xs text-[var(--fg-muted)]">
+            إلغاء التحديد
+          </Button>
+        </div>
       )}
 
       {/* Table */}
@@ -450,6 +573,82 @@ export function LeadsPage() {
   );
 }
 
+export function SocialBadges({
+  social,
+  linkedin,
+}: {
+  social?: string | null;
+  linkedin?: string | null;
+}) {
+  const links: { type: string; url: string; label: string; color: string; bg: string }[] = [];
+
+  if (linkedin) {
+    links.push({
+      type: "linkedin",
+      url: linkedin.startsWith("http") ? linkedin : `https://${linkedin}`,
+      label: "LinkedIn",
+      color: "text-sky-400",
+      bg: "bg-sky-500/10 border-sky-500/30",
+    });
+  }
+
+  if (social) {
+    try {
+      const parsed = typeof social === "string" ? JSON.parse(social) : social;
+      if (typeof parsed === "object" && parsed !== null) {
+        for (const [k, v] of Object.entries(parsed)) {
+          if (typeof v === "string" && v) {
+            const kl = k.toLowerCase();
+            const url = v.startsWith("http") ? v : `https://${v}`;
+            if (kl.includes("insta")) {
+              links.push({ type: "instagram", url, label: "إنستقرام", color: "text-rose-400", bg: "bg-rose-500/10 border-rose-500/30" });
+            } else if (kl.includes("snap")) {
+              links.push({ type: "snapchat", url, label: "سناب شات", color: "text-yellow-300", bg: "bg-yellow-500/10 border-yellow-500/30" });
+            } else if (kl.includes("tik")) {
+              links.push({ type: "tiktok", url, label: "تيك توك", color: "text-teal-400", bg: "bg-teal-500/10 border-teal-500/30" });
+            } else if (kl.includes("twit") || kl === "x") {
+              links.push({ type: "x", url, label: "X", color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/30" });
+            } else if (kl.includes("map") || kl.includes("google")) {
+              links.push({ type: "maps", url, label: "خرائط", color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/30" });
+            }
+          }
+        }
+      }
+    } catch {
+      const sl = social.toLowerCase();
+      const url = social.startsWith("http") ? social : `https://${social}`;
+      if (sl.includes("instagram.com")) links.push({ type: "instagram", url, label: "إنستقرام", color: "text-rose-400", bg: "bg-rose-500/10 border-rose-500/30" });
+      else if (sl.includes("snapchat.com")) links.push({ type: "snapchat", url, label: "سناب شات", color: "text-yellow-300", bg: "bg-yellow-500/10 border-yellow-500/30" });
+      else if (sl.includes("tiktok.com")) links.push({ type: "tiktok", url, label: "تيك توك", color: "text-teal-400", bg: "bg-teal-500/10 border-teal-500/30" });
+      else if (sl.includes("twitter.com") || sl.includes("x.com")) links.push({ type: "x", url, label: "X", color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/30" });
+    }
+  }
+
+  if (links.length === 0) return null;
+
+  return (
+    <div className="flex items-center gap-1 mt-1 flex-wrap">
+      {links.map((item, idx) => (
+        <a
+          key={idx}
+          href={item.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className={cn(
+            "inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-medium border transition-colors hover:opacity-80",
+            item.color,
+            item.bg
+          )}
+          title={item.label}
+        >
+          {item.label}
+        </a>
+      ))}
+    </div>
+  );
+}
+
 function LeadRowBlock({ lead, selected, onToggleSelect, onOpenDrawer }: {
   lead: LeadRow;
   selected: boolean;
@@ -502,19 +701,25 @@ function LeadRowBlock({ lead, selected, onToggleSelect, onOpenDrawer }: {
         <td className="text-xs">{l.city || "—"}</td>
         <td>
           {l.domain ? (
-            <a
-              href={`https://${l.domain}`}
-              target="_blank"
-              rel="noopener"
-              className="text-xs text-[var(--accent)] hover:underline flex items-center gap-1 max-w-[140px]"
-              dir="ltr"
-            >
-              <Globe className="h-3 w-3 shrink-0" />
-              {truncate(l.domain, 20)}
-              <ExternalLink className="h-2.5 w-2.5" />
-            </a>
+            <div>
+              <a
+                href={`https://${l.domain}`}
+                target="_blank"
+                rel="noopener"
+                className="text-xs text-[var(--accent)] hover:underline flex items-center gap-1 max-w-[140px]"
+                dir="ltr"
+              >
+                <Globe className="h-3 w-3 shrink-0" />
+                {truncate(l.domain, 20)}
+                <ExternalLink className="h-2.5 w-2.5" />
+              </a>
+              <SocialBadges social={l.social} linkedin={l.linkedin} />
+            </div>
           ) : (
-            "—"
+            <div>
+              <span className="text-xs text-[var(--fg-muted)]">—</span>
+              <SocialBadges social={l.social} linkedin={l.linkedin} />
+            </div>
           )}
         </td>
         <td className="text-xs">
@@ -601,6 +806,9 @@ function LeadPitchTab({ lead }: { lead: LeadRow }) {
   const [copiedBody, setCopiedBody] = useState(false);
   const [copiedWa, setCopiedWa] = useState(false);
   const [angle, setAngle] = useState("زيادة إيرادات العيادة وجلب مرضى جدد");
+  const [operatorPhone, setOperatorPhone] = useState(() => localStorage.getItem("leadEngine.operatorPhone") || "");
+  const [editingPhone, setEditingPhone] = useState(false);
+  const [tempPhone, setTempPhone] = useState("");
 
   const generate = async () => {
     setLoading(true);
@@ -666,6 +874,18 @@ function LeadPitchTab({ lead }: { lead: LeadRow }) {
     return `https://wa.me/${normalized}?text=${encodeURIComponent(text)}`;
   }, [lead.phone, lead.name, pitch]);
 
+  const operatorWaUrl = useMemo(() => {
+    if (!operatorPhone || !pitch) return null;
+    const digits = operatorPhone.replace(/[^0-9]/g, "");
+    let normalized = digits;
+    if (digits.startsWith("05") && digits.length === 10) normalized = "966" + digits.substring(1);
+    else if (digits.startsWith("5") && digits.length === 9) normalized = "966" + digits;
+    else if (digits.startsWith("00966")) normalized = digits.substring(2);
+    if (!normalized || normalized.length < 9) return null;
+    const msg = `[معاينة تجريبية لمسؤول الحملة - ${lead.name || "المنشأة"}]\n\n${pitch.whatsapp_message}`;
+    return `https://wa.me/${normalized}?text=${encodeURIComponent(msg)}`;
+  }, [operatorPhone, lead.name, pitch]);
+
   return (
     <div className="space-y-4">
       {/* Configuration & Trigger */}
@@ -677,8 +897,29 @@ function LeadPitchTab({ lead }: { lead: LeadRow }) {
           </div>
           <Badge variant="outline" className="text-[10px]">مخصص للسوق السعودي</Badge>
         </div>
-        <div>
-          <label className="text-[11px] text-[var(--fg-muted)] block mb-1">الزاوية التسويقية / عرض القيمة:</label>
+        <div className="space-y-1.5">
+          <label className="text-[11px] text-[var(--fg-muted)] block">الزاوية التسويقية / عرض القيمة:</label>
+          <div className="flex items-center gap-1 flex-wrap mb-1">
+            {[
+              { label: "🚀 زيادة المرضى", value: "زيادة إيرادات العيادة وجلب مرضى جدد" },
+              { label: "📉 خفض إلغاء المواعيد", value: "خفض إلغاء المواعيد (No-shows) وتأكيد الحجوزات" },
+              { label: "⚡ أتمتة الردود 24/7", value: "أتمتة الردود على استفسارات واتساب الفورية" },
+            ].map((p, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => setAngle(p.value)}
+                className={cn(
+                  "text-[10px] px-2 py-0.5 rounded-full border transition-all",
+                  angle === p.value
+                    ? "bg-amber-500/20 text-amber-300 border-amber-500/40 font-semibold"
+                    : "bg-[var(--bg-elev)] text-[var(--fg-muted)] border-[var(--border-soft)] hover:border-[var(--border)]"
+                )}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
           <Select
             value={angle}
             onChange={(e) => setAngle(e.target.value)}
@@ -742,7 +983,7 @@ function LeadPitchTab({ lead }: { lead: LeadRow }) {
           )}
 
           {/* WhatsApp Pitch */}
-          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3.5 space-y-2">
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3.5 space-y-2.5">
             <div className="flex items-center justify-between">
               <div className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5">
                 <MessageCircle className="h-3.5 w-3.5" />
@@ -775,6 +1016,72 @@ function LeadPitchTab({ lead }: { lead: LeadRow }) {
                 (لا يتوفر رقم هاتف لإطلاق واتساب تلقائياً، يمكنك نسخ النص والتواصل يدوياً)
               </div>
             )}
+
+            {/* Operator Preview on Personal WhatsApp */}
+            <div className="pt-2 mt-1 border-t border-emerald-500/20">
+              <div className="flex items-center justify-between text-[11px] mb-1.5">
+                <span className="font-semibold text-emerald-300 flex items-center gap-1">
+                  🧪 تجربة على رقمك الشخصي:
+                </span>
+                {operatorPhone && (
+                  <button
+                    onClick={() => {
+                      setTempPhone(operatorPhone);
+                      setEditingPhone(true);
+                    }}
+                    className="text-[10px] text-[var(--accent)] hover:underline"
+                  >
+                    تغيير رقمي ({operatorPhone})
+                  </button>
+                )}
+              </div>
+              {operatorPhone && !editingPhone ? (
+                <a
+                  href={operatorWaUrl || "#"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg text-xs font-medium bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 border border-emerald-500/30 transition-colors"
+                  title="أرسل هذه الرسالة لرقمك الشخصي لتراها كما ستصل للعميل"
+                >
+                  <MessageCircle className="h-3.5 w-3.5" />
+                  معاينة على رقمي في واتساب
+                </a>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    placeholder="رقمك لتجربة الرسائل (05xxxxxxxx)…"
+                    value={tempPhone}
+                    onChange={(e) => setTempPhone(e.target.value)}
+                    className="text-xs h-7.5"
+                    dir="ltr"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      if (!tempPhone.trim()) return;
+                      setOperatorPhone(tempPhone.trim());
+                      localStorage.setItem("leadEngine.operatorPhone", tempPhone.trim());
+                      setEditingPhone(false);
+                      toast.success("تم حفظ رقمك للتجربة المباشرة");
+                    }}
+                    className="text-xs h-7.5 shrink-0"
+                  >
+                    حفظ
+                  </Button>
+                  {operatorPhone && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setEditingPhone(false)}
+                      className="text-xs h-7.5"
+                    >
+                      إلغاء
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Cold Email Pitch */}
@@ -951,7 +1258,10 @@ function LeadDrawer({ lead, onClose }: { lead: LeadRow; onClose: () => void }) {
               </div>
 
               <section>
-                <h3 className="text-[12px] font-semibold text-[var(--fg-soft)] mb-2">التواصل</h3>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-[12px] font-semibold text-[var(--fg-soft)]">التواصل والحسابات</h3>
+                  <SocialBadges social={l.social} linkedin={l.linkedin} />
+                </div>
                 <div className="space-y-1.5">
                   <DrawerRow icon={<Mail className="h-3.5 w-3.5" />} label="البريد" value={l.email} ltr
                     href={l.email ? `mailto:${l.email}` : undefined} />

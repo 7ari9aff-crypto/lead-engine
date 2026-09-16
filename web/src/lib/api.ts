@@ -115,6 +115,8 @@ export type LeadRow = {
   stage: "ACCEPTED" | "REVIEW" | "REJECTED";
   legal_status?: string | null;
   job_id?: string | null;
+  social?: string | null;
+  linkedin?: string | null;
 };
 
 export type KeyCard = {
