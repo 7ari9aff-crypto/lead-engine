@@ -13,18 +13,31 @@ The control dashboard (Arabic RTL) is served from /static and mounted at /.
 Admin endpoints live under /api/*: system status, provider toggle/reset,
 YAML config editing, background job start, cache purge, CSV export.
 """
+import hmac
 import json
 import ipaddress
 import os
 import sys
 import threading
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 import yaml
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
+
+try:
+    from pydantic import EmailStr
+    import email_validator  # noqa: F401 — EmailStr's optional runtime dependency.
+except (ImportError, ModuleNotFoundError):
+    EmailStr = str  # type: ignore[misc,assignment]
+
+
+MAX_SEED_PATH = 4_096
+MAX_MAPPING_ITEMS = 32
 
 from .. import __version__
 from ..benchmark.metrics import compute_metrics, render_report
@@ -51,7 +64,7 @@ def _hydrate_credentials_at_boot() -> None:
 
         db = open_db()
         hydrate_environment(db, os.environ.get("LEAD_ENGINE_ORG_ID"))
-        db.conn.close()
+        db.close()
     except Exception:
         pass  # no DSN/org/key yet — .env bootstrap path
 
@@ -67,7 +80,7 @@ def _recover_interrupted_jobs_at_boot() -> None:
             reclaim_expired(db)
         else:
             JobManager(db).recover_interrupted_jobs()
-        db.conn.close()
+        db.close()
     except Exception:
         pass
 
@@ -79,7 +92,8 @@ STATIC_DIR = ROOT / "lead_engine" / "static"
 CONFIG_FILES = {
     "settings": CONFIG_DIR / "settings.yaml",
     "cache_policy": CONFIG_DIR / "cache_policy.yaml",
-    "icp_v0_saudi_dental": CONFIG_DIR / "icp" / "v0_saudi_dental.yaml",
+    "icp": CONFIG_DIR / "icp" / "v0.yaml",
+    "legal": CONFIG_DIR / "legal_policies" / "default.yaml",
     "legal_sa": CONFIG_DIR / "legal_policies" / "sa.yaml",
 }
 
@@ -88,6 +102,42 @@ app = FastAPI(
     version=__version__,
     description="Quota-aware multi-provider lead generation engine "
                 "(n8n = orchestration, FastAPI = brain, Supabase = storage)",
+)
+
+
+def _cors_origins() -> list[str]:
+    """Return explicit CORS origins, with localhost defaults for development.
+
+    Production must opt in to browser origins via LEAD_ENGINE_CORS_ORIGINS.
+    Wildcards are intentionally ignored because credentials are enabled for
+    the dashboard's cookie/session flow.
+    """
+    configured = os.environ.get("LEAD_ENGINE_CORS_ORIGINS")
+    if configured is None:
+        if os.environ.get("LEAD_ENGINE_ENV") == "production":
+            return []
+        configured = "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173"
+
+    origins = []
+    for value in configured.split(","):
+        origin = value.strip().rstrip("/")
+        parsed = urlparse(origin)
+        if (not origin or origin == "*" or parsed.scheme not in {"http", "https"}
+                or not parsed.netloc or parsed.path not in ("", "/")
+                or parsed.params or parsed.query or parsed.fragment):
+            continue
+        if origin not in origins:
+            origins.append(origin)
+    return origins
+
+
+_CORS_ORIGINS = _cors_origins()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_CORS_ORIGINS,
+    allow_credentials=bool(_CORS_ORIGINS),
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 from ..observability import CorrelationIdMiddleware
@@ -117,7 +167,10 @@ async def admin_session_guard(request: Request, call_next):
             resp.headers["Pragma"] = "no-cache"
             resp.headers["Expires"] = "0"
             return resp
-    public = path in {"/health", "/api/auth/login", "/api/auth/session", "/api/auth/logout"}
+    public = path in {
+        "/health", "/ready", "/api/v1/ready",
+        "/api/auth/login", "/api/auth/session", "/api/auth/logout",
+    }
     protected = path.startswith(PROTECTED_PATHS)
     if protected and not public:
         token = auth_jwt.bearer_token(request.headers)
@@ -132,9 +185,9 @@ async def admin_session_guard(request: Request, call_next):
         # dedicated static token LEAD_ENGINE_MCP_TOKEN on ANY protected path —
         # opt-in via env, fail-closed when unset. This keeps the n8n scheduler
         # working (it has no Supabase session and no cookie).
-        machine_ok = bool(
-            os.environ.get("LEAD_ENGINE_MCP_TOKEN")
-            and token == os.environ.get("LEAD_ENGINE_MCP_TOKEN"))
+        _expected = os.environ.get("LEAD_ENGINE_MCP_TOKEN", "")
+        machine_ok = bool(_expected) and isinstance(token, str) and \
+            hmac.compare_digest(token.encode(), _expected.encode())
         legacy_ok = (
             mode in ("open", "password")
             and valid_session(request.cookies.get(COOKIE_NAME))
@@ -164,12 +217,11 @@ def require_admin(request: Request = None, db: Database = None):
 
 
 def _org_clause(db, column: str = "organization_id") -> tuple[str, list]:
-    """SQL predicate limiting reads to the caller's tenant. Rows without an
-    org (platform/legacy) are excluded once a tenant context exists."""
-    org = getattr(db, "org_id", None)
-    if not org:
-        return "", []
-    return f" AND {column} = ?", [org]
+    """Delegated to lead_engine.tenant so chat tools, MCP and these
+    endpoints share ONE tenant predicate with identical semantics."""
+    from ..tenant import org_clause
+
+    return org_clause(db, column)
 
 
 def get_db(request: Request = None):
@@ -191,15 +243,38 @@ def get_db(request: Request = None):
                     # Authenticated but belongs to no organization: never let
                     # the env bridge act as their tenant.
                     db.org_id = "__no_org__"
+            elif not getattr(db, "org_id", None):
+                # Preserve the worker/service bridge for token-less contexts;
+                # browser requests always take the verified claims branch above.
+                db.org_id = os.environ.get("LEAD_ENGINE_ORG_ID")
         yield db
     finally:
         db.conn.close()
 
 
+def _validate_bounded_mapping(value, *, name: str):
+    if not isinstance(value, dict) or len(value) > MAX_MAPPING_ITEMS:
+        raise ValueError(f"{name} must contain at most {MAX_MAPPING_ITEMS} items")
+    for key, nested in value.items():
+        if not isinstance(key, str) or len(key) > 128:
+            raise ValueError(f"{name} keys are too long")
+        if isinstance(nested, str) and len(nested) > 16_384:
+            raise ValueError(f"{name} text values are too long")
+        if isinstance(nested, (list, tuple)) and len(nested) > MAX_MAPPING_ITEMS:
+            raise ValueError(f"{name} lists are too large")
+        if isinstance(nested, dict):
+            _validate_bounded_mapping(nested, name=name)
+    return value
+
+
 class RunRequest(BaseModel):
-    icp: str = "v0_saudi_dental"
-    seed_csv: str | None = None
-    overrides: dict | None = None  # v0_limits tweaks for one-off template runs
+    icp: str = Field(default="v0", min_length=1, max_length=128)
+    seed_csv: str | None = Field(default=None, min_length=1, max_length=MAX_SEED_PATH)
+    overrides: dict[str, Any] | None = Field(default=None, max_length=MAX_MAPPING_ITEMS)
+
+    @validator("overrides")
+    def validate_overrides(cls, value):
+        return None if value is None else _validate_bounded_mapping(value, name="overrides")
 
 
 class ResumeRequest(BaseModel):
@@ -207,7 +282,16 @@ class ResumeRequest(BaseModel):
 
 
 class VerifyRequest(BaseModel):
-    email: str
+    email: EmailStr = Field(..., max_length=320)
+
+    @validator("email")
+    def validate_email_fallback(cls, value):
+        # EmailStr performs full validation when email-validator is installed;
+        # retain a conservative fallback when the optional extra is absent.
+        text = str(value).strip()
+        if "@" not in text or text.startswith("@") or text.endswith("@"):
+            raise ValueError("invalid email address")
+        return value
 
 
 class SyncRequest(BaseModel):
@@ -216,9 +300,13 @@ class SyncRequest(BaseModel):
 
 
 class AgentRunRequest(BaseModel):
-    agent: str = "lead-generation"
-    input: dict = Field(default_factory=dict)
-    version: str | None = None
+    agent: str = Field(default="lead-generation", min_length=1, max_length=128)
+    input: dict[str, Any] = Field(default_factory=dict, max_length=MAX_MAPPING_ITEMS)
+    version: str | None = Field(default=None, min_length=1, max_length=64)
+
+    @validator("input")
+    def validate_input(cls, value):
+        return _validate_bounded_mapping(value, name="input")
 
 
 class AgentCreateRequest(BaseModel):
@@ -270,12 +358,22 @@ class ApprovalResolution(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    password: str
+    password: str = Field(..., min_length=1, max_length=1_024)
 
 
 @app.post("/api/auth/login")
-def auth_login(req: LoginRequest):
-    from .auth import COOKIE_NAME, issue_session, password_matches
+def auth_login(req: LoginRequest, request: Request):
+    from .auth import (COOKIE_NAME, clear_login_failures, issue_session,
+                       login_retry_after, password_matches, prune_login_failures,
+                       record_login_failure)
+
+    client_key = request.client.host if request.client else "unknown"
+    prune_login_failures()
+    retry_after = login_retry_after(client_key)
+    if retry_after:
+        response = JSONResponse({"detail": "too many login attempts"}, status_code=429)
+        response.headers["Retry-After"] = str(retry_after)
+        return response
 
     # P0.3 auth finalization: when Supabase Auth is the backend, the legacy
     # shared-password path is closed — users sign in with email via the
@@ -287,7 +385,13 @@ def auth_login(req: LoginRequest):
             detail="تسجيل الدخول بيتم بالبريد الإلكتروني — استخدم صفحة الدخول العادية",
         )
     if not password_matches(req.password):
+        retry_after = record_login_failure(client_key)
+        if retry_after:
+            response = JSONResponse({"detail": "too many login attempts"}, status_code=429)
+            response.headers["Retry-After"] = str(retry_after)
+            return response
         raise HTTPException(status_code=401, detail="invalid credentials")
+    clear_login_failures(client_key)
     response = JSONResponse({"authenticated": True})
     response.set_cookie(COOKIE_NAME, issue_session(), httponly=True, samesite="lax",
                         secure=bool(os.environ.get("LEAD_ENGINE_COOKIE_SECURE")),
@@ -334,6 +438,17 @@ def health(db: Database = Depends(get_db)):
     }
 
 
+@app.get("/api/v1/ready")
+@app.get("/ready")
+def readiness(db: Database = Depends(get_db)):
+    """Lightweight readiness probe: confirm the configured DB is reachable."""
+    try:
+        db.execute("SELECT 1")
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="database not ready") from exc
+    return {"status": "ready"}
+
+
 @app.get("/api/agents")
 def api_agents(db: Database = Depends(get_db)):
     return {"agents": AgentRegistry(db).agents()}
@@ -345,11 +460,12 @@ def api_agent_versions(slug: str, db: Database = Depends(get_db)):
 
 
 @app.post("/api/agent-runs")
-def api_agent_run_create(req: AgentRunRequest, db: Database = Depends(get_db)):
+def api_agent_run_create(req: AgentRunRequest, request: Request, db: Database = Depends(get_db)):
+    require_admin(request, db)
     try:
         run_id = AgentRegistry(db).create_run(req.agent, req.input, req.version)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail="operation could not be completed") from exc
     return {"run_id": run_id, "status": "RUNNING", "agent": req.agent}
 
 
@@ -377,7 +493,8 @@ def api_connections(db: Database = Depends(get_db)):
 
 
 @app.post("/api/connections/{provider}/check")
-def api_connection_check(provider: str, db: Database = Depends(get_db)):
+def api_connection_check(provider: str, request: Request, db: Database = Depends(get_db)):
+    require_admin(request, db)
     result = AgentRegistry(db).check_connection(provider)
     if not result:
         raise HTTPException(status_code=404, detail="provider connection not found")
@@ -391,7 +508,8 @@ def api_approvals(status: str = "PENDING", db: Database = Depends(get_db)):
 
 @app.post("/api/approvals/{approval_id}/resolve")
 def api_approval_resolve(approval_id: str, req: ApprovalResolution,
-                         db: Database = Depends(get_db)):
+                         request: Request, db: Database = Depends(get_db)):
+    require_admin(request, db)
     if req.status not in ("APPROVED", "REJECTED"):
         raise HTTPException(status_code=422, detail="status must be APPROVED or REJECTED")
     if not AgentRegistry(db).resolve_approval(approval_id, req.status):
@@ -402,19 +520,21 @@ def api_approval_resolve(approval_id: str, req: ApprovalResolution,
 # ===== Dynamic agent registry (UI-driven, multi-domain) =====
 
 @app.post("/api/agents")
-def api_agents_create(req: AgentCreateRequest, db: Database = Depends(get_db)):
+def api_agents_create(req: AgentCreateRequest, request: Request, db: Database = Depends(get_db)):
+    require_admin(request, db)
     try:
         agent = AgentRegistry(db).create_agent(
             slug=req.slug, name=req.name,
             description=req.description, status=req.status,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail="operation could not be completed") from exc
     return {"agent": agent}
 
 
 @app.patch("/api/agents/{slug}")
-def api_agents_update(slug: str, req: AgentUpdateRequest, db: Database = Depends(get_db)):
+def api_agents_update(slug: str, req: AgentUpdateRequest, request: Request, db: Database = Depends(get_db)):
+    require_admin(request, db)
     fields = {k: v for k, v in req.model_dump().items() if v is not None}
     agent = AgentRegistry(db).update_agent(slug, fields)
     if not agent:
@@ -424,7 +544,8 @@ def api_agents_update(slug: str, req: AgentUpdateRequest, db: Database = Depends
 
 @app.post("/api/agents/{slug}/versions")
 def api_agent_version_create(slug: str, req: AgentVersionCreateRequest,
-                             db: Database = Depends(get_db)):
+                             request: Request, db: Database = Depends(get_db)):
+    require_admin(request, db)
     reg = AgentRegistry(db)
     try:
         version_row = reg.create_version(
@@ -438,7 +559,7 @@ def api_agent_version_create(slug: str, req: AgentVersionCreateRequest,
             status=req.status,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail="operation could not be completed") from exc
     activated = None
     if req.activate:
         activated = reg.set_active_version(slug, req.version)
@@ -446,11 +567,12 @@ def api_agent_version_create(slug: str, req: AgentVersionCreateRequest,
 
 
 @app.post("/api/agents/{slug}/versions/{version}/activate")
-def api_agent_version_activate(slug: str, version: str, db: Database = Depends(get_db)):
+def api_agent_version_activate(slug: str, version: str, request: Request, db: Database = Depends(get_db)):
+    require_admin(request, db)
     try:
         agent = AgentRegistry(db).set_active_version(slug, version)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail="operation could not be completed") from exc
     return {"agent": agent}
 
 
@@ -463,7 +585,8 @@ def api_agent_active(slug: str, db: Database = Depends(get_db)):
 
 
 @app.post("/api/tools")
-def api_tools_register(req: ToolRegisterRequest, db: Database = Depends(get_db)):
+def api_tools_register(req: ToolRegisterRequest, request: Request, db: Database = Depends(get_db)):
+    require_admin(request, db)
     tool = AgentRegistry(db).register_tool(
         name=req.name, description=req.description,
         input_schema=req.input_schema, output_schema=req.output_schema,
@@ -474,7 +597,8 @@ def api_tools_register(req: ToolRegisterRequest, db: Database = Depends(get_db))
 
 
 @app.post("/api/connections/register")
-def api_connections_register(req: ConnectionRegisterRequest, db: Database = Depends(get_db)):
+def api_connections_register(req: ConnectionRegisterRequest, request: Request, db: Database = Depends(get_db)):
+    require_admin(request, db)
     conn = AgentRegistry(db).register_connection(
         connection_id=req.connection_id, provider=req.provider,
         kind=req.kind, base_url=req.base_url, status=req.status,
@@ -500,7 +624,8 @@ def providers(db: Database = Depends(get_db)):
 @app.post("/api/v1/benchmark/run")
 @app.post("/benchmark/run")
 def run_benchmark_endpoint(req: RunRequest, background: BackgroundTasks,
-                           db: Database = Depends(get_db)):
+                           request: Request, db: Database = Depends(get_db)):
+    require_admin(request, db)
     """Synchronous on purpose for V0: a live run takes minutes but the job row
     is updated continuously, so n8n can poll /jobs/{id} from a second workflow
     if needed."""
@@ -520,10 +645,10 @@ def run_benchmark_endpoint(req: RunRequest, background: BackgroundTasks,
             icp_payload = {**base, "v0_limits": merged_limits}
         summary, metrics, outputs = run_benchmark(
             icp_payload, seed_csv=req.seed_csv, agent_run_id=run_id)
-    except Exception as exc:  # surface config errors to the caller
+    except Exception as exc:
         registry.finish_step(step_id, "FAILED", error=f"{type(exc).__name__}: {exc}")
         registry.finish_run(run_id, "FAILED", error=f"{type(exc).__name__}: {exc}")
-        raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc
+        raise HTTPException(status_code=500, detail="benchmark failed") from exc
     registry.finish_run(run_id, summary.get("state") or "COMPLETED", {
         "job_id": summary.get("job_id"), "metrics": metrics, "outputs": outputs,
     }, usage={
@@ -561,7 +686,8 @@ def list_jobs(db: Database = Depends(get_db)):
 
 @app.post("/api/v1/jobs/recover")
 @app.post("/jobs/recover")
-def recover_jobs(db: Database = Depends(get_db)):
+def recover_jobs(request: Request, db: Database = Depends(get_db)):
+    require_admin(request, db)
     """Manual or maintenance trigger to recover stranded jobs left in active states."""
     from ..jobs import JobManager
     from ..queue import platform_mode, reclaim_expired
@@ -573,7 +699,8 @@ def recover_jobs(db: Database = Depends(get_db)):
 
 @app.post("/api/v1/jobs/drain-queued")
 @app.post("/api/jobs/drain-queued")
-def drain_queued_jobs(db: Database = Depends(get_db)):
+def drain_queued_jobs(request: Request, db: Database = Depends(get_db)):
+    require_admin(request, db)
     """Cancel all jobs stranded in QUEUED state with no worker to pick them up.
     Safe to call on Vercel / serverless deployments where platform_mode is False
     and no queue worker process exists.  Returns the list of cancelled job IDs."""
@@ -608,7 +735,8 @@ def get_job(job_id: str, db: Database = Depends(get_db)):
 
 @app.post("/jobs/{job_id}/resume")
 def resume_job(job_id: str, req: ResumeRequest, background: BackgroundTasks,
-               db: Database = Depends(get_db)):
+               request: Request, db: Database = Depends(get_db)):
+    require_admin(request, db)
     from ..benchmark.run import run_benchmark as _run
 
     jobs = JobManager(db)
@@ -672,7 +800,9 @@ def report(job_id: str, db: Database = Depends(get_db)):
         except json.JSONDecodeError:
             pass
     if metrics is None:
-        usage = db.query("SELECT units FROM usage_ledger WHERE job_id=?", (job_id,))
+        usage = db.query(
+            f"SELECT units FROM usage_ledger WHERE job_id=?{_org_clause(db)[0]}",
+            (job_id, *_org_clause(db)[1]))
         summary = {"job_id": job_id, "stages": {}}
         metrics = compute_metrics(summary, leads, usage)
     return {"job_id": job_id, "metrics": metrics,
@@ -681,10 +811,13 @@ def report(job_id: str, db: Database = Depends(get_db)):
 
 @app.post("/api/v1/sync-supabase")
 @app.post("/sync-supabase")
-def sync_supabase(req: SyncRequest, db: Database = Depends(get_db)):
+def sync_supabase(req: SyncRequest, request: Request, db: Database = Depends(get_db)):
+    require_admin(request, db)
     from ..sync import SupabaseError, sync_job_to_supabase
 
-    job = db.one("SELECT state FROM jobs WHERE job_id=?", (req.job_id,))
+    org_clause, org_params = _org_clause(db)
+    job = db.one(f"SELECT state FROM jobs WHERE job_id=?{org_clause}",
+                 (req.job_id, *org_params))
     if not job:
         raise HTTPException(status_code=404, detail="job not found")
     if job["state"] not in ("COMPLETED", "DEGRADED"):
@@ -693,30 +826,33 @@ def sync_supabase(req: SyncRequest, db: Database = Depends(get_db)):
     try:
         return sync_job_to_supabase(db, req.job_id)
     except SupabaseError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail="supabase sync failed") from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"supabase sync failed: {exc}") from exc
+        raise HTTPException(status_code=502, detail="supabase sync failed") from exc
 
 
 # ---------------------------------------------------------------------------
 # Chat — conversational agent that drives the engine (function calling)
 # ---------------------------------------------------------------------------
 
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1, max_length=16_384)
+
+
 class ChatRequest(BaseModel):
-    messages: list  # [{role: user|assistant, content: str}]
-    provider: str | None = None      # pin the model (chat model picker)
-    tools: list | None = None        # subset of tool names (integrations picker)
-    agent: str | None = None         # agent slug — instructions + tool_policy from DB
+    messages: list[ChatMessage] = Field(..., min_length=1, max_length=50)
+    provider: str | None = Field(default=None, min_length=1, max_length=128)
+    tools: list[str] | None = Field(default=None, max_length=32)
+    agent: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 @app.post("/api/chat")
 def api_chat(req: ChatRequest, db: Database = Depends(get_db)):
     from .chat import run_agent
 
-    if not req.messages:
-        raise HTTPException(status_code=422, detail="messages is required")
     router = Router(db, _cache(db), settings)
-    return run_agent(router, db, req.messages, provider=req.provider,
+    return run_agent(router, db, [message.dict() for message in req.messages], provider=req.provider,
                      enabled_tools=req.tools, agent_slug=req.agent)
 
 
@@ -731,7 +867,7 @@ async def mcp_endpoint(request: Request, db: Database = Depends(get_db)):
     try:
         body = await request.json()
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"invalid JSON body: {exc}") from exc
+        raise HTTPException(status_code=400, detail="invalid JSON body") from exc
     payload, status = handle_jsonrpc(body, Router(db, _cache(db), settings), db)
     if payload is None:
         return Response(status_code=status)
@@ -756,7 +892,7 @@ RUN_LOCK = threading.Lock()
 
 
 _STATUS_TTL_SECONDS = 4
-_status_cache: dict = {"at": 0.0, "data": None, "key": None}
+_status_cache: dict = {}  # per-org slots (bounded below)
 
 
 @app.get("/api/status")
@@ -771,14 +907,14 @@ def api_status(db: Database = Depends(get_db)):
 
     cache_key = getattr(db, "org_id", None) or "shared"
     now = time.time()
-    if (_status_cache["data"] is not None
-            and _status_cache["key"] == cache_key
-            and now - _status_cache["at"] < _STATUS_TTL_SECONDS):
-        return _status_cache["data"]
-    _status_cache["data"] = _build_status(db)
-    _status_cache["at"] = now
-    _status_cache["key"] = cache_key
-    return _status_cache["data"]
+    cached = _status_cache.get(cache_key)
+    if cached and now - cached["at"] < _STATUS_TTL_SECONDS:
+        return cached["data"]
+    data = _build_status(db)
+    _status_cache[cache_key] = {"at": now, "data": data}
+    if len(_status_cache) > 8:  # bound memory across tenants
+        _status_cache.pop(next(iter(_status_cache)))
+    return data
 
 
 def _build_status(db: Database) -> dict:
@@ -787,9 +923,11 @@ def _build_status(db: Database) -> dict:
     providers = []
     for row in registry.status_table():
         env = row["env_key"]
+        org_clause, org_params = _org_clause(db)
         usage = db.one(
-            "SELECT COUNT(*) AS calls, COALESCE(SUM(units),0) AS units, MAX(ts) AS last_used"
-            " FROM usage_ledger WHERE provider=?", (row["name"],))
+            f"SELECT COUNT(*) AS calls, COALESCE(SUM(units),0) AS units, MAX(ts) AS last_used"
+            f" FROM usage_ledger WHERE provider=?{org_clause}",
+            (row["name"], *org_params))
         providers.append({
             "name": row["name"], "task": row["task"], "type": row["type"],
             "priority": row["priority"], "status": row["status"],
@@ -806,18 +944,24 @@ def _build_status(db: Database) -> dict:
         "version": __version__,
         "providers": providers,
         "jobs_by_state": {r["state"]: r["n"] for r in
-                          db.query("SELECT state, COUNT(*) AS n FROM jobs GROUP BY state")},
+                          db.query(f"SELECT state, COUNT(*) AS n FROM jobs WHERE 1=1{_org_clause(db)[0]} GROUP BY state", _org_clause(db)[1])},
         "recent_jobs": db.query(
-            "SELECT job_id, icp_id, state, pause_reason, resume_at, created_at, updated_at"
-            " FROM jobs ORDER BY created_at DESC LIMIT 12"),
-        "leads_total": db.one("SELECT COUNT(*) AS n FROM leads")["n"],
+            f"SELECT job_id, icp_id, state, pause_reason, resume_at, created_at, updated_at"
+            f" FROM jobs WHERE 1=1{_org_clause(db)[0]} ORDER BY created_at DESC LIMIT 12",
+            _org_clause(db)[1]),
+        "leads_total": db.one(
+            f"SELECT COUNT(*) AS n FROM leads WHERE 1=1{_org_clause(db)[0]}",
+            _org_clause(db)[1])["n"],
         "leads_by_stage": {r["stage"]: r["n"] for r in
-                           db.query("SELECT stage, COUNT(*) AS n FROM leads GROUP BY stage")},
+                           db.query(
+                               f"SELECT stage, COUNT(*) AS n FROM leads WHERE 1=1{_org_clause(db)[0]} GROUP BY stage",
+                               _org_clause(db)[1])},
         "cache_entries": {r["level"]: r["n"] for r in
                           db.query("SELECT level, COUNT(*) AS n FROM cache GROUP BY level")},
         "usage_totals": db.query(
-            "SELECT provider, task, COUNT(*) AS calls, COALESCE(SUM(units),0) AS units"
-            " FROM usage_ledger GROUP BY provider, task ORDER BY units DESC LIMIT 20"),
+            f"SELECT provider, task, COUNT(*) AS calls, COALESCE(SUM(units),0) AS units"
+            f" FROM usage_ledger WHERE 1=1{_org_clause(db)[0]} GROUP BY provider, task ORDER BY units DESC LIMIT 20",
+            _org_clause(db)[1]),
         "system": {
             "db_path": str(DB_PATH),
             "supabase_configured": bool(os.environ.get("SUPABASE_URL")
@@ -845,7 +989,7 @@ def api_analytics(db: Database = Depends(get_db)):
         (cutoff, *org_params),
     )
     jobs_over_time = db.query(
-        """SELECT date(created_at) AS date, COUNT(*) AS total,
+        f"""SELECT date(created_at) AS date, COUNT(*) AS total,
                   SUM(CASE WHEN state='COMPLETED' THEN 1 ELSE 0 END) AS completed,
                   SUM(CASE WHEN state='PAUSED' THEN 1 ELSE 0 END) AS paused,
                   SUM(CASE WHEN state='FAILED' THEN 1 ELSE 0 END) AS failed
@@ -888,14 +1032,24 @@ def _validate_provider_url(name: str, value: str | None) -> str | None:
     except ValueError:
         is_private_ip = False
     local_allowed = name == "ollama" and host in {"localhost", "127.0.0.1", "::1"}
-    if not local_allowed and (parsed.scheme != "https" or is_private_ip or host == "localhost"):
-        raise HTTPException(status_code=422, detail="custom provider URLs must use public HTTPS endpoints")
+    if not local_allowed:
+        if parsed.scheme != "https" or is_private_ip or host == "localhost":
+            raise HTTPException(status_code=422, detail="custom provider URLs must use public HTTPS endpoints")
+        from ..netguard import UnsafeTarget, assert_public_host
+
+        try:
+            # resolve DNS too: a hostname pointing at internal space must fail
+            assert_public_host(host)
+        except UnsafeTarget:
+            raise HTTPException(status_code=422,
+                                detail="custom provider URLs must use public HTTPS endpoints")
     return value.rstrip("/")
 
 
 @app.put("/api/providers/{name}/{task}/config")
 def api_provider_config(name: str, task: str, req: ProviderConfigRequest,
-                        db: Database = Depends(get_db)):
+                        request: Request, db: Database = Depends(get_db)):
+    require_admin(request, db)
     """Persist non-secret provider settings used by the dashboard and adapters."""
     base_url = _validate_provider_url(name, (req.base_url or "").strip() or None)
     model_name = (req.model_name or "").strip() or None
@@ -912,7 +1066,8 @@ def api_provider_config(name: str, task: str, req: ProviderConfigRequest,
 
 @app.post("/api/providers/{name}/{task}/status")
 def api_provider_status(name: str, task: str, req: ProviderStatusRequest,
-                        db: Database = Depends(get_db)):
+                        request: Request, db: Database = Depends(get_db)):
+    require_admin(request, db)
     if req.status not in ("active", "disabled"):
         raise HTTPException(status_code=422, detail="status must be active or disabled")
     if not Registry(db).mark(name, task, req.status, "manual control from dashboard"):
@@ -934,7 +1089,8 @@ def api_provider_reset(name: str, task: str, request: Request, db: Database = De
 
 
 @app.get("/api/config")
-def api_config_list():
+def api_config_list(request: Request, db: Database = Depends(get_db)):
+    require_admin(request, db)
     out = {}
     for key, path in CONFIG_FILES.items():
         text = path.read_text(encoding="utf-8")
@@ -981,7 +1137,7 @@ def api_config_update(key: str, req: dict, request: Request, db: Database = Depe
     try:
         yaml.safe_load(text)
     except yaml.YAMLError as exc:
-        raise HTTPException(status_code=422, detail=f"YAML غير صالح: {exc}") from exc
+        raise HTTPException(status_code=422, detail="YAML غير صالح") from exc
     try:
         backup = path.with_suffix(path.suffix + ".bak")
         backup.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
@@ -998,7 +1154,8 @@ def api_config_update(key: str, req: dict, request: Request, db: Database = Depe
 
 @app.post("/api/jobs/start")
 def api_jobs_start(req: RunRequest, background: BackgroundTasks,
-                   db: Database = Depends(get_db)):
+                   request: Request, db: Database = Depends(get_db)):
+    require_admin(request, db)
     """Start a benchmark run in the background; the UI polls /jobs/{id}."""
     from ..config import load_icp
 
@@ -1011,7 +1168,7 @@ def api_jobs_start(req: RunRequest, background: BackgroundTasks,
     from ..queue import enqueue, platform_mode
     from ..entitlements import check_job_start
 
-    org_id = os.environ.get("LEAD_ENGINE_ORG_ID")
+    org_id = getattr(db, "org_id", None)
     allowed, reason = check_job_start(db, org_id)
     if not allowed:
         raise HTTPException(status_code=429, detail=reason)
@@ -1029,12 +1186,13 @@ def _run_background_job(icp_name: str, job_id: str, seed_csv: str | None):
         run_benchmark(icp_name, job_id=job_id, seed_csv=seed_csv)
     except Exception as exc:  # config/startup errors: mark FAILED, never hang
         db = open_db()
-        JobManager(db).mark_failed(job_id, f"{type(exc).__name__}: {exc}")
+        JobManager(db).mark_failed(job_id, "background job failed")
         db.conn.close()
 
 
 @app.post("/api/cache/purge")
-def api_cache_purge(db: Database = Depends(get_db)):
+def api_cache_purge(request: Request, db: Database = Depends(get_db)):
+    require_admin(request, db)
     from ..cache import CacheLayer
     from ..config import load_cache_policy
 
@@ -1265,20 +1423,21 @@ def _openrouter_key_live(api_key: str):
 def api_keys_usage(db: Database = Depends(get_db)):
     """Everything the keys page needs: per provider, per pooled key — calls,
     units, prompt/completion tokens, last used — plus quota percent."""
+    org_clause, org_params = _org_clause(db)
     per_key_rows = db.query(
-        "SELECT provider, task, key_index, COUNT(*) AS calls,"
+        f"SELECT provider, task, key_index, COUNT(*) AS calls,"
         " COALESCE(SUM(units),0) AS units,"
         " COALESCE(SUM(prompt_tokens),0) AS prompt_tokens,"
         " COALESCE(SUM(completion_tokens),0) AS completion_tokens,"
-        " MAX(ts) AS last_used"
-        " FROM usage_ledger GROUP BY provider, task, key_index")
+        f" MAX(ts) AS last_used FROM usage_ledger WHERE 1=1{org_clause}"
+        " GROUP BY provider, task, key_index", org_params)
     status_by_pair = {(r["name"], r["task"]): r
                       for r in Registry(db).status_table()}
     usage_agg = db.query(
-        "SELECT provider, COUNT(*) AS calls, COALESCE(SUM(units),0) AS units,"
+        f"SELECT provider, COUNT(*) AS calls, COALESCE(SUM(units),0) AS units,"
         " COALESCE(SUM(prompt_tokens),0) AS prompt_tokens,"
-        " COALESCE(SUM(completion_tokens),0) AS completion_tokens"
-        " FROM usage_ledger GROUP BY provider")
+        f" COALESCE(SUM(completion_tokens),0) AS completion_tokens FROM usage_ledger"
+        f" WHERE 1=1{org_clause} GROUP BY provider", org_params)
     agg_by_provider = {r["provider"]: r for r in usage_agg}
 
     # group ledger rows by provider (key_index may be NULL for legacy rows)

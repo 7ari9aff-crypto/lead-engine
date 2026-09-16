@@ -91,6 +91,46 @@ def _inject_org(sql: str, params: list, org_id: str | None) -> tuple[str, list]:
     return _ORG_INSERT_RE.sub(_add, sql), params
 
 
+_ROLE_AUDITED: set = set()
+
+
+def _audit_db_role(dsn):
+    """Fail loudly when the connection role can bypass RLS: that silently
+    disables the database-layer tenant isolation, leaving only app-level
+    filters between tenants. Cached once per process per DSN.
+    LEAD_ENGINE_REQUIRE_NOBYPASSRLS=1 makes this fatal instead of a warning."""
+    key = hash(dsn)
+    if key in _ROLE_AUDITED:
+        return
+    _ROLE_AUDITED.add(key)
+    try:
+        with psycopg.connect(dsn, autocommit=True) as probe:
+            cur = probe.cursor()
+            cur.execute(
+                "select current_user, current_setting('is_superuser'),"
+                " coalesce((select rolbypassrls from pg_roles"
+                " where rolname = current_user), false)")
+            row = cur.fetchone()
+    except Exception:
+        return  # the probe must never break boot
+    if not row:
+        return
+    user, is_super, bypass = row[0], row[1], row[2]
+    unsafe = (is_super in (True, "on", "1")) or bool(bypass)
+    if not unsafe:
+        return
+    msg = ("RLS BYPASSED: db role '%s' has BYPASSRLS/superuser - tenant "
+           "isolation now depends on app-level filters only" % (user,))
+    import os
+    if os.environ.get("LEAD_ENGINE_REQUIRE_NOBYPASSRLS") == "1":
+        raise RuntimeError(msg)
+    try:
+        import logging
+        logging.getLogger("lead_engine.db").warning(msg)
+    except Exception:
+        pass
+
+
 class _CursorProxy:
     """Exposes .lastrowid on psycopg cursors (which use __slots__)."""
 
@@ -133,13 +173,22 @@ class PgDatabase:
             dsn, row_factory=dict_row, autocommit=False,
             options="-c search_path=engine", prepare_threshold=None,
         )
-        # Database-layer tenant isolation (RLS): declare the tenant for this
-        # connection; policies on engine.* enforce it even if app code errs.
+        # Database-layer tenant isolation (RLS): the org GUC is bound
+        # per-statement (see _bind_org) - a session-scoped set_config is not
+        # reliable under transaction-mode poolers, where a session can hop
+        # physical connections between transactions.
+        self.dsn = dsn
+        _audit_db_role(dsn)
+
+    def _bind_org(self, cur) -> None:
+        """Transaction-local tenant binding for RLS. Every engine statement
+        runs inside its own transaction (autocommit=False + immediate commit),
+        so set_config must be re-applied per statement: under transaction-mode
+        poolers a session-level GUC can be lost between transactions, and a
+        recycled physical connection must never inherit another tenant's GUC."""
         if self.org_id and not str(self.org_id).startswith("__"):
-            with self.conn.cursor() as cur:
-                cur.execute("select set_config('app.current_org', %s, false)",
-                            (str(self.org_id),))
-            self.conn.commit()
+            cur.execute("select set_config('app.current_org', %s, true)",
+                        (str(self.org_id),))
 
     # -- low level ------------------------------------------------------
     def execute(self, sql: str, params=()):
@@ -148,6 +197,7 @@ class PgDatabase:
         if re.search(r"insert\s+into", sql, re.IGNORECASE):
             sql, params = _inject_org(sql, params, self.org_id)
         cur = self.conn.cursor()
+        self._bind_org(cur)
         try:
             cur.execute(sql, params)
         except Exception:
@@ -172,6 +222,7 @@ class PgDatabase:
 
     def query(self, sql: str, params=()) -> list[dict]:
         cur = self.conn.cursor()
+        self._bind_org(cur)
         cur.execute(_translate_placeholders(sql), list(params or []))
         rows = cur.fetchall()
         self.conn.commit()

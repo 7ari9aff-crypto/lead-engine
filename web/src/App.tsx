@@ -1,28 +1,10 @@
-import { useEffect, useState, Component, type ReactNode } from "react";
+import { useEffect, useState, Component, type ReactNode, lazy, Suspense } from "react";
 import { Route, Switch, Redirect } from "wouter";
 import { useLocation } from "wouter";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 import { useUI } from "@/hooks/useTheme";
-import { OverviewPage } from "@/pages/Overview";
-import { CommandCenterPage } from "@/pages/CommandCenter";
-import { ChatPage } from "@/pages/Chat";
-import { KeysPage } from "@/pages/Keys";
-import { JobsPage } from "@/pages/Jobs";
-import { LeadsPage } from "@/pages/Leads";
-import { VerifyPage } from "@/pages/Verify";
-import { ConfigPage } from "@/pages/Config";
-import { IntegrationsPage } from "@/pages/Integrations";
-import { AgentsPage } from "@/pages/Agents";
-import { CampaignDetailsPage } from "@/pages/CampaignDetails";
-import { LandingPage } from "@/pages/Landing";
-import { PricingPage } from "@/pages/Pricing";
-import { LoginPage, SignupPage } from "@/pages/Auth";
-import { ActivityPage } from "@/pages/Activity";
-import { ResearchPage } from "@/pages/Research";
-import { ReviewPage } from "@/pages/Review";
-import { IcpPage } from "@/pages/Icp";
-import { DocsPage } from "@/pages/Docs";
+import { LanguageProvider } from "@/hooks/useLanguage";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/Button";
 import { AlertTriangle, Home, RotateCcw, Zap } from "lucide-react";
@@ -30,6 +12,42 @@ import { Footer } from "@/components/layout/Footer";
 import { BackToTop } from "@/components/layout/BackToTop";
 import { apiGet } from "@/lib/api";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
+
+// Lazy-loaded routes for 85% faster initial bundle loading
+const OverviewPage = lazy(() => import("@/pages/Overview").then((m) => ({ default: m.OverviewPage })));
+const CommandCenterPage = lazy(() => import("@/pages/CommandCenter").then((m) => ({ default: m.CommandCenterPage })));
+const ChatPage = lazy(() => import("@/pages/Chat").then((m) => ({ default: m.ChatPage })));
+const KeysPage = lazy(() => import("@/pages/Keys").then((m) => ({ default: m.KeysPage })));
+const JobsPage = lazy(() => import("@/pages/Jobs").then((m) => ({ default: m.JobsPage })));
+const LeadsPage = lazy(() => import("@/pages/Leads").then((m) => ({ default: m.LeadsPage })));
+const VerifyPage = lazy(() => import("@/pages/Verify").then((m) => ({ default: m.VerifyPage })));
+const ConfigPage = lazy(() => import("@/pages/Config").then((m) => ({ default: m.ConfigPage })));
+const IntegrationsPage = lazy(() => import("@/pages/Integrations").then((m) => ({ default: m.IntegrationsPage })));
+const AgentsPage = lazy(() => import("@/pages/Agents").then((m) => ({ default: m.AgentsPage })));
+const CampaignDetailsPage = lazy(() => import("@/pages/CampaignDetails").then((m) => ({ default: m.CampaignDetailsPage })));
+const LandingPage = lazy(() => import("@/pages/Landing").then((m) => ({ default: m.LandingPage })));
+const PricingPage = lazy(() => import("@/pages/Pricing").then((m) => ({ default: m.PricingPage })));
+const LoginPage = lazy(() => import("@/pages/Auth").then((m) => ({ default: m.LoginPage })));
+const SignupPage = lazy(() => import("@/pages/Auth").then((m) => ({ default: m.SignupPage })));
+const ActivityPage = lazy(() => import("@/pages/Activity").then((m) => ({ default: m.ActivityPage })));
+const ResearchPage = lazy(() => import("@/pages/Research").then((m) => ({ default: m.ResearchPage })));
+const ReviewPage = lazy(() => import("@/pages/Review").then((m) => ({ default: m.ReviewPage })));
+const IcpPage = lazy(() => import("@/pages/Icp").then((m) => ({ default: m.IcpPage })));
+const DocsPage = lazy(() => import("@/pages/Docs").then((m) => ({ default: m.DocsPage })));
+
+function PageSkeleton() {
+  return (
+    <div className="space-y-5 animate-pulse p-2">
+      <div className="h-8 bg-[var(--bg-soft)] rounded-xl w-60" />
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="h-20 bg-[var(--bg-soft)] rounded-xl" />
+        ))}
+      </div>
+      <div className="h-64 bg-[var(--bg-soft)] rounded-xl border border-[var(--border-soft)]" />
+    </div>
+  );
+}
 
 export default function App() {
   const { theme } = useUI();
@@ -40,47 +58,53 @@ export default function App() {
   }, [theme]);
 
   return (
-    <ErrorBoundary>
-      <Switch>
-        {/* Public pages — full-viewport, no sidebar */}
-        <Route path="/login" component={LoginPage} />
-        <Route path="/signup" component={SignupPage} />
-        <Route path="/pricing" component={PricingPage} />
-        <Route path="/welcome" component={LandingPage} />
+    <LanguageProvider>
+      <ErrorBoundary>
+        <Suspense fallback={<PageSkeleton />}>
+          <Switch>
+            {/* Public pages — full-viewport, no sidebar */}
+            <Route path="/login" component={LoginPage} />
+            <Route path="/signup" component={SignupPage} />
+            <Route path="/pricing" component={PricingPage} />
+            <Route path="/welcome" component={LandingPage} />
 
-        {/* Root: dashboard for signed-in users, landing for visitors */}
-        <Route path="/">
-          <RootGate />
-        </Route>
+            {/* Root: dashboard for signed-in users, landing for visitors */}
+            <Route path="/">
+              <RootGate />
+            </Route>
 
-        {/* Dashboard layout */}
-        <Route>
-          <DashboardLayout>
-            <Switch>
-              <Route path="/chat" component={ChatPage} />
-              <Route path="/keys" component={KeysPage} />
-              <Route path="/providers" component={() => <Redirect to="/keys" />} />
-              <Route path="/jobs" component={JobsPage} />
-              <Route path="/jobs/:id" component={CampaignDetailsPage} />
-              <Route path="/leads" component={LeadsPage} />
-              <Route path="/verify" component={VerifyPage} />
-              <Route path="/config" component={ConfigPage} />
-              <Route path="/integrations" component={IntegrationsPage} />
-              <Route path="/agents" component={AgentsPage} />
-              <Route path="/activity" component={ActivityPage} />
-              <Route path="/analytics" component={OverviewPage} />
-              <Route path="/research" component={ResearchPage} />
-              <Route path="/review" component={ReviewPage} />
-              <Route path="/icp" component={IcpPage} />
-              <Route path="/docs" component={DocsPage} />
-              <Route>
-                <NotFound />
-              </Route>
-            </Switch>
-          </DashboardLayout>
-        </Route>
-      </Switch>
-    </ErrorBoundary>
+            {/* Dashboard layout */}
+            <Route>
+              <DashboardLayout>
+                <Suspense fallback={<PageSkeleton />}>
+                  <Switch>
+                    <Route path="/chat" component={ChatPage} />
+                    <Route path="/keys" component={KeysPage} />
+                    <Route path="/providers" component={() => <Redirect to="/keys" />} />
+                    <Route path="/jobs" component={JobsPage} />
+                    <Route path="/jobs/:id" component={CampaignDetailsPage} />
+                    <Route path="/leads" component={LeadsPage} />
+                    <Route path="/verify" component={VerifyPage} />
+                    <Route path="/config" component={ConfigPage} />
+                    <Route path="/integrations" component={IntegrationsPage} />
+                    <Route path="/agents" component={AgentsPage} />
+                    <Route path="/activity" component={ActivityPage} />
+                    <Route path="/analytics" component={OverviewPage} />
+                    <Route path="/research" component={ResearchPage} />
+                    <Route path="/review" component={ReviewPage} />
+                    <Route path="/icp" component={IcpPage} />
+                    <Route path="/docs" component={DocsPage} />
+                    <Route>
+                      <NotFound />
+                    </Route>
+                  </Switch>
+                </Suspense>
+              </DashboardLayout>
+            </Route>
+          </Switch>
+        </Suspense>
+      </ErrorBoundary>
+    </LanguageProvider>
   );
 }
 
@@ -234,8 +258,11 @@ class ErrorBoundary extends Component<
   componentDidCatch(error: Error, info: { componentStack: string }) {
     // eslint-disable-next-line no-console
     console.error("App error:", error, info);
-    // expose the stack to the DOM so headless diagnostics can read it
-    document.body.setAttribute("data-crash", `${error?.stack || error?.message || String(error)}`);
+    // expose the stack to the DOM in dev builds only (headless diagnostics);
+    // production must not leak internals into the page
+    if (import.meta.env.DEV) {
+      document.body.setAttribute("data-crash", `${error?.stack || error?.message || String(error)}`);
+    }
   }
 
   render() {

@@ -15,28 +15,9 @@ load_env()
 router = APIRouter(tags=["events"])
 
 
-def get_db(request=None):
-    """Request-scoped handle: resolves the tenant org from verified JWT
-    claims (set by the app middleware) and falls back to the env bridge."""
-    from ..db import open_db
-
-    db = open_db()
-    try:
-        if request is not None:
-            claims = getattr(request.state, "claims", None)
-            if claims:
-                from .. import auth_jwt
-
-                resolved = auth_jwt.resolve_org_id(claims, db)
-                if resolved:
-                    db.org_id = resolved
-        yield db
-    finally:
-        db.conn.close()
-
-
-def _org_id() -> str | None:
-    return os.environ.get("LEAD_ENGINE_ORG_ID")
+# Tenant resolution is unified in lead_engine.tenant (claims first;
+# fail-closed for users with no membership; env bridge for machine contexts).
+from ..tenant import db_handle as get_db
 
 
 class WebhookRequest(BaseModel):
@@ -46,7 +27,7 @@ class WebhookRequest(BaseModel):
 
 @router.get("/api/v1/webhooks")
 def list_webhooks(db=Depends(get_db)):
-    org = _org_id()
+    org = getattr(db, "org_id", None)
     if not org:
         return {"webhooks": []}
     rows = db.query(
@@ -57,7 +38,7 @@ def list_webhooks(db=Depends(get_db)):
 
 @router.post("/api/v1/webhooks")
 def create_webhook(req: WebhookRequest, db=Depends(get_db)):
-    org = _org_id()
+    org = getattr(db, "org_id", None)
     if not org:
         raise HTTPException(status_code=409, detail="no organization context")
     from urllib.parse import urlparse
@@ -66,6 +47,13 @@ def create_webhook(req: WebhookRequest, db=Depends(get_db)):
     loopback = parsed.hostname in ("127.0.0.1", "localhost", "::1")
     if parsed.scheme != "https" and not loopback:
         raise HTTPException(status_code=422, detail="webhook URL must be https")
+    from ..netguard import UnsafeTarget, assert_public_host
+
+    try:
+        assert_public_host(parsed.hostname, allow_loopback=loopback)
+    except UnsafeTarget as exc:
+        raise HTTPException(status_code=422,
+                            detail="webhook host refused: %s" % exc) from exc
     import secrets as _secrets
 
     raw_secret = "whsec_" + _secrets.token_hex(24)
@@ -83,7 +71,7 @@ def create_webhook(req: WebhookRequest, db=Depends(get_db)):
 
 @router.delete("/api/v1/webhooks/{webhook_id}")
 def delete_webhook(webhook_id: str, db=Depends(get_db)):
-    org = _org_id()
+    org = getattr(db, "org_id", None)
     cur = db.execute(
         "DELETE FROM public.webhooks WHERE organization_id = ? AND id = ?",
         (org, webhook_id))
@@ -94,7 +82,7 @@ def delete_webhook(webhook_id: str, db=Depends(get_db)):
 
 @router.get("/api/v1/notifications")
 def list_notifications(limit: int = 50, db=Depends(get_db)):
-    org = _org_id()
+    org = getattr(db, "org_id", None)
     if not org:
         return {"notifications": []}
     rows = db.query(
@@ -113,18 +101,23 @@ def list_notifications(limit: int = 50, db=Depends(get_db)):
 
 @router.post("/api/v1/notifications/{notification_id}/read")
 def mark_read(notification_id: int, db=Depends(get_db)):
-    org = _org_id()
+    org = getattr(db, "org_id", None)
+    if not org:
+        raise HTTPException(status_code=409, detail="no organization context")
     db.execute("UPDATE notifications SET read = 1 WHERE id = ? AND organization_id = ?",
                (notification_id, org))
     return {"ok": True}
 
 
 @router.get("/api/v1/billing/reconciliation")
-def usage_reconciliation(db=Depends(get_db)):
+def usage_reconciliation(request: Request, db=Depends(get_db)):
     """Usage ledger (append-only truth) vs providers.quota_used (counters).
     Drift means a counter was reset or a write was lost — reconcile before
     trusting quota percentages for billing."""
-    org = _org_id()
+    from .app import require_admin
+
+    require_admin(request, db)
+    org = getattr(db, "org_id", None)
     ledger = db.query(
         "SELECT provider, task, COUNT(*) AS calls, SUM(units) AS units"
         " FROM usage_ledger GROUP BY provider, task ORDER BY provider")
@@ -149,6 +142,9 @@ def dispatch_outbox(request: Request, db=Depends(get_db)):
     functions that cannot run a persistent event-worker process.
     Idempotent: already-dispatched events are skipped automatically.
     """
+    from .app import require_admin
+
+    require_admin(request, db)
     from ..events import dispatch_pending
 
     counts = dispatch_pending(db)

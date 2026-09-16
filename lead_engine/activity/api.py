@@ -8,7 +8,7 @@ The dashboard polls GET every 5s. POST is for in-process emitters that want
 to log to the feed directly (most emitters go through observability/* which
 can fan out to this store).
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from ..db import open_db
@@ -23,16 +23,9 @@ class ActivityRecordRequest(BaseModel):
     correlation_id: str | None = None
 
 
-def get_db():
-    """Local DI — same connection style as lead_engine/api/app.py:get_db.
-
-    Keeping the dependency local avoids a circular import with app.py while
-    still letting FastAPI inject a fresh per-request Database handle."""
-    db = open_db()
-    try:
-        yield db
-    finally:
-        db.conn.close()
+# Tenant resolution is unified in lead_engine.tenant (claims first;
+# fail-closed for users with no membership; env bridge for machine contexts).
+from ..tenant import db_handle as get_db
 
 
 def get_store(db = Depends(get_db)) -> ActivityStore:

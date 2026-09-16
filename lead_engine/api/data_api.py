@@ -17,34 +17,20 @@ from ..entitlements import get_limits
 router = APIRouter(tags=["data-governance"])
 
 
-def get_db(request=None):
-    """Request-scoped handle: resolves the tenant org from verified JWT
-    claims (set by the app middleware) and falls back to the env bridge."""
-    from ..db import open_db
-
-    db = open_db()
-    try:
-        if request is not None:
-            claims = getattr(request.state, "claims", None)
-            if claims:
-                from .. import auth_jwt
-
-                resolved = auth_jwt.resolve_org_id(claims, db)
-                if resolved:
-                    db.org_id = resolved
-        yield db
-    finally:
-        db.conn.close()
+# Tenant resolution is unified in lead_engine.tenant (claims first;
+# fail-closed for users with no membership; env bridge for machine contexts).
+from ..tenant import db_handle as get_db
 
 
-def _org_id() -> str | None:
-    return os.environ.get("LEAD_ENGINE_ORG_ID")
+def _org_id(db) -> str | None:
+    """Return the already-resolved request tenant, never a user-supplied ID."""
+    return getattr(db, "org_id", None)
 
 
 @router.delete("/api/v1/leads/{lead_id}")
 def delete_lead(lead_id: str, db=Depends(get_db)):
     """Hard delete a single lead (org-scoped). Evidence follows the lead."""
-    org = _org_id()
+    org = _org_id(db)
     row = db.one("SELECT lead_id FROM leads WHERE lead_id = ? AND organization_id = ?",
                  (lead_id, org))
     if not row:
@@ -58,7 +44,7 @@ def delete_lead(lead_id: str, db=Depends(get_db)):
 @router.get("/api/v1/data/export")
 def export_org_data(db=Depends(get_db)):
     """Full org data export (portability): leads + jobs + suppression."""
-    org = _org_id()
+    org = _org_id(db)
     if not org:
         raise HTTPException(status_code=409, detail="no organization context")
     return {
@@ -76,7 +62,7 @@ def export_org_data(db=Depends(get_db)):
 def purge_expired(db=Depends(get_db)):
     """Delete leads past the org retention window (default 30 days,
     override via organizations.limits.retention_days)."""
-    org = _org_id()
+    org = _org_id(db)
     if not org:
         raise HTTPException(status_code=409, detail="no organization context")
     limits = get_limits(db, org)

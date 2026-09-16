@@ -31,20 +31,9 @@ router = APIRouter(tags=["stage3-review"])
 DECISIONS = ("APPROVE_CONTACT", "REJECT", "RESEARCH_MORE", "SAVE_FOR_LATER")
 
 
-def get_db(request: Request = None):
-    db = open_db()
-    try:
-        if request is not None:
-            claims = getattr(request.state, "claims", None)
-            if claims:
-                from .. import auth_jwt
-
-                resolved = auth_jwt.resolve_org_id(claims, db)
-                if resolved:
-                    db.org_id = resolved
-        yield db
-    finally:
-        db.conn.close()
+# Tenant resolution is unified in lead_engine.tenant (claims first;
+# fail-closed for users with no membership; env bridge for machine contexts).
+from ..tenant import db_handle as get_db
 
 
 def _actor(request: Request) -> str:

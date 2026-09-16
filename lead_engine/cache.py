@@ -28,13 +28,17 @@ class CacheLayer:
 
     # ------------------------------------------------------------------ keys
     @staticmethod
-    def make_key(task, payload) -> str:
-        blob = json.dumps({"task": task, "payload": payload}, sort_keys=True, ensure_ascii=False)
+    def make_key(task, payload, org: str | None = None) -> str:
+        # The org is part of the key: tenants must never be served each
+        # other's cached results (cache rows are shared storage; SQLite
+        # has no RLS to fall back on).
+        blob = json.dumps({"task": task, "payload": payload, "org": org or "shared"},
+                          sort_keys=True, ensure_ascii=False)
         return hashlib.sha1(blob.encode("utf-8")).hexdigest()
 
     # ------------------------------------------------------------- L1 request
     def get_request(self, task, payload):
-        key = self.make_key(task, payload)
+        key = self.make_key(task, payload, getattr(self.db, "org_id", None))
         row = self.db.one(
             "SELECT payload, expires_at FROM cache WHERE level=1 AND cache_key=?", (key,)
         )
@@ -43,7 +47,7 @@ class CacheLayer:
         return json.loads(row["payload"])
 
     def put_request(self, task, payload, result, data_type="search_results"):
-        key = self.make_key(task, payload)
+        key = self.make_key(task, payload, getattr(self.db, "org_id", None))
         self.db.execute(
             "INSERT INTO cache (level, cache_key, payload, data_type, created_at, expires_at)"
             " VALUES (?,?,?,?,?,?)"
@@ -56,7 +60,8 @@ class CacheLayer:
 
     # ------------------------------------------------------------- L2 entity
     def get_entity(self, entity_type, identity):
-        key = self.make_key("entity:" + entity_type, identity)
+        key = self.make_key("entity:" + entity_type, identity,
+                            getattr(self.db, "org_id", None))
         row = self.db.one(
             "SELECT payload, expires_at FROM cache WHERE level=2 AND cache_key=?", (key,)
         )
@@ -65,7 +70,8 @@ class CacheLayer:
         return json.loads(row["payload"])
 
     def put_entity(self, entity_type, identity, data, data_type="company_name"):
-        key = self.make_key("entity:" + entity_type, identity)
+        key = self.make_key("entity:" + entity_type, identity,
+                            getattr(self.db, "org_id", None))
         self.db.execute(
             "INSERT INTO cache (level, cache_key, payload, data_type, created_at, expires_at)"
             " VALUES (2,?,?,?,?,?)"

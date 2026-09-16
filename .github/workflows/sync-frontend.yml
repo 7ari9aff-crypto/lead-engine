@@ -21,7 +21,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 12
 
       - uses: actions/setup-node@v4
         with:
@@ -32,6 +32,9 @@ jobs:
       - name: Install and build frontend
         working-directory: web
         env:
+          # pnpm 12 blocks dependency build scripts by default (esbuild);
+          # the dashboard build needs them, same as docker-compose.base44.yml
+          PNPM_CONFIG_DANGEROUSLY_ALLOW_ALL_BUILDS: "true"
           VITE_SUPABASE_URL: https://abshiqxxsvdtbdngycpb.supabase.co
           VITE_SUPABASE_PUBLISHABLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFic2hpcXh4c3ZkdGJkbmd5Y3BiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg5NjE2NjIsImV4cCI6MjEwNDUzNzY2Mn0.fiBqBpoO6vMqmbhqoQ2kaH7fqm3CnvjF8Je0EukHsMw
         run: |

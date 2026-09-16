@@ -12,7 +12,7 @@ connection row carries the provider's detail in last_error.
 """
 import os
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from .. import integrations
 from ..db import Database, open_db
@@ -30,12 +30,16 @@ def get_db():
         db.conn.close()
 
 
-def get_org_id() -> str:
-    """Phase 1 single-org bridge: every route resolves the tenant from env."""
-    org_id = os.environ.get("LEAD_ENGINE_ORG_ID")
-    if not org_id:
+def get_org_id(request: Request, db: Database = Depends(get_db)) -> str:
+    """Tenant from the unified resolver: verified claims first (fail-closed),
+    env bridge only for token-less machine contexts."""
+    from ..tenant import apply_context
+
+    apply_context(db, request)
+    org_id = getattr(db, "org_id", None)
+    if not org_id or str(org_id).startswith("__"):
         raise HTTPException(status_code=503,
-                            detail="LEAD_ENGINE_ORG_ID is not configured")
+                            detail="no organization context")
     return org_id
 
 

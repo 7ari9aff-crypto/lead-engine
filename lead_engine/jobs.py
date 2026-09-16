@@ -52,9 +52,9 @@ TRANSITIONS = {
     RUNNING: {DEGRADED, PAUSED, COMPLETED, FAILED,
               DISCOVERING, RESEARCHING, VERIFYING, QUALIFYING,
               WAITING_FOR_USER, READY_FOR_REVIEW, CANCELLED},
-    DEGRADED: {RUNNING, PAUSED, COMPLETED},
+    DEGRADED: {RUNNING, PAUSED, COMPLETED, FAILED, CANCELLED},  # FAILED added for error recovery
     PAUSED: {RESUMING, FAILED, CANCELLED},
-    RESUMING: {RUNNING, PAUSED},
+    RESUMING: {RUNNING, PAUSED, FAILED},                        # FAILED added for error recovery
     COMPLETED: set(),
     FAILED: set(),
     DISCOVERING: _PHASE_EXITS,
@@ -62,7 +62,7 @@ TRANSITIONS = {
     VERIFYING: _PHASE_EXITS,
     QUALIFYING: _PHASE_EXITS,
     WAITING_FOR_USER: {RUNNING, CANCELLED, FAILED},
-    READY_FOR_REVIEW: {COMPLETED, RUNNING, CANCELLED},
+    READY_FOR_REVIEW: {COMPLETED, RUNNING, CANCELLED, FAILED},  # FAILED added for safety
     CANCELLED: set(),
 }
 
@@ -98,10 +98,18 @@ class JobManager:
         from_state = self.current(job_id)
         if to_state not in TRANSITIONS.get(from_state, set()):
             raise IllegalTransition(f"{from_state} -> {to_state} is not allowed")
-        self.db.execute(
-            "UPDATE jobs SET state=?, pause_reason=?, updated_at=? WHERE job_id=?",
-            (to_state, reason if to_state == PAUSED else None, utcnow(), job_id),
+        cur = self.db.execute(
+            "UPDATE jobs SET state=?, pause_reason=?, updated_at=?"
+            " WHERE job_id=? AND state=?",
+            (to_state, reason if to_state == PAUSED else None, utcnow(),
+             job_id, from_state),
         )
+        if getattr(cur, "rowcount", 0) == 0:
+            # lost a concurrent race (e.g. the user CANCELLED mid-transition):
+            # refuse instead of silently overwriting the newer state
+            raise IllegalTransition(
+                "race on job %s: %s transition lost (state changed concurrently)"
+                % (job_id, to_state))
         self.db.execute(
             "INSERT INTO job_events (ts, job_id, from_state, to_state, reason) VALUES (?,?,?,?,?)",
             (utcnow(), job_id, from_state, to_state, reason),

@@ -23,12 +23,7 @@ _JWKS_URL = "/auth/v1/.well-known/jwks.json"
 
 def supabase_url() -> str | None:
     raw = (os.environ.get("SUPABASE_URL") or os.environ.get("VITE_SUPABASE_URL") or "").rstrip("/")
-    if raw:
-        return raw
-    if (os.environ.get("LEAD_ENGINE_DEV_OPEN") == "1"
-            and os.environ.get("LEAD_ENGINE_ENV") != "production"):
-        return None
-    return "https://abshiqxxsvdtbdngycpb.supabase.co"
+    return raw or None
 
 
 @lru_cache(maxsize=1)
@@ -47,19 +42,24 @@ def validate_supabase_jwt(token: str) -> dict | None:
     if not token:
         return None
     try:
+        url = supabase_url()
+        issuer = f"{url}/auth/v1" if url else None
+        decode_kwargs = {"audience": "authenticated"}
+        if issuer:
+            decode_kwargs["issuer"] = issuer
+
         header = jwt.get_unverified_header(token)
         alg = header.get("alg", "ES256")
         secret = os.environ.get("SUPABASE_JWT_SECRET")
         if alg == "HS256" and secret:
-            return jwt.decode(token, secret, algorithms=["HS256"],
-                              audience="authenticated")
+            return jwt.decode(token, secret, algorithms=["HS256"], **decode_kwargs)
         client = _jwks_client()
         if client is None:
             return None
         signing_key = client.get_signing_key_from_jwt(token)
         return jwt.decode(
             token, signing_key.key, algorithms=["ES256", "RS256", "EdDSA"],
-            audience="authenticated")
+            **decode_kwargs)
     except jwt.InvalidTokenError:
         return None  # bad/expired/foreign token -> reject this session
     except Exception:
@@ -116,7 +116,9 @@ def auth_mode() -> str:
         return "open"
     if supabase_url():
         return "supabase"
-    if os.environ.get("LEAD_ENGINE_ADMIN_PASSWORD"):
+    from .auth import configured_password
+
+    if configured_password():
         return "password"
     return "closed"
 

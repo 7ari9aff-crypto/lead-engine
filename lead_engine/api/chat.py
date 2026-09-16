@@ -12,6 +12,7 @@ from ..benchmark.run import run_benchmark
 from ..pipeline.icp import build_adhoc_icp
 from ..providers.email import VerificationPipeline
 from ..router import NoProviderAvailable
+from ..tenant import org_clause as _org_clause
 
 MAX_STEPS = 6
 
@@ -50,10 +51,9 @@ TOOLS_DECL = [{
                 "type": "OBJECT",
                 "properties": {
                     "city": {"type": "STRING",
-                             "description": "المدينة السعودية مثل: الرياض، جدة، الدمام"},
+                             "description": "المدينة أو المنطقة المستهدفة (مثال: دبي، الرياض، لندن، القاهرة، سنغافورة...)"},
                     "industry": {"type": "STRING",
-                                 "description": "المجال — الافتراضي dental (عيادات أسنان)",
-                                 "enum": ["dental"]},
+                                 "description": "المجال أو القطاع المستهدف (مثال: saas, b2b, realestate, logistics, dental, marketing...)"},
                     "approval_id": {"type": "STRING", "description": "معرف الموافقة بعد اعتماد التشغيل الحي"},
                 },
                 "required": ["city"],
@@ -144,7 +144,7 @@ TOOLS_DECL = [{
         },
         {
             "name": "start_research",
-            "description": "ابدأ مهمة بحث وكيلية دائمة عن هدف صيغ بلغة طبيعية (مثال: دور على شركات SaaS في السعودية بين 100 و500 موظف). المهمة تبحث وتحقق وتوثق الحقائق بمصادرها ويتوقف عند مراجعتك — لا يرسل شيئًا لأحد.",
+            "description": "ابدأ مهمة بحث وكيلية دائمة عن هدف صيغ بلغة طبيعية (مثال: دور على شركات برمجيات B2B توظف 50 إلى 200 موظف ولديها نشاط نمو). المهمة تبحث وتحقق وتوثق الحقائق بمصادرها ويتوقف عند مراجعتك — لا يرسل شيئًا لأحد.",
             "parameters": {
                 "type": "OBJECT",
                 "properties": {
@@ -164,6 +164,22 @@ def _compact_lead(lead: dict) -> dict:
              "tier", "score", "website")}
 
 
+def _research_ctx(db, job_id):
+    """Tenant-checked research job context (404-equivalent for other tenants,
+    mirroring research_api._owned: SQLite checks explicitly, PG relies on
+    FORCED RLS). Returns None when the job is missing or not ours."""
+    from ..research import ResearchJobManager
+
+    ctx = ResearchJobManager(db).context(job_id)
+    if not ctx:
+        return None
+    org = getattr(db, "org_id", None)
+    if getattr(db, "dialect", "sqlite") == "sqlite" and org and \
+            ctx.get("organization_id") != org:
+        return None
+    return ctx
+
+
 def execute_tool(name: str, args: dict, router, db) -> dict:
     """Execute one tool call against the real engine. Always returns a
     JSON-serializable dict (honest errors included)."""
@@ -180,7 +196,7 @@ def execute_tool(name: str, args: dict, router, db) -> dict:
                     return {"status": "approval_required", "approval_id": requested,
                             "message": "التشغيل الحي يحتاج موافقة من لوحة الوكلاء قبل استهلاك الحصص."}
             icp = build_adhoc_icp([args.get("city", "الرياض")],
-                                  args.get("industry", "dental"))
+                                  args.get("industry", "b2b"))
             summary, metrics, _outputs = run_benchmark(icp, write=False)
             leads = summary.get("leads", [])
             return {
@@ -225,6 +241,8 @@ def execute_tool(name: str, args: dict, router, db) -> dict:
         if name == "get_research_progress":
             from ..research import ResearchJobManager
             job_id = args.get("job_id")
+            if job_id and not _research_ctx(db, job_id):
+                return {"error": "research job not found"}
             if not job_id:
                 return {"error": "job_id مطلوب"}
             return ResearchJobManager(db).progress(job_id)
@@ -237,6 +255,8 @@ def execute_tool(name: str, args: dict, router, db) -> dict:
 
             job_id = args.get("job_id")
             answer = (args.get("answer") or "").strip()
+            if job_id and not _research_ctx(db, job_id):
+                return {"error": "research job not found"}
             if not job_id or not answer:
                 return {"error": "job_id و answer مطلوبان"}
             manager = ResearchJobManager(db)
@@ -276,7 +296,7 @@ def execute_tool(name: str, args: dict, router, db) -> dict:
             from ..queue import enqueue, platform_mode
 
             job_id = args.get("job_id")
-            if not job_id:
+            if not job_id or not _research_ctx(db, job_id):
                 return {"error": "job_id مطلوب"}
             manager = ResearchJobManager(db)
             state = manager.jobs.current(job_id)
@@ -355,7 +375,9 @@ def execute_tool(name: str, args: dict, router, db) -> dict:
                             "المهام، وبتتوقف عند مراجعتك قبل أي إجراء."}
 
         if name == "get_job_status":
-            job = db.one("SELECT * FROM jobs WHERE job_id=?", (args.get("job_id", ""),))
+            clause, clause_params = _org_clause(db)
+            job = db.one(f"SELECT * FROM jobs WHERE job_id=?{clause}",
+                         (args.get("job_id", ""), *clause_params))
             if not job:
                 return {"error": "لا توجد مهمة بهذا المعرف"}
             stored = {}
@@ -368,8 +390,9 @@ def execute_tool(name: str, args: dict, router, db) -> dict:
                     "metrics": stored.get("metrics")}
 
         if name == "list_leads":
-            sql = "SELECT * FROM leads WHERE 1=1"
-            params = []
+            clause, clause_params = _org_clause(db)
+            sql = f"SELECT * FROM leads WHERE 1=1{clause}"
+            params = list(clause_params)
             if args.get("job_id"):
                 sql += " AND job_id=?"
                 params.append(args["job_id"])
@@ -398,10 +421,13 @@ def execute_tool(name: str, args: dict, router, db) -> dict:
                 providers[f"{r['name']}:{r['task']}"] = {
                     "status": r["status"], "key": key_state,
                     "used": r["quota_used"], "limit": r["quota_limit"]}
+            clause, clause_params = _org_clause(db)
             jobs = {j["state"]: j["n"] for j in
-                    db.query("SELECT state, COUNT(*) AS n FROM jobs GROUP BY state")}
+                    db.query(f"SELECT state, COUNT(*) AS n FROM jobs WHERE 1=1{clause}"
+                             " GROUP BY state", clause_params)}
             leads = {l["stage"]: l["n"] for l in
-                     db.query("SELECT stage, COUNT(*) AS n FROM leads GROUP BY stage")}
+                     db.query(f"SELECT stage, COUNT(*) AS n FROM leads WHERE 1=1{clause}"
+                              " GROUP BY stage", clause_params)}
             return {"providers": providers, "jobs": jobs, "leads": leads}
 
         return {"error": f"أداة غير معروفة: {name}"}

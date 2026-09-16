@@ -27,20 +27,9 @@ from ..research import ResearchJobManager
 router = APIRouter(prefix="/api/v1/research", tags=["research"])
 
 
-def get_db(request: Request = None):
-    db = open_db()
-    try:
-        if request is not None:
-            claims = getattr(request.state, "claims", None)
-            if claims:
-                from .. import auth_jwt
-
-                resolved = auth_jwt.resolve_org_id(claims, db)
-                if resolved:
-                    db.org_id = resolved
-        yield db
-    finally:
-        db.conn.close()
+# Tenant resolution is unified in lead_engine.tenant (claims first;
+# fail-closed for users with no membership; env bridge for machine contexts).
+from ..tenant import db_handle as get_db
 
 
 class ResearchRequest(BaseModel):
@@ -76,11 +65,12 @@ def create_research(req: ResearchRequest, background: BackgroundTasks,
     job_id = manager.create(req.objective, icp_version_id=req.icp_version_id,
                             budgets=req.budgets, parent_job_id=req.parent_job_id)
     from ..entitlements import check_job_start
-    import os
 
-    allowed, reason = check_job_start(db, os.environ.get("LEAD_ENGINE_ORG_ID"))
-    if not allowed:
-        raise HTTPException(status_code=429, detail=reason)
+    org = getattr(db, "org_id", None)
+    if org and not str(org).startswith("__"):
+        allowed, reason = check_job_start(db, org)
+        if not allowed:
+            raise HTTPException(status_code=429, detail=reason)
     if platform_mode():
         enqueue(db, job_id)
     else:

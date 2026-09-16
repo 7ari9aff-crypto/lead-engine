@@ -136,6 +136,17 @@ def _deliver_signed(db, hook: dict, event: dict, secret: str) -> None:
                           hashlib.sha256).hexdigest()
     last_error = None
     status_code = None
+    from urllib.parse import urlparse
+    from .netguard import UnsafeTarget, assert_public_host
+
+    try:
+        # SSRF guard at DELIVERY time too: a webhook whose DNS later moved
+        # to internal space (or registered by another path) must not ship.
+        assert_public_host(
+            urlparse(hook["url"]).hostname,
+            allow_loopback=(os.environ.get("LEAD_ENGINE_ENV") != "production"))
+    except UnsafeTarget as exc:
+        raise RuntimeError("webhook host refused: %s" % exc) from exc
     for attempt in range(1, 4):  # 3 attempts per dispatch round
         try:
             resp = requests.post(

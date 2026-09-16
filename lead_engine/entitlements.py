@@ -16,8 +16,14 @@ from .policy import DEFAULT_LIMITS, _t
 def get_limits(db, org_id: str | None) -> dict:
     if not org_id:
         return dict(DEFAULT_LIMITS)
-    row = db.one("SELECT limits FROM " + _t(db, "organizations") + " WHERE id = ?", (org_id,))
     limits = dict(DEFAULT_LIMITS)
+    try:
+        row = db.one("SELECT limits FROM " + _t(db, "organizations") + " WHERE id = ?",
+                     (org_id,))
+    except Exception:
+        # SQLite dev mode has no platform tables (organizations lives in
+        # Postgres): plan limits simply do not apply there.
+        return limits
     if row and row.get("limits"):
         raw = row["limits"]
         if isinstance(raw, str):
