@@ -27,7 +27,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Req
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 try:
     from pydantic import EmailStr
@@ -142,6 +142,8 @@ app.add_middleware(
 
 from ..observability import CorrelationIdMiddleware
 app.add_middleware(CorrelationIdMiddleware)
+from ..ratelimit import RateLimitMiddleware
+app.add_middleware(RateLimitMiddleware)
 
 PROTECTED_PATHS = ("/api/", "/mcp", "/leads", "/jobs", "/providers", "/benchmark/",
                    "/sync-supabase", "/verify-email", "/report/", "/export/",
@@ -273,7 +275,8 @@ class RunRequest(BaseModel):
     seed_csv: str | None = Field(default=None, min_length=1, max_length=MAX_SEED_PATH)
     overrides: dict[str, Any] | None = Field(default=None, max_length=MAX_MAPPING_ITEMS)
 
-    @validator("overrides")
+    @field_validator("overrides")
+    @classmethod
     def validate_overrides(cls, value):
         return None if value is None else _validate_bounded_mapping(value, name="overrides")
 
@@ -285,7 +288,8 @@ class ResumeRequest(BaseModel):
 class VerifyRequest(BaseModel):
     email: EmailStr = Field(..., max_length=320)
 
-    @validator("email")
+    @field_validator("email")
+    @classmethod
     def validate_email_fallback(cls, value):
         # EmailStr performs full validation when email-validator is installed;
         # retain a conservative fallback when the optional extra is absent.
@@ -305,7 +309,8 @@ class AgentRunRequest(BaseModel):
     input: dict[str, Any] = Field(default_factory=dict, max_length=MAX_MAPPING_ITEMS)
     version: str | None = Field(default=None, min_length=1, max_length=64)
 
-    @validator("input")
+    @field_validator("input")
+    @classmethod
     def validate_input(cls, value):
         return _validate_bounded_mapping(value, name="input")
 
@@ -401,7 +406,7 @@ def auth_login(req: LoginRequest, request: Request):
 
 
 @app.get("/api/auth/session")
-def auth_session(request: Request):
+def auth_session(request: Request, db: Database = Depends(get_db)):
     from . import auth_jwt
     from .auth import COOKIE_NAME, enabled, valid_session
 
@@ -413,8 +418,24 @@ def auth_session(request: Request):
         authenticated = claims is not None
     else:
         authenticated = (not enabled()) or cookie_ok
+    org_id = None
+    if authenticated:
+        if claims:
+            from ..tenant import apply_context
+
+            try:
+                apply_context(db, request)
+                org_id = getattr(db, "org_id", None)
+                if org_id and str(org_id).startswith("__"):
+                    org_id = None
+            except Exception:
+                org_id = None
+        elif cookie_ok:
+            # Legacy cookie session: machine/local context only — the env
+            # bridge org, never NULL ambiguity.
+            org_id = os.environ.get("LEAD_ENGINE_ORG_ID")
     return {"authenticated": authenticated, "mode": mode,
-            "org_id": os.environ.get("LEAD_ENGINE_ORG_ID") if authenticated else None}
+            "org_id": org_id}
 
 
 @app.post("/api/auth/logout")

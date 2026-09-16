@@ -9,3 +9,4 @@ pyjwt~=2.10.1
 cryptography~=44.0.1
 loguru~=0.7.3
 email-validator~=2.2.0
+ruff~=0.8.4

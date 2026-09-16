@@ -181,20 +181,57 @@ async def research_stream(job_id: str, request: Request, db=Depends(get_db),
     """Real-time SSE progress stream for the UI/chat (directive §39 / docs/handoff).
     Streams state transitions and counter updates without client polling.
     Bounded by wall clock (max_seconds) — a stuck stream can never hang a
-    client forever; UIs simply reconnect."""
-    _owned(db, job_id)
+    client forever; UIs simply reconnect.
+
+    Connection hygiene (gap #2): the request-scoped DB handle is released
+    before streaming starts; each poll tick opens a short-lived handle.
+    Holding one pooled PG connection open for up to 600s per viewer would
+    exhaust the pool under modest concurrency. Tests override the `get_db`
+    dependency against a temp DB — honour that by reusing the request's own
+    handle when it is file-backed SQLite (same path), instead of opening
+    the dev-default database.
+    """
+    ctx = _owned(db, job_id)
+    org_id = getattr(db, "org_id", None)
+    dialect = getattr(db, "dialect", "sqlite")
+    owner_path = getattr(db, "path", None)
+    try:
+        db.conn.close()
+    except Exception:
+        pass
     import time as _time
+
+    from ..db import open_db as _open_db
 
     started = _time.monotonic()
 
+    def _tick_db():
+        if owner_path is not None and dialect == "sqlite":
+            from ..db import Database as _Database
+
+            tick = _Database(owner_path)
+            tick.org_id = org_id
+            return tick
+        tick = _open_db(org_id=org_id)
+        tick.org_id = org_id
+        return tick
+
     async def event_generator():
         last_updated = None
-        manager = ResearchJobManager(db)
         terminal_states = {"COMPLETED", "FAILED", "CANCELLED", "READY_FOR_REVIEW", "WAITING_FOR_USER"}
         while _time.monotonic() - started < max_seconds:
             if await request.is_disconnected():
                 break
-            prog = manager.progress(job_id)
+            tick = _tick_db()
+            try:
+                if dialect == "sqlite" and ctx.get("organization_id") != (org_id or "shared"):
+                    break
+                prog = ResearchJobManager(tick).progress(job_id)
+            finally:
+                try:
+                    tick.conn.close()
+                except Exception:
+                    pass
             current_updated = prog.get("updated_at")
             if current_updated != last_updated:
                 last_updated = current_updated

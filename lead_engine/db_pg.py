@@ -27,6 +27,8 @@ from datetime import date, datetime, timezone
 import psycopg
 from psycopg.rows import dict_row
 
+from .db import utcnow
+
 # Tables whose INSERTs must carry organization_id.
 ORG_TABLES = {"jobs", "leads", "usage_ledger", "agent_runs", "approvals",
               "activity_events", "agents",

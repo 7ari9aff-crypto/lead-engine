@@ -137,20 +137,21 @@ def _deliver_signed(db, hook: dict, event: dict, secret: str) -> None:
     last_error = None
     status_code = None
     from urllib.parse import urlparse
-    from .netguard import UnsafeTarget, assert_public_host
+    from .netguard import UnsafeTarget, pinned_post, resolve_public_ips
 
     try:
-        # SSRF guard at DELIVERY time too: a webhook whose DNS later moved
-        # to internal space (or registered by another path) must not ship.
-        assert_public_host(
+        # SSRF guard at DELIVERY time too, with a rebind check at connect
+        # time (gap #4): fresh DNS must intersect the vetted set here.
+        _, vetted_ips = resolve_public_ips(
             urlparse(hook["url"]).hostname,
             allow_loopback=(os.environ.get("LEAD_ENGINE_ENV") != "production"))
     except UnsafeTarget as exc:
         raise RuntimeError("webhook host refused: %s" % exc) from exc
     for attempt in range(1, 4):  # 3 attempts per dispatch round
         try:
-            resp = requests.post(
-                hook["url"], data=body.encode(), timeout=10,
+            resp = pinned_post(
+                hook["url"], vetted_ips, data=body.encode(), timeout=10,
+                allow_loopback=(os.environ.get("LEAD_ENGINE_ENV") != "production"),
                 headers={"Content-Type": "application/json",
                          "X-LeadEngine-Signature": f"v1={signature}",
                          "X-LeadEngine-Timestamp": timestamp,
