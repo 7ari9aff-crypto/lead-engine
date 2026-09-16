@@ -20,6 +20,10 @@ jobs:
   frontend:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: web } }
+    env:
+      # pnpm 12 blocks dependency build scripts by default (esbuild);
+      # same allowance the dev compose uses (see AGENTS.md)
+      PNPM_CONFIG_DANGEROUSLY_ALLOW_ALL_BUILDS: "true"
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
