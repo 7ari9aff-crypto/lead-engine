@@ -1,0 +1,44 @@
+# Gitleaks configuration — Lead Engine.
+#
+# Extends the default rule set. The ONLY allowlisted secret class is the
+# Supabase publishable (anon) key, which is public by design: it ships inside
+# the browser bundle on purpose and every data access is still authorized by
+# Postgres RLS. Real secrets (service_role keys, provider API keys) are NOT
+# allowlisted — they live in the environment / org-scoped encrypted storage
+# and must never reach git.
+#
+# The regex matches the JWT payload prefix that encodes the project ref
+# ({"iss":"supabase","ref":"abshiqxxsvdtbdngycpb"}), so rotating the anon key
+# keeps the allowlist valid (the payload is unchanged by rotation), while any
+# other credential appearing in the same files is still reported.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+# Scoped to exactly the two tracked locations the key legitimately lives in:
+#   - web/.env.production        → the single tracked build-time definition
+#   - lead_engine/static/assets  → the synced dashboard bundle (Vite inlines
+#                                  VITE_* vars at build time — unavoidable)
+paths = [
+  '''^web/\.env\.production$''',
+  '''^lead_engine/static/assets/''',
+]
+regexes = [
+  '''eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFic2hpcXh4c3ZkdGJkbmd5Y3Bi''',
+]
+
+[[allowlists]]
+description = "Historical artifacts — removed from HEAD, secrets verified dead"
+# 1) .env.supabase.bootstrap (removed in later commits): contained the old
+#    Supabase Postgres password. VERIFIED DEAD on 2026-09-17 by attempting a
+#    live connection with the leaked URL — Postgres answers
+#    `FATAL: password authentication failed`. The active SUPABASE_DB_URL in
+#    the environment uses a different, never-committed password.
+# 2) .pnpm-store/ (accidentally committed once at 333d9d7): pnpm's local
+#    package cache; findings are third-party package file contents
+#    (registry ping-sha256 blobs), not project secrets.
+paths = [
+  '''^\.env\.supabase\.bootstrap$''',
+  '''^\.pnpm-store/''',
+]
