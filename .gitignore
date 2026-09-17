@@ -14,6 +14,8 @@ venv/
 supabase/.temp/
 web/.vercel
 web/node_modules/
+# root-level node_modules — stray artifacts (e.g. temporary diagnostic tools)
+node_modules/
 web/dist/
 scratch/
 vercel_deploy.log
