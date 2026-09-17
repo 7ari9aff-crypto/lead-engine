@@ -16,6 +16,7 @@ web/.vercel
 web/node_modules/
 web/dist/
 scratch/
+vercel_deploy.log
 
 # codeops: per-patch file backups written before an approved patch lands
 .codeops_backups/

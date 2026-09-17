@@ -1,12 +1,14 @@
-requests~=2.32.3
-pytest~=8.3.4
+requests~=2.33
+pytest~=9.0.3
 PyYAML~=6.0.2
 dnspython~=2.7.0
-fastapi~=0.115.8
+# 0.141.1 has no upper bound on starlette, so pip can resolve the
+# starlette>=1.3.1 floor required by pip-audit (CVE fixes).
+fastapi~=0.141.1
 uvicorn~=0.34.0
 psycopg[binary]~=3.2.4
-pyjwt~=2.10.1
-cryptography~=44.0.1
+pyjwt~=2.13
+cryptography~=50.0
 loguru~=0.7.3
 email-validator~=2.2.0
 ruff~=0.8.4
