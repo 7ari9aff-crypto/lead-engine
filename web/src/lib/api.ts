@@ -392,6 +392,10 @@ export const apiGet = {
     api.get<{ events: { ts: string; from_state: string; to_state: string; reason: string | null }[] }>(
       `/api/v1/research/${encodeURIComponent(jobId)}/events`
     ),
+  billingPlans: () =>
+    api.get<{ plans: { id: string; label: string; max_jobs_per_day: number; max_leads_per_month: number; max_provider_calls_per_day: number; channels: string[] }[] }>(
+      "/api/v1/billing/plans"
+    ),
 };
 
 export const apiPost = {
@@ -479,6 +483,11 @@ export const apiPost = {
     api.post<{ job_id: string; state: string; mode: string }>(
       "/api/v1/research", { objective, icp_version_id: icpVersionId || null, budgets: budgets || null }
     ),
+  // Billing — creates a Stripe Checkout Session and returns the hosted URL.
+  // The backend returns 503 when billing has no STRIPE_SECRET_KEY; the caller
+  // shows the message instead of navigating.
+  billingCheckout: (plan: "pro" | "business") =>
+    api.post<{ checkout_url: string }>("/api/v1/billing/checkout", { plan }),
   researchCancel: (jobId: string) =>
     api.post<{ ok: boolean }>(`/api/v1/research/${encodeURIComponent(jobId)}/cancel`, {}),
 };

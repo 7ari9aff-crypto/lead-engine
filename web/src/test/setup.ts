@@ -49,3 +49,18 @@ if (!("ResizeObserver" in window)) {
     value: ResizeObserverStub,
   });
 }
+
+if (!("IntersectionObserver" in window)) {
+  // framer-motion's whileInView (used by the Pricing hero/cards) observes
+  // elements — jsdom has no such API, so pages using it crash at render.
+  // The stub reports "not intersecting"; tests assert DOM, not animation.
+  class IntersectionObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  Object.defineProperty(window, "IntersectionObserver", {
+    writable: true,
+    value: IntersectionObserverStub,
+  });
+}

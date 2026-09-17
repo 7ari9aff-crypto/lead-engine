@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "wouter";
 import {
   Zap,
@@ -16,6 +17,15 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { apiPost, ApiError } from "@/lib/api";
+
+/** Redirect target indirection: `window.location.assign` is non-configurable
+ *  in some browsers (and frozen by redefinition guards), so the page goes
+ *  through this module-scope hook. Tests swap it; production uses the real
+ *  location. Defaults to a same-tab navigation. */
+export const navHooks: { goCheckout: (url: string) => void } = {
+  goCheckout: (url: string) => window.location.assign(url),
+};
 
 const PLANS = [
   {
@@ -26,6 +36,7 @@ const PLANS = [
     desc: "لكل اللي يجرّبون لاول مرة",
     color: "var(--info)",
     cta: "ابدأ التجربة",
+    ctaPlan: null as "pro" | "business" | null,
     href: "/chat",
     features: [
       { text: "30 lead مجاناً", ok: true },
@@ -47,6 +58,7 @@ const PLANS = [
     desc: "للشركات اللي تولّد leads بانتظام",
     color: "var(--accent)",
     cta: "ابدأ Pro",
+    ctaPlan: "pro" as const,
     href: "/chat",
     featured: true,
     features: [
@@ -68,7 +80,8 @@ const PLANS = [
     period: "مخصص",
     desc: "للفرق الكبيرة والاحتياجات المؤسسية",
     color: "var(--warn)",
-    cta: "تواصل معنا",
+    cta: "اشترك Business",
+    ctaPlan: "business" as const,
     href: "mailto:7amedadel7@gmail.com",
     features: [
       { text: "leads غير محدود", ok: true },
@@ -131,6 +144,25 @@ const fadeUp = {
 };
 
 export function PricingPage() {
+  // Which plan is mid-checkout (drives the button spinner) + any backend error
+  // (503 = billing not configured on this server — surfaces as text, never a
+  // silent no-op).
+  const [checkingOut, setCheckingOut] = useState<"pro" | "business" | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+
+  async function startCheckout(plan: "pro" | "business") {
+    setCheckingOut(plan);
+    setCheckoutError(null);
+    try {
+      const r = await apiPost.billingCheckout(plan);
+      navHooks.goCheckout(r.checkout_url);
+    } catch (e) {
+      setCheckoutError(e instanceof ApiError ? e.message : "تعذر بدء الدفع — حاول لاحقًا");
+    } finally {
+      setCheckingOut(null);
+    }
+  }
+
   return (
     <div className="min-h-screen">
       {/* Simple nav */}
@@ -229,12 +261,21 @@ export function PricingPage() {
                     <Button
                       variant={p.featured ? "primary" : "outline"}
                       className="w-full mb-6"
-                      asChild
+                      {...(p.ctaPlan
+                        ? {
+                            onClick: () => p.ctaPlan && startCheckout(p.ctaPlan),
+                            disabled: checkingOut !== null,
+                          }
+                        : { asChild: true })}
                     >
-                      <Link href={p.href}>
-                        {p.cta}
-                        <ArrowLeft className="h-4 w-4" />
-                      </Link>
+                      {p.ctaPlan ? (
+                        <>{checkingOut === p.ctaPlan ? "جارٍ التحويل للدفع…" : p.cta}</>
+                      ) : (
+                        <Link href={p.href}>
+                          {p.cta}
+                          <ArrowLeft className="h-4 w-4" />
+                        </Link>
+                      )}
                     </Button>
 
                     <ul className="space-y-2.5">
@@ -257,6 +298,11 @@ export function PricingPage() {
             );
           })}
         </div>
+        {checkoutError && (
+          <p role="alert" className="text-center text-[13px] text-[var(--danger)] mt-4">
+            {checkoutError}
+          </p>
+        )}
       </section>
 
       {/* COMPARISON TABLE */}
