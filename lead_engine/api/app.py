@@ -226,6 +226,9 @@ async def admin_session_guard(request: Request, call_next):
     public = path in {
         "/health", "/ready", "/api/v1/ready",
         "/api/auth/login", "/api/auth/session", "/api/auth/logout",
+        # Stripe signs webhook deliveries with its own HMAC (verified inside
+        # the handler) — JWT auth cannot apply to an outbound caller.
+        "/api/v1/billing/webhook",
     }
     protected = path.startswith(PROTECTED_PATHS)
     if protected and not public:
@@ -1998,6 +2001,11 @@ app.include_router(pitch_router)
 # only exposes the read side (Prometheus text + the dashboard's SLO summary).
 from .metrics_api import router as metrics_router
 app.include_router(metrics_router)
+# Billing (Stripe): checkout + signed webhook → organizations.limits.
+# The webhook is intentionally public at the middleware (see admin_session_guard)
+# and authenticates via the Stripe-Signature HMAC instead.
+from .billing_api import router as billing_router
+app.include_router(billing_router)
 # NOTE: the live SSE stream is defined here in app.py (this module) — see
 # api_live_stream. Never re-introduce a second route for /api/*/live/stream:
 # the first registration wins and silently shadows the other implementation.

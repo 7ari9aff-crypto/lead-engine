@@ -50,6 +50,9 @@ Retention = حسب الخطة (7 أيام PITR افتراضيًا)
 - [ ] تحقق: عدد صفوف `engine.jobs` و`public.organizations` مطابق للأصل.
 - [ ] سجل التاريخ والمدة هنا (RTO المقاس مقابل الهدف).
 
+التحقق مُؤتمت: `python scripts/verify_restore.py <original_dsn> <restored_dsn>`
+يقارن عدد الصفوف في الجداول الحرجة ويخرج 0 عند التطابق (1 عند أي فجوة).
+
 ```text
 Drill #1: [تاريخ] — [المدة] — [النتيجة]
 ```

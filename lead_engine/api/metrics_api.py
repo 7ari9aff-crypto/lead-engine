@@ -273,7 +273,7 @@ def entitlements_summary(db=Depends(get_db)) -> dict[str, Any]:
     """Daily limits for the calling org — shown next to the SLO panel."""
     org = getattr(db, "org_id", None)
     try:
-        limits = get_limits(org) if org else {}
+        limits = get_limits(db, org) if org else {}
     except Exception:
         limits = {}
     return {"organization_id": org, "limits": _jsonable_limits(limits)}
