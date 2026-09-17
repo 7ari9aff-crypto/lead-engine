@@ -1,3 +1,27 @@
+[project]
+# Vercel's Python runtime installs the deployment with `uv lock`, which
+# requires a PEP-621 [project] table (it errors out with "No `project` table
+# found" otherwise). The dependency list mirrors requirements.txt — keep the
+# two in sync.
+name = "lead-engine"
+version = "1.0.0"
+requires-python = ">=3.11"
+dependencies = [
+    "requests~=2.33",
+    "PyYAML~=6.0.2",
+    "dnspython~=2.7.0",
+    # 0.141.1 has no upper bound on starlette, so pip/uv can resolve the
+    # starlette>=1.3.1 floor required by pip-audit (CVE fixes).
+    "fastapi~=0.141.1",
+    "uvicorn~=0.34.0",
+    "psycopg[binary]~=3.2.4",
+    "pyjwt~=2.13",
+    "cryptography~=50.0",
+    "loguru~=0.7.3",
+    "email-validator~=2.2.0",
+    "httpx~=0.28.1",
+]
+
 [tool.ruff]
 exclude = [".venv", "venv", "__pycache__", "web/node_modules", "web/dist", "supabase/.temp", "data", "outputs", ".codeops_backups", "scratch"]
 line-length = 100
