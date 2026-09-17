@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/Input";
 import { Switch } from "@/components/ui/Switch";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useLiveData } from "@/hooks/useLiveData";
+import { useInstantQuery } from "@/hooks/useInstantQuery";
 import { apiGet, apiPost, type KeyUsageResponse, type ProviderUsageRow, type StatusResponse } from "@/lib/api";
 import { toast } from "sonner";
 import { friendlyError, TASK_LABELS } from "@/lib/friendly";
@@ -45,11 +45,22 @@ function fmt(n: number | null | undefined): string {
 }
 
 export function KeysPage() {
-  const usage = useLiveData<KeyUsageResponse>(() => apiGet.keysUsage(), 10000);
-  const keys = useLiveData(() => apiGet.keys(), 30000);
-  const status = useLiveData<StatusResponse>(() => apiGet.status(), 8000);
+  // `live_probe` is opt-in on purpose: the provider balance endpoints are
+  // outbound HTTP calls with 5–10s timeouts, so they run when the operator
+  // asks for them — never on a 10s background poll.
+  const [liveProbe, setLiveProbe] = useState(false);
+  const usage = useInstantQuery<KeyUsageResponse>(
+    ["keysUsage", liveProbe],
+    () => apiGet.keysUsage(liveProbe),
+    { staleTime: liveProbe ? 30_000 : 20_000, refetchInterval: 30_000 }
+  );
+  const keys = useInstantQuery(["keys"], () => apiGet.keys(), { staleTime: 60_000 });
+  const status = useInstantQuery<StatusResponse>(["status"], () => apiGet.status(), {
+    staleTime: 5_000,
+  });
+  const probingLive = liveProbe && usage.isFetching;
 
-  const loading = usage.loading || keys.loading || status.loading;
+  const loading = usage.isLoading || keys.isLoading || status.isLoading;
 
   if (loading && !usage.data) return <PageSkeleton />;
 
@@ -73,9 +84,9 @@ export function KeysPage() {
   };
 
   function refreshAll() {
-    usage.refresh();
-    keys.refresh();
-    status.refresh();
+    void usage.refetch();
+    void keys.refetch();
+    void status.refetch();
   }
 
   return (
@@ -85,10 +96,21 @@ export function KeysPage() {
         title="المفاتيح والمزودون"
         description="كل مفاتيحك في مكان واحد — الاستهلاك والتوكنز لكل مفتاح، وضبط سلوك كل مزوّد"
         action={
-          <Button variant="outline" size="sm" onClick={refreshAll}>
-            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-            تحديث
-          </Button>
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { setLiveProbe(true); void usage.refetch(); }}
+              title="يستعلم رصيد المفاتيح مباشرة من المزودين (اتصال خارجي)"
+            >
+              <Coins className={cn("h-3.5 w-3.5", probingLive && "animate-pulse")} />
+              فحص الرصيد من المزوّدين
+            </Button>
+            <Button variant="outline" size="sm" onClick={refreshAll}>
+              <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+              تحديث
+            </Button>
+          </>
         }
       />
 
@@ -123,7 +145,7 @@ export function KeysPage() {
                 />
               ))}
               {extras.map((k) => (
-                <PlainKeyCard key={k.name} field={k} onChanged={keys.refresh} />
+                <PlainKeyCard key={k.name} field={k} onChanged={() => void keys.refetch()} />
               ))}
             </div>
           </section>

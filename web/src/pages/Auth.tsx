@@ -8,7 +8,10 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { apiGet } from "@/lib/api";
 import { friendlyError } from "@/lib/friendly";
-import { supabase, supabaseConfigured } from "@/lib/supabase";
+import {
+  supabaseConfigured, onAuthChange, signInWithPassword,
+  resetPasswordForEmail, signUpWithPassword,
+} from "@/lib/supabase";
 import { toast } from "sonner";
 
 // Shared split layout: brand panel + form card.
@@ -94,13 +97,16 @@ export function LoginPage() {
   useEffect(() => {
     // If already signed in, go straight to dashboard
     if (supabaseConfigured) {
-      supabase.auth.getSession().then(({ data }) => {
-        if (data.session) navigate("/");
+      let alive = true;
+      let unsubscribe: (() => void) | undefined;
+      onAuthChange((session) => {
+        if (alive && session) navigate("/");
+      }).then((unsub) => {
+        // Effect may have unmounted while the lazy SDK was loading.
+        if (alive) unsubscribe = unsub;
+        else unsub();
       });
-      const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-        if (session) navigate("/");
-      });
-      return () => { listener.subscription.unsubscribe(); };
+      return () => { alive = false; unsubscribe?.(); };
     }
     // Fallback: ask backend for mode (password / open)
     let alive = true;
@@ -117,8 +123,7 @@ export function LoginPage() {
     setBusy(true);
     try {
       if (mode === "supabase" && supabaseConfigured) {
-        const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-        if (error) throw error;
+        await signInWithPassword(email.trim(), password);
       } else if (mode === "password") {
         const { apiPost } = await import("@/lib/api");
         await apiPost.login(password);
@@ -139,7 +144,7 @@ export function LoginPage() {
     setBusy(true);
     try {
       if (!supabaseConfigured) throw new Error("reset unavailable");
-      await supabase.auth.resetPasswordForEmail(email.trim());
+      await resetPasswordForEmail(email.trim());
       setResetSent(true);
     } catch (err: unknown) {
       toast.error(friendlyError(err));
@@ -252,12 +257,9 @@ export function SignupPage() {
     setBusy(true);
     try {
       if (!supabaseConfigured) throw new Error("التسجيل غير متاح حاليًا — جرّب الدخول أو تواصل معنا");
-      const { data, error } = await supabase.auth.signUp({
-        email: email.trim(),
-        password,
-        options: name.trim() ? { data: { full_name: name.trim() } } : undefined,
-      });
-      if (error) throw error;
+      const data = await signUpWithPassword(
+        email.trim(), password, name.trim() || undefined,
+      );
       if (data.session) {
         navigate("/");
       } else if (!data.user) {

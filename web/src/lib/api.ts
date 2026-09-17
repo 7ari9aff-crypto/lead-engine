@@ -273,6 +273,7 @@ export type StatusResponse = {
   recent_jobs: JobRow[];
   leads_total: number;
   leads_by_stage: Record<string, number>;
+  pending_approvals?: number;
   cache_entries: Record<string, number>;
   usage_totals: { provider: string; task: string; calls: number; units: number }[];
   system: {
@@ -284,7 +285,7 @@ export type StatusResponse = {
 };
 
 // Normalize provider status (uppercase) → UI shape
-function normalizeProvider(p: any): ProviderRow {
+export function normalizeProvider(p: any): ProviderRow {
   const env = p.key_env || p.env_key;
   const keyState: ProviderRow["key_state"] = env == null
     ? "local"
@@ -305,6 +306,24 @@ export const apiGet = {
   agentRuns: () => api.get<{ runs: any[] }>("/api/agent-runs"),
   tools: () => api.get<{ tools: any[] }>("/api/tools"),
   approvals: () => api.get<{ approvals: any[] }>("/api/approvals"),
+  approvalDetail: (id: string) =>
+    api.get<ApprovalDetail>(`/api/approvals/${encodeURIComponent(id)}`),
+  approvalHistory: (status = "APPROVED") =>
+    api.get<{ approvals: any[] }>(`/api/approvals?status=${encodeURIComponent(status)}`),
+  codeWorkspace: (prefix = "", depth = 2, limit = 300) =>
+    api.get<CodeTree>(`/api/code/workspace?prefix=${encodeURIComponent(prefix)}`
+      + `&depth=${depth}&limit=${limit}`),
+  codeFile: (path: string, startLine?: number, endLine?: number) => {
+    const q = new URLSearchParams({ path });
+    if (startLine) q.set("start_line", String(startLine));
+    if (endLine) q.set("end_line", String(endLine));
+    return api.get<CodeFile>(`/api/code/file?${q.toString()}`);
+  },
+  codeSearch: (pattern: string, glob?: string, limit = 50) => {
+    const q = new URLSearchParams({ pattern, limit: String(limit) });
+    if (glob) q.set("glob", glob);
+    return api.get<CodeSearch>(`/api/code/search?${q.toString()}`);
+  },
   status: async (): Promise<StatusResponse> => {
     const r = await api.get<any>("/api/status");
     return {
@@ -340,7 +359,10 @@ export const apiGet = {
     jobs_over_time: { date: string; total: number; completed: number; paused: number; failed: number }[];
     usage_over_time: { date: string; units: number; calls: number }[];
   }>("/api/analytics"),
-  keysUsage: () => api.get<KeyUsageResponse>("/api/keys/usage"),
+  /** SLO summary — uptime, error rate, latency percentiles + business gauges. */
+  slo: () => api.get<SloSummary>("/api/v1/slo"),
+  keysUsage: (live = false) =>
+    api.get<KeyUsageResponse>(`/api/keys/usage${live ? "?live_probe=1" : ""}`),
   integrations: () => api.get<{ integrations: IntegrationRow[] }>("/api/v1/integrations"),
   suppression: (channel?: string) =>
     api.get<{ entries: SuppressionEntry[] }>(
@@ -414,6 +436,11 @@ export const apiPost = {
   drainQueued: () => api.post<{ drained: number; cancelled_job_ids: string[] }>(`/api/jobs/drain-queued`),
   resolveApproval: (id: string, status: "APPROVED" | "REJECTED") =>
     api.post<{ ok: boolean }>(`/api/approvals/${encodeURIComponent(id)}/resolve`, { status }),
+  applyApproval: (id: string) =>
+    api.post<ApplyResult>(`/api/approvals/${encodeURIComponent(id)}/apply`, {}),
+  revertApproval: (id: string) =>
+    api.post<{ reverted: boolean; restored: string[]; branch: string | null }>(
+      `/api/approvals/${encodeURIComponent(id)}/revert`, {}),
   createAgent: (body: { slug: string; name: string; description?: string; status?: string }) =>
     api.post<{ agent: any }>(`/api/agents`, body),
   updateAgent: (slug: string, body: { name?: string; description?: string; status?: string }) =>
@@ -540,6 +567,168 @@ export async function streamResearchProgress(
       if (dataLines.length) {
         try { onData(event, JSON.parse(dataLines.join("\n"))); } catch {}
       }
+    }
+  }
+}
+
+export type ApplyResult = {
+  applied: boolean;
+  files: string[];
+  branch: string;
+  base_branch: string | null;
+  commit: string | null;
+  backup_dir: string;
+  undo: string;
+  notes: string[];
+};
+
+export type CodeTree = {
+  root: string;
+  prefix: string;
+  count: number;
+  truncated: boolean;
+  files: { path: string; bytes: number }[];
+};
+
+export type CodeFile = {
+  path: string;
+  total_lines: number;
+  start_line: number;
+  end_line: number;
+  truncated: boolean;
+  content: string;
+};
+
+export type CodeSearch = {
+  pattern: string;
+  count: number;
+  truncated: boolean;
+  hits: { path: string; line: number; text: string }[];
+};
+
+/** Code-patch lifecycle: approve the proposal, then apply/revert on its own branch. */
+export const apiCode = {
+  apply: (approvalId: string) =>
+    api.post<ApplyResult>(`/api/approvals/${encodeURIComponent(approvalId)}/apply`, {}),
+  revert: (approvalId: string) =>
+    api.post<{ reverted: boolean; restored: string[]; branch: string | null }>(
+      `/api/approvals/${encodeURIComponent(approvalId)}/revert`, {}),
+};
+
+/** One approval row, enriched by GET /api/approvals/{id}. */
+export type ApprovalDetail = {
+  approval_id: string;
+  run_id: string;
+  action: string;
+  status: string;
+  requested_at?: string;
+  resolved_at?: string | null;
+  payload?: Record<string, any> | null;
+  kind?: string;
+  summary?: string;
+  diff?: string;
+  files?: string[];
+  result?: ApplyResult | null;
+};
+
+export type LiveAlert = {
+  level: "info" | "warn" | "error";
+  kind: string;
+  count: number;
+  message: string;
+};
+
+/**
+ * `GET /api/v1/slo` — the operator-facing reliability summary. Targets live in
+ * the backend (metrics_api.SLO_TARGETS) so the dashboard never invents its own
+ * definition of "healthy".
+ */
+export type SloSummary = {
+  targets: {
+    availability: number;
+    latency_p95_ms: number;
+    error_rate: number;
+  };
+  observed: {
+    availability: number;
+    error_rate: number;
+    latency_p50_ms: number;
+    latency_p95_ms: number;
+    latency_p99_ms: number;
+    uptime_seconds: number;
+    requests_total: number;
+  };
+  checks: {
+    availability: boolean;
+    latency_p95: boolean;
+    error_rate: boolean;
+  };
+  /** null while the process is still warming up (too few requests to judge). */
+  within_slo: boolean | null;
+  warming_up: boolean;
+  gauges: Record<string, number>;
+  top_paths: { method: string; path: string; status: number; count: number }[];
+};
+
+/**
+ * A live frame is the SAME payload `GET /api/status` returns plus alerts.
+ * That contract is what makes the dashboard instant: the client writes every
+ * frame straight into its `status` cache, so pages render from cache with no
+ * polling and no extra round trip.
+ */
+export type LiveSnapshot = StatusResponse & {
+  alerts?: LiveAlert[];
+  ts?: string;
+};
+
+/**
+ * Live dashboard stream (SSE over fetch, because EventSource cannot send the
+ * Supabase Bearer token). Resolves when the server closes the stream; the
+ * caller aborts via `signal`. `onStateChange` reports connection transitions so
+ * the UI can fall back to polling honestly instead of showing a fake "live".
+ */
+export async function streamLive(
+  handlers: {
+    onSnapshot: (snapshot: LiveSnapshot) => void;
+    onStateChange?: (state: "connecting" | "live" | "error") => void;
+  },
+  signal?: AbortSignal
+): Promise<void> {
+  const token = await getAccessToken();
+  const headers: Record<string, string> = { Accept: "text/event-stream" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  handlers.onStateChange?.("connecting");
+  const res = await fetch(`${BASE}/api/live/stream`, {
+    headers, credentials: "include", signal,
+  });
+  if (!res.ok || !res.body) {
+    handlers.onStateChange?.("error");
+    throw new ApiError(`HTTP ${res.status}`, res.status, null);
+  }
+  handlers.onStateChange?.("live");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return;
+    buf += decoder.decode(value, { stream: true });
+    const frames = buf.split("\n\n");
+    buf = frames.pop() || "";
+    for (const frame of frames) {
+      if (frame.startsWith(":")) continue; // keep-alive comment frame
+      let event = "message";
+      const dataLines: string[] = [];
+      for (const line of frame.split("\n")) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+      }
+      if (!dataLines.length || event !== "snapshot") continue;
+      try {
+        handlers.onSnapshot(JSON.parse(dataLines.join("\n")) as LiveSnapshot);
+      } catch { /* ignore malformed frame */ }
     }
   }
 }

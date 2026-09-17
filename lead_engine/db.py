@@ -340,6 +340,19 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     payload_json TEXT,
     created_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_agent_steps_run ON agent_steps(run_id);
+CREATE INDEX IF NOT EXISTS idx_usage_provider_ts ON usage_ledger(provider, ts);
+CREATE INDEX IF NOT EXISTS idx_usage_org_ts ON usage_ledger(organization_id, ts);
+CREATE INDEX IF NOT EXISTS idx_jobs_org_state ON jobs(organization_id, state);
+CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at);
+CREATE INDEX IF NOT EXISTS idx_leads_org_stage ON leads(organization_id, stage);
+CREATE INDEX IF NOT EXISTS idx_leads_created ON leads(created_at);
+CREATE INDEX IF NOT EXISTS idx_leads_org_created ON leads(organization_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_usage_org_provider ON usage_ledger(organization_id, provider);
+CREATE INDEX IF NOT EXISTS idx_leads_job ON leads(job_id);
+CREATE INDEX IF NOT EXISTS idx_runs_org_agent ON agent_runs(organization_id, agent_id);
+CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status);
+CREATE INDEX IF NOT EXISTS idx_facts_subject ON research_facts(subject_kind, subject_id);
 """
 
 
@@ -364,6 +377,7 @@ class Database:
         self._migrate_agent_version_columns()
         self._migrate_lead_disposition_columns()
         self._migrate_research_context_columns()
+        self._migrate_org_columns()
         self.conn.commit()
 
     def _migrate_provider_columns(self):
@@ -417,6 +431,23 @@ class Database:
         existing = {row["name"] for row in self.conn.execute("PRAGMA table_info(research_context)")}
         if existing and "run_id" not in existing:
             self.conn.execute("ALTER TABLE research_context ADD COLUMN run_id TEXT")
+
+    def _migrate_org_columns(self):
+        """Add organization_id to the org-scoped tables when a database was
+        created by an older schema.
+
+        SCHEMA is CREATE TABLE IF NOT EXISTS: a table that predates the tenancy
+        work keeps its old shape forever, and every tenant-scoped query then
+        fails with 'no such column: organization_id'. Mirrors the PG schema,
+        where the column was part of the migration that introduced it.
+        """
+        for table in ("usage_ledger", "jobs", "leads", "agent_runs", "approvals",
+                      "research_facts", "fact_sources", "fact_conflicts",
+                      "open_questions", "visited_sources"):
+            existing = {row["name"] for row in
+                        self.conn.execute(f"PRAGMA table_info({table})")}
+            if existing and "organization_id" not in existing:
+                self.conn.execute(f"ALTER TABLE {table} ADD COLUMN organization_id TEXT")
 
     def audit(self, actor: str, action: str, entity_type: str | None = None,
               entity_id: str | None = None, payload: dict | None = None) -> None:

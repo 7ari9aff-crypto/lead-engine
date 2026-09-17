@@ -28,14 +28,19 @@ def test_initialize():
     assert "tools" in result["capabilities"]
 
 
-def test_tools_list_has_five_tools():
+def test_tools_list_covers_core_and_code_tools():
     r = client.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
     tools = r.json()["result"]["tools"]
     names = {t["name"] for t in tools}
-    assert names == {"run_lead_generation", "get_job_status", "list_leads",
-                     "verify_email", "system_status"}
+    # The original engine tools must always be present.
+    assert {"run_lead_generation", "get_job_status", "list_leads",
+            "verify_email", "system_status"} <= names
+    # Code-aware tools: the agent traces its own source and proposes patches.
+    assert {"list_code", "read_code", "search_code", "git_history",
+            "git_show", "run_tests", "propose_patch"} <= names
     for t in tools:
         assert "inputSchema" in t
+        assert t["description"]
 
 
 def test_tools_call_system_status():

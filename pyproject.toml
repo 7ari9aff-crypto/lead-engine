@@ -1,0 +1,4 @@
+[tool.ruff]
+exclude = [".venv", "venv", "__pycache__", "web/node_modules", "web/dist", "supabase/.temp", "data", "outputs", ".codeops_backups", "scratch"]
+line-length = 100
+target-version = "py311"

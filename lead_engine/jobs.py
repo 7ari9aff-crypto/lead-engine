@@ -80,11 +80,17 @@ class JobManager:
         import uuid
 
         job_id = f"job-{uuid.uuid4().hex[:10]}"
+        # SQLite parity with the PG adapter's org injection (and with
+        # Database.insert_lead): a job row is tenant-scoped at write time so a
+        # tenant-filtered status query sees it on both backends. On Postgres the
+        # column is already present here, so _inject_org leaves the statement
+        # untouched.
+        org_id = getattr(self.db, "org_id", None) or "shared"
         self.db.execute(
-            "INSERT INTO jobs (job_id, icp_id, state, params, created_at, updated_at)"
-            " VALUES (?,?,?,?,?,?)",
+            "INSERT INTO jobs (job_id, icp_id, state, params, created_at,"
+            " updated_at, organization_id) VALUES (?,?,?,?,?,?,?)",
             (job_id, icp_id, QUEUED, json.dumps(params or {}, ensure_ascii=False),
-             utcnow(), utcnow()),
+             utcnow(), utcnow(), org_id),
         )
         return job_id
 

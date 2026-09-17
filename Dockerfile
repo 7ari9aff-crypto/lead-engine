@@ -10,11 +10,11 @@ COPY config/ config/
 ENV PYTHONUNBUFFERED=1
 # Non-root runtime: /app/data (default SQLite home) and /app/outputs stay
 # writable; override with LEAD_ENGINE_DATA_DIR / LEAD_ENGINE_OUTPUTS_DIR.
-RUN useradd --create-home --uid 10001 appuser 
-    && mkdir -p /app/data /app/outputs 
+RUN useradd --create-home --uid 10001 appuser \
+    && mkdir -p /app/data /app/outputs \
     && chown -R appuser:appuser /app
 USER appuser
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=4).status == 200 else 1)"
 # The API serves the checked-in frontend from lead_engine/static. Frontend
 # compilation is intentionally handled by .github/workflows/sync-frontend.yml;

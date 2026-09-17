@@ -144,10 +144,63 @@ from ..observability import CorrelationIdMiddleware
 app.add_middleware(CorrelationIdMiddleware)
 from ..ratelimit import RateLimitMiddleware
 app.add_middleware(RateLimitMiddleware)
+from fastapi.middleware.gzip import GZipMiddleware
+# API JSON payloads (providers, leads lists, status) are several KB of highly
+# repetitive JSON: gzip cuts the dashboard's transfer by ~80% on the same
+# server. Streaming responses (SSE) are excluded by default (see
+# starlette.middleware.gzip DEFAULT_EXCLUDED_CONTENT_TYPES).
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+
+# ===== SLO instrumentation (Observability, plan-improvement T3) =====
+# Records every served request into the in-process registry that backs
+# GET /metrics and GET /api/v1/slo. Labelled by *route template* (not the raw
+# path) so /api/v1/leads/abc and /api/v1/leads/xyz share one series and the
+# label cardinality stays bounded by the number of routes.
+from .metrics_api import REGISTRY as _METRICS  # noqa: E402
+
+
+class _MetricsMiddleware:
+    """Pure ASGI middleware — cheaper than a BaseHTTPMiddleware wrapper."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        started = time.perf_counter()
+        status_holder = {"status": 500}
+
+        async def _send(message):
+            if message["type"] == "http.response.start":
+                status_holder["status"] = message.get("status", 500)
+            await send(message)
+
+        try:
+            await self.app(scope, receive, _send)
+        finally:
+            route = scope.get("route")
+            path = getattr(route, "path", None) or scope.get("path", "unknown")
+            # Static assets and the SPA fallback would otherwise dominate the
+            # series list with one entry per asset hashed filename.
+            if not path.startswith("/assets/"):
+                _METRICS.observe(
+                    scope.get("method", "GET"),
+                    path,
+                    status_holder["status"],
+                    time.perf_counter() - started,
+                )
+
+
+import time  # noqa: E402
+
+app.add_middleware(_MetricsMiddleware)
 
 PROTECTED_PATHS = ("/api/", "/mcp", "/leads", "/jobs", "/providers", "/benchmark/",
                    "/sync-supabase", "/verify-email", "/report/", "/export/",
-                   "/docs", "/redoc", "/openapi.json")
+                   "/docs", "/redoc", "/openapi.json", "/metrics")
 
 
 @app.middleware("http")
@@ -545,6 +598,88 @@ def api_approval_resolve(approval_id: str, req: ApprovalResolution,
     return {"ok": True, "approval_id": approval_id, "status": req.status}
 
 
+# ===== Code-aware agent operations (diagnose freely, patch on approval) =====
+
+@app.get("/api/approvals/{approval_id}")
+def api_approval_detail(approval_id: str, request: Request,
+                        db: Database = Depends(get_db)):
+    """Full approval row incl. the parsed payload (the patch diff for review)."""
+    require_admin(request, db)
+    row = AgentRegistry(db).approval(approval_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="approval not found")
+    payload = None
+    if row.get("payload_json"):
+        try:
+            payload = json.loads(row["payload_json"])
+        except (json.JSONDecodeError, TypeError):
+            payload = None
+    return {"approval": {**row, "payload": payload}}
+
+
+@app.post("/api/approvals/{approval_id}/apply")
+def api_approval_apply(approval_id: str, request: Request,
+                       db: Database = Depends(get_db)):
+    """Apply an APPROVED code patch onto a fresh git branch (never main)."""
+    require_admin(request, db)
+    from .. import codeops
+    try:
+        return codeops.apply_patch(db, approval_id, actor="operator")
+    except codeops.ApprovalRequired as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except codeops.CodeOpsError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.post("/api/approvals/{approval_id}/revert")
+def api_approval_revert(approval_id: str, request: Request,
+                        db: Database = Depends(get_db)):
+    """Undo an applied patch: restore backups and return to the base branch."""
+    require_admin(request, db)
+    from .. import codeops
+    try:
+        return codeops.revert_patch(db, approval_id, actor="operator")
+    except codeops.CodeOpsError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.get("/api/code/workspace")
+def api_code_workspace(prefix: str = "", depth: int = 2, limit: int = 300,
+                       request: Request = None, db: Database = Depends(get_db)):
+    """Read-only file tree of the workspace (secrets and vendor dirs excluded)."""
+    require_admin(request, db)
+    from .. import codeops
+    try:
+        return codeops.list_code(prefix, depth, limit)
+    except codeops.CodeOpsError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.get("/api/code/file")
+def api_code_file(path: str, start_line: int | None = None,
+                  end_line: int | None = None, request: Request = None,
+                  db: Database = Depends(get_db)):
+    """Read one workspace source file (optionally a line window)."""
+    require_admin(request, db)
+    from .. import codeops
+    try:
+        return codeops.read_code(path, start_line, end_line)
+    except codeops.CodeOpsError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.get("/api/code/search")
+def api_code_search(pattern: str, glob: str | None = None, limit: int = 50,
+                    request: Request = None, db: Database = Depends(get_db)):
+    """Regex search across the workspace source tree."""
+    require_admin(request, db)
+    from .. import codeops
+    try:
+        return codeops.search_code(pattern, glob, limit)
+    except codeops.CodeOpsError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
 # ===== Dynamic agent registry (UI-driven, multi-domain) =====
 
 @app.post("/api/agents")
@@ -698,8 +833,13 @@ def run_benchmark_endpoint(req: RunRequest, background: BackgroundTasks,
 @app.get("/api/v1/jobs/{job_id}")
 @app.get("/api/jobs/{job_id}")
 @app.get("/jobs/{job_id}")
-def get_job_v1(job_id: str, db: Database = Depends(get_db)):
-    return get_job(job_id, db)
+def get_job(job_id: str, db: Database = Depends(get_db)):
+    org_clause, org_params = _org_clause(db)
+    job = db.one(f"SELECT * FROM jobs WHERE job_id=?{org_clause}", (job_id, *org_params))
+    if not job:
+        raise HTTPException(status_code=404, detail="job not found")
+    events = JobManager(db).events(job_id)
+    return {"job": job, "events": events}
 
 
 @app.get("/api/v1/jobs")
@@ -751,16 +891,6 @@ def drain_queued_jobs(request: Request, db: Database = Depends(get_db)):
     return {"drained": len(cancelled), "cancelled_job_ids": cancelled}
 
 
-@app.get("/jobs/{job_id}")
-def get_job(job_id: str, db: Database = Depends(get_db)):
-    org_clause, org_params = _org_clause(db)
-    job = db.one(f"SELECT * FROM jobs WHERE job_id=?{org_clause}", (job_id, *org_params))
-    if not job:
-        raise HTTPException(status_code=404, detail="job not found")
-    events = JobManager(db).events(job_id)
-    return {"job": job, "events": events}
-
-
 @app.post("/jobs/{job_id}/resume")
 def resume_job(job_id: str, req: ResumeRequest, background: BackgroundTasks,
                request: Request, db: Database = Depends(get_db)):
@@ -782,14 +912,32 @@ def resume_job(job_id: str, req: ResumeRequest, background: BackgroundTasks,
     return {"state": summary.get("state"), "metrics": metrics}
 
 
+# Columns returned by the leads LIST endpoint. `raw` (the full evidence blob,
+# often several KB per row) is excluded unless asked for: the dashboard lists
+# hundreds of rows and never reads it there — the detail/report paths do.
+LEAD_LIST_COLUMNS = (
+    "lead_id", "job_id", "name", "domain", "city", "country", "industry",
+    "employee_count", "branches", "phone", "email", "email_status",
+    "email_confidence", "decision_maker", "decision_maker_title", "linkedin",
+    "website", "social", "qualification_score", "tier", "score", "stage",
+    "processing_mode", "requires_review", "legal_decision", "sources",
+    "created_at", "updated_at", "disposition", "disposition_note",
+    "disposition_at", "decided_by",
+)
+
+
 @app.get("/api/v1/leads")
 @app.get("/api/leads")
 @app.get("/leads")
 def leads(job_id: str | None = Query(default=None), stage: str | None = Query(default=None),
           limit: int = Query(default=100, ge=1, le=1000),
           offset: int = Query(default=0, ge=0),
+          include_raw: bool = Query(default=False),
           db: Database = Depends(get_db)):
-    sql = "SELECT * FROM leads WHERE 1=1"
+    columns = ", ".join(LEAD_LIST_COLUMNS)
+    if include_raw:
+        columns = "*"
+    sql = f"SELECT {columns} FROM leads WHERE 1=1"
     params: list = []
     org_clause, org_params = _org_clause(db)
     sql += org_clause
@@ -946,16 +1094,30 @@ def api_status(db: Database = Depends(get_db)):
 
 
 def _build_status(db: Database) -> dict:
+    """Everything the dashboard needs in ONE round-trip budget.
+
+    The previous implementation ran a *separate* usage query per provider (an
+    N+1). Against a remote Postgres (Supabase) that is 20+ network round trips
+    per call — seconds of latency for a dashboard that polls it. Everything
+    below is batched: one providers read, one grouped usage read, and the
+    tenant predicate is computed once and reused instead of once per query.
+    """
     registry = Registry(db)
     registry.seed_if_empty()
+    org_clause, org_params = _org_clause(db)
+
+    # ONE grouped query for every provider's ledger totals (was N queries).
+    usage_by_provider = {
+        r["provider"]: r for r in db.query(
+            "SELECT provider, COUNT(*) AS calls, COALESCE(SUM(units),0) AS units,"
+            " MAX(ts) AS last_used FROM usage_ledger"
+            f" WHERE 1=1{org_clause} GROUP BY provider", org_params)
+    }
+
     providers = []
     for row in registry.status_table():
         env = row["env_key"]
-        org_clause, org_params = _org_clause(db)
-        usage = db.one(
-            f"SELECT COUNT(*) AS calls, COALESCE(SUM(units),0) AS units, MAX(ts) AS last_used"
-            f" FROM usage_ledger WHERE provider=?{org_clause}",
-            (row["name"], *org_params))
+        usage = usage_by_provider.get(row["name"]) or {}
         providers.append({
             "name": row["name"], "task": row["task"], "type": row["type"],
             "priority": row["priority"], "status": row["status"],
@@ -966,30 +1128,45 @@ def _build_status(db: Database) -> dict:
             "quota_used": row["quota_used"] or 0, "period": row["period"],
             "rpm_limit": row["rpm_limit"],
             "base_url": row.get("base_url"), "model_name": row.get("model_name"),
-            "calls": usage["calls"], "units": usage["units"], "last_used": usage["last_used"],
+            "calls": usage.get("calls", 0), "units": usage.get("units", 0),
+            "last_used": usage.get("last_used"),
         })
+
+    jobs_by_state = {
+        r["state"]: r["n"] for r in db.query(
+            f"SELECT state, COUNT(*) AS n FROM jobs WHERE 1=1{org_clause}"
+            " GROUP BY state", org_params)
+    }
+    leads_by_stage = {
+        r["stage"]: r["n"] for r in db.query(
+            f"SELECT stage, COUNT(*) AS n FROM leads WHERE 1=1{org_clause}"
+            " GROUP BY stage", org_params)
+    }
+    approval_clause = " AND organization_id = ?" if getattr(db, "org_id", None) else ""
+    approval_params = ((getattr(db, "org_id", None),) if approval_clause else ())
+    try:
+        pending_approvals = db.one(
+            f"SELECT COUNT(*) AS n FROM approvals WHERE status='PENDING'{approval_clause}",
+            approval_params)["n"]
+    except Exception:
+        pending_approvals = 0  # platform table may not exist on a dev SQLite
     return {
         "version": __version__,
         "providers": providers,
-        "jobs_by_state": {r["state"]: r["n"] for r in
-                          db.query(f"SELECT state, COUNT(*) AS n FROM jobs WHERE 1=1{_org_clause(db)[0]} GROUP BY state", _org_clause(db)[1])},
+        "jobs_by_state": jobs_by_state,
         "recent_jobs": db.query(
-            f"SELECT job_id, icp_id, state, pause_reason, resume_at, created_at, updated_at"
-            f" FROM jobs WHERE 1=1{_org_clause(db)[0]} ORDER BY created_at DESC LIMIT 12",
-            _org_clause(db)[1]),
-        "leads_total": db.one(
-            f"SELECT COUNT(*) AS n FROM leads WHERE 1=1{_org_clause(db)[0]}",
-            _org_clause(db)[1])["n"],
-        "leads_by_stage": {r["stage"]: r["n"] for r in
-                           db.query(
-                               f"SELECT stage, COUNT(*) AS n FROM leads WHERE 1=1{_org_clause(db)[0]} GROUP BY stage",
-                               _org_clause(db)[1])},
+            "SELECT job_id, icp_id, state, pause_reason, resume_at, created_at, updated_at"
+            f" FROM jobs WHERE 1=1{org_clause} ORDER BY created_at DESC LIMIT 12",
+            org_params),
+        "leads_total": sum(leads_by_stage.values()),
+        "leads_by_stage": leads_by_stage,
+        "pending_approvals": pending_approvals,
         "cache_entries": {r["level"]: r["n"] for r in
                           db.query("SELECT level, COUNT(*) AS n FROM cache GROUP BY level")},
         "usage_totals": db.query(
-            f"SELECT provider, task, COUNT(*) AS calls, COALESCE(SUM(units),0) AS units"
-            f" FROM usage_ledger WHERE 1=1{_org_clause(db)[0]} GROUP BY provider, task ORDER BY units DESC LIMIT 20",
-            _org_clause(db)[1]),
+            "SELECT provider, task, COUNT(*) AS calls, COALESCE(SUM(units),0) AS units"
+            f" FROM usage_ledger WHERE 1=1{org_clause}"
+            " GROUP BY provider, task ORDER BY units DESC LIMIT 20", org_params),
         "system": {
             "db_path": str(DB_PATH),
             "supabase_configured": bool(os.environ.get("SUPABASE_URL")
@@ -1000,11 +1177,174 @@ def _build_status(db: Database) -> dict:
     }
 
 
+_LIVE_MAX_SECONDS = 600      # default bound for one stream (client reconnects)
+_LIVE_MIN_INTERVAL = 1.0     # fastest tick we will ever do
+_LIVE_ERROR_INTERVAL = 2.0   # calm-down after a failing tick (never tight-loop)
+
+
+def _live_connection(db: Database) -> Database:
+    """A fresh handle per stream tick.
+
+    A long-lived stream must never pin one connection for its whole life, so we
+    open a short-lived handle each tick and close it right after. The handle is
+    derived from the request's db (same path / DSN / tenant), which also keeps
+    tests pointed at their temp database instead of the dev one.
+    """
+    org_id = getattr(db, "org_id", None)
+    if getattr(db, "dialect", "sqlite") == "postgres":
+        return open_db(org_id)
+    path = getattr(db, "path", None)
+    if not path:
+        return open_db(org_id)
+    conn = Database(path)
+    conn.org_id = org_id
+    return conn
+
+
+def _live_snapshot(db: Database) -> tuple[str, dict]:
+    """Change-digest + the FULL dashboard payload (same shape as /api/status).
+
+    Pushing the status payload — instead of a reduced "pulse" — is what makes
+    the dashboard instant: a connected client writes every frame straight into
+    its `status` cache, so pages render from cache with zero polling and no
+    extra round trip. Returns (digest, payload); the digest covers the volatile
+    figures only, so an idle dashboard costs a few indexed reads per tick and
+    sends nothing over the wire.
+    """
+    import hashlib
+    import time as _time
+
+    payload = _build_status(db)
+    payload["alerts"] = _live_alerts(payload)
+    payload["ts"] = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())
+
+    fingerprint = {
+        "providers": [[p["name"], p["status"], p["quota_used"], p["calls"]]
+                      for p in payload["providers"]],
+        "jobs": payload["jobs_by_state"],
+        "recent": [[j["job_id"], j["state"], j.get("updated_at") or j.get("created_at")]
+                   for j in payload["recent_jobs"]],
+        "stages": payload["leads_by_stage"],
+        "usage": payload["usage_totals"],
+        "approvals": payload.get("pending_approvals", 0),
+    }
+    digest = hashlib.sha1(
+        json.dumps(fingerprint, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+    return digest, payload
+
+
+def _live_alerts(payload: dict) -> list[dict]:
+    """Honest alerts derived from the same numbers the payload already carries."""
+    alerts: list[dict] = []
+    jobs_by_state = payload.get("jobs_by_state") or {}
+    paused = jobs_by_state.get("PAUSED", 0)
+    if paused:
+        alerts.append({"level": "warn", "kind": "paused_jobs", "count": paused,
+                       "message": f"{paused} مهمة متوقفة مؤقتًا"})
+    failed = jobs_by_state.get("FAILED", 0)
+    if failed:
+        alerts.append({"level": "error", "kind": "failed_jobs", "count": failed,
+                       "message": f"{failed} مهمة فاشلة تحتاج مراجعة"})
+    review = (payload.get("leads_by_stage") or {}).get("REVIEW", 0)
+    if review:
+        alerts.append({"level": "info", "kind": "pending_review", "count": review,
+                       "message": f"{review} عميل محتمل في انتظار المراجعة"})
+    return alerts
+
+
+@app.get("/api/v1/live/stream")
+@app.get("/api/live/stream")
+def api_live_stream(
+    max_seconds: int = Query(default=_LIVE_MAX_SECONDS, ge=1, le=_LIVE_MAX_SECONDS),
+    db: Database = Depends(get_db),
+):
+    """Server-sent events: the dashboard's single real-time channel.
+
+    Contract (pinned by tests/test_live_stream.py + tests/test_live_api.py):
+      * every frame carries the same payload as `GET /api/status`, so a
+        connected dashboard renders instantly and never polls;
+      * the stream is bounded by `max_seconds` (capped) — a stuck viewer can
+        never pin a worker;
+      * a client that cannot be scoped to an organization is refused instead of
+        being shown platform-wide totals (fail closed);
+      * a fresh DB handle is opened per tick and closed right after, so a
+        long-lived viewer never pins a pooled connection.
+    """
+    import time as _time
+
+    from fastapi.responses import StreamingResponse
+
+    org_id = getattr(db, "org_id", None)
+    bounded = max(1, min(int(max_seconds or _LIVE_MAX_SECONDS), _LIVE_MAX_SECONDS))
+    headers = {
+        "Cache-Control": "no-cache, no-transform",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",     # stop nginx/proxy buffering the stream
+    }
+
+    if str(org_id or "").startswith("__"):
+        # Authenticated but tenant-less: never leak platform-wide aggregates.
+        def _refuse():
+            yield ('event: error\ndata: '
+                   '{"error":"no organization context","code":"no_org"}\n\n')
+
+        return StreamingResponse(_refuse(), media_type="text/event-stream",
+                                 headers=headers)
+
+    def event_stream():
+        last_digest: str | None = None
+        started = _time.time()
+        try:
+            while _time.time() - started < bounded:
+                conn = None
+                try:
+                    conn = _live_connection(db)
+                    digest, payload = _live_snapshot(conn)
+                except Exception as exc:  # a bad tick must not kill the stream
+                    yield ("event: error\ndata: "
+                           + json.dumps({"error": f"{type(exc).__name__}: {exc}"})
+                           + "\n\n")
+                    _time.sleep(_LIVE_ERROR_INTERVAL)
+                    continue
+                finally:
+                    if conn is not None:
+                        try:
+                            conn.close()
+                        except Exception:
+                            pass
+
+                if digest != last_digest:
+                    last_digest = digest
+                    yield f"event: snapshot\ndata: {json.dumps(payload, default=str)}\n\n"
+                else:
+                    yield ": keep-alive\n\n"   # comment frame keeps proxies awake
+                _time.sleep(_LIVE_MIN_INTERVAL)
+        except GeneratorExit:                  # client went away
+            return
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream",
+                             headers=headers)
+
+
+
+
 @app.get("/api/analytics")
 def api_analytics(db: Database = Depends(get_db)):
     """Time-series analytics for the dashboard: leads per day, jobs per day,
-    usage units per day — last 30 days."""
+    usage units per day — last 30 days.
+
+    Short in-process cache (same pattern as /api/status): the range filter
+    with date() grouping cannot use the indexes above on every poll, so a
+    30s staleness budget keeps the page instant while the numbers stay fresh.
+    """
     import datetime
+    import time
+
+    cache_key = (getattr(db, "org_id", None) or "shared", "analytics")
+    now = time.time()
+    cached = _status_cache.get(cache_key)
+    if cached and now - cached["at"] < 30:
+        return cached["data"]
 
     cutoff = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=30)
               ).strftime("%Y-%m-%d")
@@ -1032,11 +1372,15 @@ def api_analytics(db: Database = Depends(get_db)):
            ORDER BY date ASC""",
         (cutoff, *org_params),
     )
-    return {
+    data = {
         "leads_over_time": leads_over_time,
         "jobs_over_time": jobs_over_time,
         "usage_over_time": usage_over_time,
     }
+    _status_cache[cache_key] = {"at": now, "data": data}
+    if len(_status_cache) > 8:  # bound memory across tenants
+        _status_cache.pop(next(iter(_status_cache)))
+    return data
 
 
 class ProviderStatusRequest(BaseModel):
@@ -1391,6 +1735,28 @@ def _mask_key(key: str) -> str:
     return f"{key[:6]}…{key[-3:]}" if len(key) > 9 else "•••"
 
 
+# Live provider credit/balance probes are outbound HTTP calls with 5–10s
+# timeouts. They must never run inside a request the dashboard fires
+# implicitly: they are opt-in (`?live=1`) and cached per key so a burst of
+# viewers does not fan out one outbound call per request.
+_LIVE_KEY_TTL_SECONDS = 120
+_live_key_cache: dict[str, tuple[float, dict]] = {}
+
+
+def _cached_key_live(probe, api_key: str) -> dict | None:
+    import time
+
+    now = time.time()
+    hit = _live_key_cache.get(api_key)
+    if hit and now - hit[0] < _LIVE_KEY_TTL_SECONDS:
+        return hit[1]
+    value = probe(api_key)
+    _live_key_cache[api_key] = (now, value)
+    while len(_live_key_cache) > 64:  # bound memory
+        _live_key_cache.pop(next(iter(_live_key_cache)))
+    return value
+
+
 
 def _prospeo_key_live(api_key: str):
     try:
@@ -1448,9 +1814,16 @@ def _openrouter_key_live(api_key: str):
 
 
 @app.get("/api/keys/usage")
-def api_keys_usage(db: Database = Depends(get_db)):
+def api_keys_usage(db: Database = Depends(get_db),
+                   live_probe: bool = Query(default=False)):
     """Everything the keys page needs: per provider, per pooled key — calls,
-    units, prompt/completion tokens, last used — plus quota percent."""
+    units, prompt/completion tokens, last used — plus quota percent.
+
+    `live_probe` opts into outbound provider balance calls (OpenRouter /
+    Prospeo / MillionVerifier, 5–10s timeouts each, cached 2 minutes). The
+    dashboard must only pass it on the Keys page where the operator asked for
+    it — never on an implicit poll.
+    """
     org_clause, org_params = _org_clause(db)
     per_key_rows = db.query(
         f"SELECT provider, task, key_index, COUNT(*) AS calls,"
@@ -1522,12 +1895,16 @@ def api_keys_usage(db: Database = Depends(get_db)):
                 break
 
         live = None
-        if name == "openrouter" and keys_pool:
-            live = _openrouter_key_live(keys_pool[0])
-        elif name == "prospeo" and keys_pool:
-            live = _prospeo_key_live(keys_pool[0])
-        elif name == "millionverifier" and keys_pool:
-            live = _millionverifier_key_live(keys_pool[0])
+        if live_probe and keys_pool:
+            probe = None
+            if name == "openrouter":
+                probe = _openrouter_key_live
+            elif name == "prospeo":
+                probe = _prospeo_key_live
+            elif name == "millionverifier":
+                probe = _millionverifier_key_live
+            if probe is not None:
+                live = _cached_key_live(probe, keys_pool[0])
 
         out.append({
             "provider": name, "env_key": env_key, "docs_url": docs,
@@ -1615,6 +1992,15 @@ app.include_router(events_router)
 app.include_router(data_router)
 app.include_router(platform_router)
 app.include_router(pitch_router)
+
+# Observability (plan-improvement T3) — GET /metrics + GET /api/v1/slo.
+# The in-process REGISTRY is already wired into _MetricsMiddleware above; this
+# only exposes the read side (Prometheus text + the dashboard's SLO summary).
+from .metrics_api import router as metrics_router
+app.include_router(metrics_router)
+# NOTE: the live SSE stream is defined here in app.py (this module) — see
+# api_live_stream. Never re-introduce a second route for /api/*/live/stream:
+# the first registration wins and silently shadows the other implementation.
 
 
 # SPA fallback — any non-API path that didn't match above returns the SPA

@@ -1,34 +1,34 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useLocation } from "wouter";
 import {
-  Sun, Moon, RefreshCw, WifiOff, Menu, Search, Zap, LogOut, Settings2, Globe,
+  Sun, Moon, RefreshCw, WifiOff, Menu, Search, Zap, LogOut, Settings2, Globe, Radio,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useUI } from "@/hooks/useTheme";
 import { useLanguage } from "@/hooks/useLanguage";
-import { useLiveData } from "@/hooks/useLiveData";
-import { apiGet, apiPost } from "@/lib/api";
-import { supabase } from "@/lib/supabase";
+import { useInstantQuery } from "@/hooks/useInstantQuery";
+import { apiGet, apiPost, type StatusResponse } from "@/lib/api";
+import { liveStore } from "@/lib/liveStore";
+import { signOut } from "@/lib/supabase";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 
 const PAGE_TITLES: Record<string, string> = {
-  "/": "نظرة عامة",
+  "/": "مركز القيادة",
+  "/analytics": "التحليلات",
   "/chat": "المساعد الذكي",
   "/jobs": "الحملات",
   "/leads": "العملاء المحتملون",
+  "/research": "مهام البحث",
+  "/review": "لوحة المراجعة",
   "/verify": "فحص الإيميل",
   "/keys": "الاستهلاك والمفاتيح",
   "/integrations": "التكاملات",
   "/agents": "الوكلاء",
   "/activity": "سجل النشاط",
+  "/icp": "معايير الفلترة (ICP)",
   "/config": "الإعدادات",
 };
-
-const NAV_PATHS = [
-  "/", "/chat", "/jobs", "/leads", "/verify", "/keys",
-  "/integrations", "/agents", "/activity", "/config",
-];
 
 import { CommandPalette } from "./CommandPalette";
 
@@ -37,16 +37,27 @@ export function Topbar() {
   const { lang, toggleLang } = useLanguage();
   const qc = useQueryClient();
   const [location] = useLocation();
-  const { data: usage } = useLiveData<any>(() => apiGet.keysUsage(), 60000);
-  const { data: session, error } = useLiveData<any>(() => apiGet.authSession(), 120000);
+  const { data: session, error } = useInstantQuery<{ authenticated: boolean; mode?: string }>(
+    ["authSession"],
+    () => apiGet.authSession(),
+    { instant: false, staleTime: 60_000, retry: 0 }
+  );
+  // Shared, already-live status cache (the SSE bridge writes into it) — the
+  // topbar never opens its own heavy endpoint (the old topbar polled
+  // /api/keys/usage every page, which makes outbound provider calls).
+  const { data: status } = useInstantQuery<StatusResponse>(["status"], () => apiGet.status(), {
+    staleTime: 5_000,
+  });
+  const live = useSyncExternalStore(liveStore.subscribe, liveStore.getSnapshotState);
   const needsSetup = !error && session?.mode === "closed";
   const [paletteOpen, setPaletteOpen] = useState(false);
 
   // One quiet usage chip — the details live in the Consumption page.
-  const usageRows: any[] = usage?.providers ?? [];
-  const quotaPercents = usageRows
-    .map((p: any) => p.live?.percent ?? p.quota?.percent)
-    .filter((x: any): x is number => x != null);
+  const quotaPercents = (status?.providers ?? [])
+    .map((p) =>
+      p.quota_limit ? Math.min(100, Math.round((100 * (p.quota_used || 0)) / p.quota_limit)) : null
+    )
+    .filter((x): x is number => x != null && Number.isFinite(x));
   const maxQuota = quotaPercents.length ? Math.max(...quotaPercents) : null;
   const quotaTone =
     maxQuota == null ? "var(--fg-muted)" :
@@ -114,17 +125,51 @@ export function Topbar() {
             <WifiOff className="h-3.5 w-3.5" />
             غير متصل
           </span>
-        ) : maxQuota != null ? (
-          <button
-            onClick={() => window.location.assign("/keys")}
-            className="hidden sm:flex items-center gap-1.5 h-8 px-3 rounded-lg border border-[var(--border-soft)] bg-[var(--bg-soft)] text-[12.5px] font-medium text-[var(--fg-muted)] hover:text-[var(--fg)] hover:border-[var(--border)] transition-colors"
-            title="أعلى استهلاك حصة بين المزودين — التفاصيل في صفحة الاستهلاك"
-          >
-            <Zap className="h-3.5 w-3.5" style={{ color: quotaTone }} />
-            <span className="tnum font-semibold" style={{ color: quotaTone }}>{maxQuota}%</span>
-            <span>من الحصص</span>
-          </button>
-        ) : null}
+        ) : (
+          <>
+            <button
+              onClick={() => liveStore.refresh()}
+              className={cn(
+                "hidden sm:flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-[12px] font-medium transition-colors",
+                live.state === "live"
+                  ? "border-[var(--success)]/40 bg-[color-mix(in_srgb,var(--success)_10%,transparent)] text-[var(--success)]"
+                  : "border-[var(--border-soft)] bg-[var(--bg-soft)] text-[var(--fg-muted)] hover:text-[var(--fg)]"
+              )}
+              title={
+                live.state === "live"
+                  ? "متصل مباشرًا — التحديثات توصلك لحظيًا"
+                  : live.state === "connecting"
+                  ? "جارٍ فتح الاتصال المباشر…"
+                  : "التحديث بالاستطلاع (اتصال مباشر غير متاح) — اضغط للمحاولة"
+              }
+            >
+              <span className="relative flex h-2 w-2">
+                {live.state === "live" && (
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--success)] opacity-60" />
+                )}
+                <span
+                  className={cn(
+                    "relative inline-flex rounded-full h-2 w-2",
+                    live.state === "live" ? "bg-[var(--success)]" : "bg-[var(--fg-soft)]"
+                  )}
+                />
+              </span>
+              {live.state === "live" ? "مباشر" : live.state === "connecting" ? "اتصال…" : "تحديث"}
+              <Radio className="h-3 w-3 opacity-70" />
+            </button>
+            {maxQuota != null && (
+              <button
+                onClick={() => window.location.assign("/keys")}
+                className="hidden sm:flex items-center gap-1.5 h-8 px-3 rounded-lg border border-[var(--border-soft)] bg-[var(--bg-soft)] text-[12.5px] font-medium text-[var(--fg-muted)] hover:text-[var(--fg)] hover:border-[var(--border)] transition-colors"
+                title="أعلى استهلاك حصة بين المزودين — التفاصيل في صفحة الاستهلاك"
+              >
+                <Zap className="h-3.5 w-3.5" style={{ color: quotaTone }} />
+                <span className="tnum font-semibold" style={{ color: quotaTone }}>{maxQuota}%</span>
+                <span>من الحصص</span>
+              </button>
+            )}
+          </>
+        )}
 
         <Button size="icon-sm" variant="ghost" onClick={() => qc.invalidateQueries()} title="تحديث الآن">
           <RefreshCw className="h-4 w-4" />
@@ -147,7 +192,7 @@ export function Topbar() {
           variant="ghost"
           title="تسجيل الخروج"
           onClick={async () => {
-            try { await supabase.auth.signOut(); } catch { /* local mode */ }
+            try { await signOut(); } catch { /* local mode */ }
             try { await apiPost.logout(); } catch { /* best effort */ }
             window.location.assign("/login");
           }}

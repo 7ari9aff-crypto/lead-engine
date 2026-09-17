@@ -1,4 +1,5 @@
 import { Link, useLocation } from "wouter";
+import { prefetchRoute } from "@/lib/routePrefetch";
 import {
   LayoutDashboard,
   KeyRound,
@@ -12,6 +13,7 @@ import {
   Bot,
   Plug,
   Sparkles,
+  BarChart3,
   ChevronLeft,
   ChevronRight,
   Zap,
@@ -43,7 +45,7 @@ const NAV_SECTIONS = [
     items: [
       { href: "/review", label: "لوحة المراجعة", icon: ClipboardCheck },
       { href: "/verify", label: "فحص الإيميل", icon: MailCheck },
-      { href: "/analytics", label: "التحليلات", icon: Activity },
+      { href: "/analytics", label: "التحليلات", icon: BarChart3 },
       { href: "/activity", label: "سجل النشاط", icon: Activity },
     ],
   },
@@ -160,6 +162,8 @@ export function Sidebar() {
                   <Link
                     key={item.href}
                     href={item.href}
+                    onMouseEnter={() => prefetchRoute(item.href)}
+                    onFocus={() => prefetchRoute(item.href)}
                     className={cn(
                       "group relative flex items-center gap-3 rounded-lg px-3 h-9.5 text-[13.5px] font-medium",
                       "transition-all duration-200",

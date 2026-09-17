@@ -1,8 +1,9 @@
-import { useEffect, useState, Component, type ReactNode, lazy, Suspense } from "react";
+import { Component, useEffect, useState, type ReactNode, lazy, Suspense } from "react";
 import { Route, Switch, Redirect } from "wouter";
 import { useLocation } from "wouter";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
+import { LiveBridge } from "@/components/layout/LiveBridge";
 import { useUI } from "@/hooks/useTheme";
 import { LanguageProvider } from "@/hooks/useLanguage";
 import { Link } from "wouter";
@@ -11,7 +12,8 @@ import { AlertTriangle, Home, RotateCcw, Zap } from "lucide-react";
 import { Footer } from "@/components/layout/Footer";
 import { BackToTop } from "@/components/layout/BackToTop";
 import { apiGet } from "@/lib/api";
-import { supabase, supabaseConfigured } from "@/lib/supabase";
+import { onAuthChange, supabaseConfigured, currentSession } from "@/lib/supabase";
+import { prefetchCommonRoutes } from "@/lib/routePrefetch";
 
 // Lazy-loaded routes for 85% faster initial bundle loading
 const OverviewPage = lazy(() => import("@/pages/Overview").then((m) => ({ default: m.OverviewPage })));
@@ -30,6 +32,7 @@ const PricingPage = lazy(() => import("@/pages/Pricing").then((m) => ({ default:
 const LoginPage = lazy(() => import("@/pages/Auth").then((m) => ({ default: m.LoginPage })));
 const SignupPage = lazy(() => import("@/pages/Auth").then((m) => ({ default: m.SignupPage })));
 const ActivityPage = lazy(() => import("@/pages/Activity").then((m) => ({ default: m.ActivityPage })));
+const AnalyticsPage = lazy(() => import("@/pages/Analytics").then((m) => ({ default: m.AnalyticsPage })));
 const ResearchPage = lazy(() => import("@/pages/Research").then((m) => ({ default: m.ResearchPage })));
 const ReviewPage = lazy(() => import("@/pages/Review").then((m) => ({ default: m.ReviewPage })));
 const IcpPage = lazy(() => import("@/pages/Icp").then((m) => ({ default: m.IcpPage })));
@@ -56,6 +59,10 @@ export default function App() {
     document.documentElement.classList.toggle("dark", theme === "dark");
     document.documentElement.classList.toggle("light", theme === "light");
   }, [theme]);
+
+  // Warm the default workspaces once the shell is interactive: the next
+  // navigation paints from an already-loaded chunk instead of a fetch.
+  useEffect(() => { prefetchCommonRoutes(); }, []);
 
   return (
     <LanguageProvider>
@@ -89,7 +96,7 @@ export default function App() {
                     <Route path="/integrations" component={IntegrationsPage} />
                     <Route path="/agents" component={AgentsPage} />
                     <Route path="/activity" component={ActivityPage} />
-                    <Route path="/analytics" component={OverviewPage} />
+                    <Route path="/analytics" component={AnalyticsPage} />
                     <Route path="/research" component={ResearchPage} />
                     <Route path="/review" component={ReviewPage} />
                     <Route path="/icp" component={IcpPage} />
@@ -114,20 +121,21 @@ function RootGate() {
   useEffect(() => {
     // Use Supabase client-side session first — avoids race condition where
     // navigate("/") triggers RootGate before the Bearer token is ready.
+    let unsubscribe: (() => void) | undefined;
+    let alive = true;
     if (supabaseConfigured) {
-      supabase.auth.getSession().then(({ data }) => {
-        setState(data.session ? "authed" : "guest");
-      }).catch(() => setState("guest"));
-      const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-        setState(session ? "authed" : "guest");
-      });
-      return () => { listener.subscription.unsubscribe(); };
-    } else {
-      // Fallback for password/open modes — ask backend
-      apiGet.authSession()
-        .then((r) => setState(r.authenticated ? "authed" : "guest"))
-        .catch(() => setState("guest"));
+      onAuthChange((session) => {
+        if (alive) setState(session ? "authed" : "guest");
+      })
+        .then((fn) => { if (alive) unsubscribe = fn; else fn(); })
+        .catch(() => { if (alive) setState("guest"); });
+      return () => { alive = false; unsubscribe?.(); };
     }
+    // Fallback for password/open modes — ask backend
+    apiGet.authSession()
+      .then((r) => { if (alive) setState(r.authenticated ? "authed" : "guest"); })
+      .catch(() => { if (alive) setState("guest"); });
+    return () => { alive = false; };
   }, []);
 
   if (state === "loading") {
@@ -156,6 +164,7 @@ function DashboardLayout({ children }: { children: ReactNode }) {
   const immersive = location === "/chat";
   return (
     <div className="flex h-screen overflow-hidden" dir="ltr">
+      <LiveBridge />
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0 h-screen" dir="rtl">
         <Topbar />
@@ -182,23 +191,25 @@ function AuthGate({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<string>("");
 
   useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+    let alive = true;
     if (supabaseConfigured) {
       // Optimistically assume authed (RootGate already checked) but verify
-      supabase.auth.getSession().then(({ data }) => {
-        setAuthenticated(Boolean(data.session));
-        setMode("supabase");
-      }).catch(() => setAuthenticated(false));
-      const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      onAuthChange((session) => {
+        if (!alive) return;
         setAuthenticated(Boolean(session));
         setMode("supabase");
-      });
-      return () => { listener.subscription.unsubscribe(); };
-    } else {
-      apiGet.authSession().then((result) => {
-        setAuthenticated(result.authenticated);
-        setMode(result.mode || "");
-      }).catch(() => setAuthenticated(false));
+      })
+        .then((fn) => { if (alive) unsubscribe = fn; else fn(); })
+        .catch(() => { if (alive) setAuthenticated(false); });
+      return () => { alive = false; unsubscribe?.(); };
     }
+    apiGet.authSession().then((result) => {
+      if (!alive) return;
+      setAuthenticated(result.authenticated);
+      setMode(result.mode || "");
+    }).catch(() => { if (alive) setAuthenticated(false); });
+    return () => { alive = false; };
   }, []);
 
   // Still checking — show children optimistically to avoid flash

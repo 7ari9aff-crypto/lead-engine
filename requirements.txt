@@ -10,3 +10,11 @@ cryptography~=44.0.1
 loguru~=0.7.3
 email-validator~=2.2.0
 ruff~=0.8.4
+# starlette's TestClient imports httpx at module level (it is only a starlette
+# "full" extra, never a fastapi dependency). Without it every test that builds
+# a TestClient fails to import — this is what runs the API test suite.
+httpx~=0.28.1
+# Coverage gate — the backend CI job fails when line coverage drops below the
+# threshold pinned in pytest.ini. Without this the suite can silently lose
+# coverage as new features land.
+pytest-cov~=6.0.0

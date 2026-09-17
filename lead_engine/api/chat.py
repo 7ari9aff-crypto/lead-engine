@@ -29,6 +29,15 @@ TOOL_SCOPES = {
     "get_research_progress": ["jobs:read"],
     "answer_research_question": ["jobs:run", "evidence:write"],
     "resume_research_job": ["jobs:run"],
+    # Code-aware operations. Reading/tracing needs no approval; proposing a
+    # patch is safe (writes nothing) but applying is gated by the approval row.
+    "list_code": ["code:read"],
+    "read_code": ["code:read"],
+    "search_code": ["code:read"],
+    "git_history": ["code:read"],
+    "git_show": ["code:read"],
+    "run_tests": ["code:read", "tests:run"],
+    "propose_patch": ["code:write"],
 }
 
 SYSTEM_INSTRUCTION = """أنت "مساعد محرك الـLeads" — واجهة محادثة لنظام توليد leads واعٍ بالحصص (quotas).
@@ -153,6 +162,68 @@ TOOLS_DECL = [{
                 },
                 "required": ["objective"],
             },
+        },
+        {
+            "name": "list_code",
+            "description": "اعرض شجرة ملفات المشروع (بدون أسرار أو مكتبات). استخدمها أول خطوة عند تشخيص أي مشكلة.",
+            "parameters": {"type": "OBJECT", "properties": {
+                "prefix": {"type": "STRING", "description": "مجلد فرعي داخل المشروع (اختياري)"},
+                "depth": {"type": "INTEGER", "description": "عمق العرض (افتراضي 3)"},
+                "limit": {"type": "INTEGER", "description": "أقصى عدد ملفات (افتراضي 400)"},
+            }},
+        },
+        {
+            "name": "read_code",
+            "description": "اقرأ ملفًا من كود المشروع (مع نطاق أسطر اختياري) لتتبع سبب مشكلة.",
+            "parameters": {"type": "OBJECT", "properties": {
+                "path": {"type": "STRING", "description": "مسار نسبي للمشروع مثل lead_engine/api/app.py"},
+                "start_line": {"type": "INTEGER", "description": "أول سطر"},
+                "end_line": {"type": "INTEGER", "description": "آخر سطر"},
+            }, "required": ["path"]},
+        },
+        {
+            "name": "search_code",
+            "description": "ابحث بتعبير نمطي (regex) في كل كود المشروع وأعد الملف والسطر.",
+            "parameters": {"type": "OBJECT", "properties": {
+                "pattern": {"type": "STRING", "description": "تعبير نمطي"},
+                "glob": {"type": "STRING", "description": "فلتر مسار مثل **/*.py (اختياري)"},
+                "limit": {"type": "INTEGER", "description": "أقصى عدد نتائج (افتراضي 50)"},
+            }, "required": ["pattern"]},
+        },
+        {
+            "name": "git_history",
+            "description": "سجل الـcommits الأخيرة (اختياريًا لملف بعينه) لمعرفة متى ولماذا تغيّر الكود.",
+            "parameters": {"type": "OBJECT", "properties": {
+                "limit": {"type": "INTEGER", "description": "عدد الـcommits (افتراضي 20)"},
+                "path": {"type": "STRING", "description": "ملف بعينه (اختياري)"},
+            }},
+        },
+        {
+            "name": "git_show",
+            "description": "اعرض الـdiff الكامل لـcommit بعينه (بالحاشية) لمعرفة ما تغيّر بالضبط.",
+            "parameters": {"type": "OBJECT", "properties": {
+                "rev": {"type": "STRING", "description": "hash الـcommit"},
+            }, "required": ["rev"]},
+        },
+        {
+            "name": "run_tests",
+            "description": "شغّل الاختبارات الحقيقية للمشروع (pytest / ruff / typecheck الفرونت). للتحقق من أي إصلاح.",
+            "parameters": {"type": "OBJECT", "properties": {
+                "suite": {"type": "STRING", "enum": ["backend", "lint", "frontend"],
+                          "description": "backend=pytest، lint=ruff، frontend=typecheck"},
+                "selector": {"type": "STRING", "description": "مسار أو node-id لاختبار بعينه (اختياري)"},
+            }},
+        },
+        {
+            "name": "propose_patch",
+            "description": "اقترح تعديل كود (لا يغيّر أي ملف). يسجّل موافقة PENDING تحمل الـdiff كامل — وبعد موافقة المستخدم يُطبَّق على فرع git جديد. هذا هو مسارك الوحيد لتعديل الكود.",
+            "parameters": {"type": "OBJECT", "properties": {
+                "summary": {"type": "STRING", "description": "ملخص قصير للتعديل وسببه"},
+                "edits": {"type": "ARRAY", "description": "قائمة تعديلات: كل عنصر {path, content} بمحتوى الملف الكامل بعد التعديل",
+                          "items": {"type": "OBJECT", "properties": {
+                              "path": {"type": "STRING"},
+                              "content": {"type": "STRING"}}}},
+            }, "required": ["summary", "edits"]},
         },
     ]
 }]
@@ -429,6 +500,44 @@ def execute_tool(name: str, args: dict, router, db) -> dict:
                      db.query(f"SELECT stage, COUNT(*) AS n FROM leads WHERE 1=1{clause}"
                               " GROUP BY stage", clause_params)}
             return {"providers": providers, "jobs": jobs, "leads": leads}
+
+        # ---- Code-aware operations (self-diagnosis + approval-gated repair) ----
+        if name in ("list_code", "read_code", "search_code", "git_history",
+                    "git_show", "run_tests"):
+            from .. import codeops
+            try:
+                if name == "list_code":
+                    return codeops.list_code(args.get("prefix") or "",
+                                             args.get("depth") or 3,
+                                             args.get("limit") or 400)
+                if name == "read_code":
+                    return codeops.read_code(args.get("path") or "",
+                                             args.get("start_line"),
+                                             args.get("end_line"))
+                if name == "search_code":
+                    return codeops.search_code(args.get("pattern") or "",
+                                               args.get("glob"),
+                                               args.get("limit") or 50)
+                if name == "git_history":
+                    return codeops.git_history(args.get("limit") or 20,
+                                               args.get("path"))
+                if name == "git_show":
+                    return codeops.git_show(args.get("rev") or "")
+                return codeops.run_tests(args.get("selector"),
+                                         args.get("suite") or "backend")
+            except codeops.CodeOpsError as exc:
+                return {"error": str(exc)}
+
+        if name == "propose_patch":
+            from .. import codeops
+            edits = args.get("edits")
+            if not isinstance(edits, list):
+                return {"error": "edits must be a list of {path, content}"}
+            try:
+                return codeops.propose_patch(db, "chat", args.get("summary") or "",
+                                             edits)
+            except codeops.CodeOpsError as exc:
+                return {"error": str(exc)}
 
         return {"error": f"أداة غير معروفة: {name}"}
     except NoProviderAvailable as exc:

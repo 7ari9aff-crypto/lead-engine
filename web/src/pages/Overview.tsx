@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import {
   Users, Briefcase, Activity, CheckCircle2, AlertTriangle, Trash2,
@@ -7,7 +6,8 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { apiGet, apiPost, type ProviderRow } from "@/lib/api";
+import { apiGet, apiPost, type ProviderRow, type StatusResponse } from "@/lib/api";
+import { useInstantQuery } from "@/hooks/useInstantQuery";
 import { formatNumber, relativeTime } from "@/lib/utils";
 import { friendlyError, ICP_LABELS } from "@/lib/friendly";
 import { toast } from "sonner";
@@ -23,21 +23,25 @@ const PERIODS = [
 ] as const;
 
 export function OverviewPage() {
-  const { data, isLoading, error: statusError, refetch } = useQuery({
-    queryKey: ["status"],
-    queryFn: apiGet.status,
-    refetchInterval: 8000,
-  });
-  const { data: analytics, error: analyticsError } = useQuery({
-    queryKey: ["analytics"],
-    queryFn: apiGet.analytics,
-    refetchInterval: 20000,
-  });
-  const { data: integrationsData, error: integrationsError } = useQuery({
-    queryKey: ["integrations"],
-    queryFn: apiGet.integrations,
-    refetchInterval: 60000,
-  });
+  // `status` is written by the shared SSE bridge (LiveBridge pushes every
+  // server-side change straight into this cache key), so a connected dashboard
+  // never polls it. The first paint comes from the last known-good payload
+  // stored locally, then a background refresh keeps it honest.
+  const { data, isLoading, error: statusError, refetch } = useInstantQuery<StatusResponse>(
+    ["status"],
+    () => apiGet.status(),
+    { staleTime: 5_000, refetchInterval: 30_000 }
+  );
+  const { data: analytics, error: analyticsError } = useInstantQuery(
+    ["analytics"],
+    () => apiGet.analytics(),
+    { staleTime: 60_000, refetchInterval: 60_000 }
+  );
+  const { data: integrationsData, error: integrationsError } = useInstantQuery(
+    ["integrations"],
+    () => apiGet.integrations(),
+    { staleTime: 120_000, refetchInterval: 120_000 }
+  );
   const [period, setPeriod] = useState<number>(30);
   const [checklistHidden, setChecklistHidden] = useState(
     () => localStorage.getItem(CHECKLIST_DONE_KEY) === "1"

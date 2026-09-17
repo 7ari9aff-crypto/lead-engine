@@ -35,10 +35,23 @@ jobs:
           # pnpm 12 blocks dependency build scripts by default (esbuild);
           # the dashboard build needs them, same as docker-compose.base44.yml
           PNPM_CONFIG_DANGEROUSLY_ALLOW_ALL_BUILDS: "true"
-          VITE_SUPABASE_URL: https://abshiqxxsvdtbdngycpb.supabase.co
-          VITE_SUPABASE_PUBLISHABLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFic2hpcXh4c3ZkdGJkbmd5Y3BiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg5NjE2NjIsImV4cCI6MjEwNDUzNzY2Mn0.fiBqBpoO6vMqmbhqoQ2kaH7fqm3CnvjF8Je0EukHsMw
+          # Optional rotation override (Settings → Variables). Deliberately NOT
+          # named VITE_*: an empty VITE_* var would take precedence over
+          # `web/.env.production` and silently disable Supabase auth in the
+          # built bundle. `.env.production` is the single tracked definition of
+          # the Supabase project; these only exist to rotate it without a code
+          # change.
+          SUPABASE_URL_OVERRIDE: ${{ vars.SUPABASE_URL }}
+          SUPABASE_KEY_OVERRIDE: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
         run: |
           pnpm install --frozen-lockfile
+          if [ -n "$SUPABASE_URL_OVERRIDE" ] && [ -n "$SUPABASE_KEY_OVERRIDE" ]; then
+            echo "using rotated Supabase project from repository variables"
+            export VITE_SUPABASE_URL="$SUPABASE_URL_OVERRIDE"
+            export VITE_SUPABASE_PUBLISHABLE_KEY="$SUPABASE_KEY_OVERRIDE"
+          else
+            echo "using the tracked web/.env.production defaults"
+          fi
           pnpm build
 
       - name: Copy build into served static folder

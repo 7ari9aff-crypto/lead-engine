@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { StatTile } from "@/components/ui/StatTile";
 
 export function FilterPills({
   options,
@@ -35,42 +36,32 @@ export function FilterPills({
 }
 
 export function StatCard({
-  icon: Icon,
+  icon,
   label,
   value,
   detail,
   tone = "accent",
+  onClick,
+  loading,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
-  value: string | number;
+  value: string | number | null | undefined;
   detail?: string;
   tone?: "accent" | "success" | "warn" | "danger" | "info";
+  onClick?: () => void;
+  loading?: boolean;
 }) {
-  const toneMap = {
-    accent: "var(--accent)",
-    success: "var(--success)",
-    warn: "var(--warn)",
-    danger: "var(--danger)",
-    info: "var(--info)",
-  } as const;
-
+  // One shared metric primitive keeps every KPI row visually identical.
   return (
-    <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] shadow-[var(--shadow)] card-hover p-4">
-      <div className="flex items-center justify-between gap-2 mb-3">
-        <span className="text-xs text-[var(--fg-muted)]">{label}</span>
-        <div
-          className="p-1.5 rounded-lg"
-          style={{
-            background: `color-mix(in srgb, ${toneMap[tone]} 12%, transparent)`,
-            color: toneMap[tone],
-          }}
-        >
-          <Icon className="h-3.5 w-3.5" />
-        </div>
-      </div>
-      <div className="text-xl font-bold tabular-nums">{value}</div>
-      {detail && <div className="text-[11px] text-[var(--fg-soft)] mt-1">{detail}</div>}
-    </div>
+    <StatTile
+      icon={icon}
+      label={label}
+      value={value}
+      detail={detail}
+      tone={tone}
+      onClick={onClick}
+      loading={loading}
+    />
   );
 }

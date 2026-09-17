@@ -53,6 +53,55 @@ MCP_TOOLS = [
         "description": "حالة النظام: المزوّدون، المهام، الـleads، الاستهلاك.",
         "inputSchema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "list_code",
+        "description": "اشرح شجرة ملفات المشروع (بدون أسرار أو مكتبات). أول خطوة لتشخيص مشكلة.",
+        "inputSchema": {"type": "object", "properties": {
+            "prefix": {"type": "string"}, "depth": {"type": "integer"},
+            "limit": {"type": "integer"}}},
+    },
+    {
+        "name": "read_code",
+        "description": "اقرأ ملفًا من كود المشروع لتتبّع سبب مشكلة.",
+        "inputSchema": {"type": "object", "properties": {
+            "path": {"type": "string"}, "start_line": {"type": "integer"},
+            "end_line": {"type": "integer"}}, "required": ["path"]},
+    },
+    {
+        "name": "search_code",
+        "description": "ابحث بتعبير نمطي في كل كود المشروع.",
+        "inputSchema": {"type": "object", "properties": {
+            "pattern": {"type": "string"}, "glob": {"type": "string"},
+            "limit": {"type": "integer"}}, "required": ["pattern"]},
+    },
+    {
+        "name": "git_history",
+        "description": "سجل الـcommits الأخيرة (اختياريًا لملف بعينه).",
+        "inputSchema": {"type": "object", "properties": {
+            "limit": {"type": "integer"}, "path": {"type": "string"}}},
+    },
+    {
+        "name": "git_show",
+        "description": "اعرض الـdiff الكامل لـcommit بعينه.",
+        "inputSchema": {"type": "object", "properties": {
+            "rev": {"type": "string"}}, "required": ["rev"]},
+    },
+    {
+        "name": "run_tests",
+        "description": "شغّل الاختبارات الحقيقية (backend=pytest، lint=ruff، frontend=typecheck).",
+        "inputSchema": {"type": "object", "properties": {
+            "suite": {"type": "string", "enum": ["backend", "lint", "frontend"]},
+            "selector": {"type": "string"}}},
+    },
+    {
+        "name": "propose_patch",
+        "description": "اقترح تعديل كود — لا يغيّر أي ملف، بل يسجّل موافقة PENDING تحمل الـdiff. يُطبَّق فقط بعد موافقة المستخدم.",
+        "inputSchema": {"type": "object", "properties": {
+            "summary": {"type": "string"},
+            "edits": {"type": "array", "items": {"type": "object", "properties": {
+                "path": {"type": "string"}, "content": {"type": "string"}}}}},
+            "required": ["summary", "edits"]},
+    },
 ]
 
 

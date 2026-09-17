@@ -40,8 +40,11 @@ export const DialogContent = React.forwardRef<
       {...props}
     >
       {children}
-      <DialogPrimitive.Close className="absolute left-4 top-4 rounded-md p-1 text-[var(--fg-muted)] hover:bg-[var(--bg-hover)]">
-        <X className="h-4 w-4" />
+      <DialogPrimitive.Close
+        aria-label="إغلاق"
+        className="absolute left-4 top-4 rounded-md p-1 text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+      >
+        <X className="h-4 w-4" aria-hidden="true" />
       </DialogPrimitive.Close>
     </DialogPrimitive.Content>
   </DialogPortal>

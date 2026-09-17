@@ -13,9 +13,20 @@ venv/
 .freebuff/
 supabase/.temp/
 web/.vercel
+web/node_modules/
+web/dist/
+scratch/
+
+# codeops: per-patch file backups written before an approved patch lands
+.codeops_backups/
 
 # secrets — never commit
 .env
 .env.*
 !.env.example
+# Exception: the dashboard's *publishable* Supabase values. An anon key is
+# shipped to every browser by design (RLS is what protects the data), and the
+# build needs it in every mode — dev and production — so it lives in ONE
+# tracked file instead of being duplicated in source and per-mode env files.
+!web/.env
 *.bootstrap

@@ -19,6 +19,32 @@ AGENT_SEED = {
         "tool_policy": {"scopes": ["search:read", "leads:write", "verification:run"]},
         "output_schema": {"type": "object", "required": ["job_id", "state", "leads"]},
     },
+    "engine-maintenance": {
+        "name": "Engine Maintenance Agent",
+        "description": "وكيل صيانة المحرك: يتتبّع أي عطل في الكود بنفسه — يقرأ الملفات، "
+                       "يبحث في الشجرة، يراجع سجل الـgit، ويشغّل الاختبارات الحقيقية — "
+                       "ثم يقترح تعديلاً بموافقة إلزامية. لا يكتب أي ملف إلا بعد موافقة صريحة، "
+                       "والتطبيق يقع على فرع git جديد، وليس على main أبدًا.",
+        "version": "1.0.0",
+        "instructions": (
+            "أنت مهندس صيانة لهذا النظام نفسه. لما تطلب منك تشخيص مشكلة اتبع المسار: "
+            "list_code لعرفة الشجرة، ثم search_code لتحديد المكان، ثم read_code للقراءة "
+            "حول المشكلة، ثم git_history لمعرفة آخر تغيير لمس الملف، ثم run_tests لتأكيد "
+            "السلوك. ممنوع اختراع أي معلومة عن الكود — كل ادعاء لازم يكون مبنيًا على قراءة "
+            "فعلية. لما تحدد الإصلاح، نادِ propose_patch بتعديل كامل ومكتوب بالكامل (مش "
+            "وصف ولا pseudo-code) مع ملخص واضح بالعربية. الـpropose لا يغيّر أي ملف — "
+            "هو يسجّل موافقة، وقول للمستخدم بوضوح إن التطبيق محتاج موافقته من لوحة الوكلاء. "
+            "لا تحاول الكتابة بأي وسيلة أخرى، ولا تشغّل أوامر shell."
+        ),
+        "model_policy": {"task": "planning", "fallback": "router"},
+        "model_provider": "router",
+        "model_name": None,
+        "thinking_effort": None,
+        "tool_policy": {"scopes": ["code:read", "tests:run", "code:write",
+                                   "jobs:read", "system:read"]},
+        "output_schema": {"type": "object",
+                          "required": ["diagnosis", "files", "proposed_change"]},
+    },
     "lead-research": {
         "name": "Research Agent",
         "description": "وكيل بحث ذاتي: يخطط، يبحث، يحقق، يوثق الحقائق بمصادرها، "
@@ -42,6 +68,35 @@ AGENT_SEED = {
         "output_schema": {"type": "object",
                           "required": ["job_id", "state", "stop_reason"]},
     },
+    "engine-maintainer": {
+        "name": "Engine Maintainer Agent",
+        "description": "وكيل صيانة المحرك: يتتبّع المشكلة في الكود بنفسه (قراءة، بحث، "
+                       "git، اختبارات)، يحدّد السبب الجذري، ثم يقترح patch كامل — "
+                       "ولا يُطبَّق أي تعديل إلا بعد موافقتك الصريحة، وعلى فرع git "
+                       "منفصل مع نسخة احتياطية ورجوع بزر واحد.",
+        "version": "1.0.0",
+        "instructions": (
+            "أنت مهندس صيانة تعمل داخل مستودع المشروع. سلوكك الإلزامي: "
+            "① لا تخمّن أبدًا — اقرأ الكود الحقيقي (list_code/read_code/search_code) "
+            "وتحقّق من السبب الجذري قبل أي اقتراح. "
+            "② شغّل الاختبارات (run_tests) لتثبيت المشكلة أولًا، وليصير عندك دليل. "
+            "③ راجع git_history/git_show لتعرف ماذا تغيّر ومتى. "
+            "④ عندما تتأكد، استدعِ propose_patch بملفات كاملة (content كامل للملف، "
+            "مش جزء منه) وsummary واضح بالعربية يشرح السبب والإصلاح. "
+            "⑤ لا تحاول أبدًا تنفيذ أي كتابة خارج propose_patch، وممنوع تمامًا "
+            "لمس main أو أي ملف أسرار. "
+            "⑥ بعد الموافقة، تحقّق النتيجة بـrun_tests واذكرها بصدق — لو فشلت، "
+            "قل فشلت واقترح الخطوة التالية."
+        ),
+        "model_policy": {"task": "reasoning", "fallback": "router"},
+        "model_provider": "router",
+        "model_name": None,
+        "thinking_effort": None,
+        "tool_policy": {"scopes": ["code:read", "code:write", "tests:run",
+                                   "jobs:read", "system:read"]},
+        "output_schema": {"type": "object",
+                          "required": ["root_cause", "files", "approval_id"]},
+    },
 }
 
 TOOL_SEED = [
@@ -63,6 +118,20 @@ TOOL_SEED = [
      ["jobs:read"], False),
     ("ask_user", "Ask the user a blocking question (job goes WAITING_FOR_USER)",
      ["interaction:write"], False),
+    # ---- Code-aware tools: trace the codebase, then repair behind approval ----
+    ("list_code", "List workspace source files (secrets/vendor excluded)",
+     ["code:read"], False),
+    ("read_code", "Read a workspace source file or a line window",
+     ["code:read"], False),
+    ("search_code", "Regex search across the workspace source tree",
+     ["code:read"], False),
+    ("git_history", "Recent commits (optionally scoped to one path)",
+     ["code:read"], False),
+    ("git_show", "Full diff of a single commit", ["code:read"], False),
+    ("run_tests", "Run the project's own test suite (pytest / ruff / typecheck)",
+     ["code:read", "tests:run"], False),
+    ("propose_patch", "Propose a code patch behind an approval gate (writes nothing)",
+     ["code:write"], False),
 ]
 
 
@@ -115,9 +184,14 @@ class AgentRegistry:
                      json.dumps(item["tool_policy"]), json.dumps(item["output_schema"]), "published", now),
                 )
         for name, description, scopes, approval in TOOL_SEED:
+            # Refresh description/scopes on upgrade so newly shipped tools reach
+            # existing databases, but never touch `enabled` — an operator may
+            # have deliberately disabled a tool and that choice must survive.
             self.db.execute(
                 "INSERT INTO tools (name, description, scopes, requires_approval, enabled, created_at)"
-                " VALUES (?,?,?,?,?,?) ON CONFLICT (name) DO NOTHING",
+                " VALUES (?,?,?,?,?,?) ON CONFLICT (name) DO UPDATE SET"
+                "   description=excluded.description,"
+                "   scopes=excluded.scopes",
                 (name, description, json.dumps(scopes), int(approval), 1, now),
             )
         for row in self.db.query("SELECT name, MIN(env_key) AS env_key, MIN(base_url) AS base_url FROM providers GROUP BY name"):

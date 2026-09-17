@@ -12,7 +12,11 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: pip install -r requirements.txt
-      - run: python -m pytest tests/ -q
+      - name: Tests + coverage gate
+        # Floor, not a target: measured baseline on this tree is 63.6% line
+        # coverage. The gate exists so coverage cannot silently regress as
+        # features land; raise it as the number climbs.
+        run: python -m pytest tests/ -q --cov=lead_engine --cov-fail-under=60
       - name: Lint (ruff)
         # Syntax errors + undefined names only: the tree predates linting and
         # carries legacy unused imports; broadening the gate would turn this
@@ -22,6 +26,10 @@ jobs:
         run: |
           pip install pip-audit
           pip-audit -r requirements.txt --skip-editable
+      - name: Secret scanning (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   frontend:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: web } }
@@ -37,6 +45,7 @@ jobs:
         with: { node-version: 22, cache: pnpm, cache-dependency-path: web/pnpm-lock.yaml }
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
+      - run: pnpm run test
       - run: pnpm run build
       - name: Dependency audit
         run: pnpm audit --prod

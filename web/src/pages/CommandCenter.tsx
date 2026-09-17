@@ -8,12 +8,15 @@ import { useMemo, useState } from "react";
 import {
   Activity, AlertTriangle, Brain, Briefcase, CheckCircle2, Cpu, Database,
   Search, Server, XCircle, Zap, Bot, Radio, RefreshCw, ShieldAlert, Bot as Runtime,
+  Gauge, Timer, ShieldCheck,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { useLiveData } from "@/hooks/useLiveData";
-import { apiGet, apiGetExtra } from "@/lib/api";
+import { apiGet, apiGetExtra, type StatusResponse, type SloSummary } from "@/lib/api";
+import { useInstantQuery } from "@/hooks/useInstantQuery";
+import { useSyncExternalStore } from "react";
+import { liveStore } from "@/lib/liveStore";
 import { cn, formatNumber } from "@/lib/utils";
 import { Loader2 } from "lucide-react";
 import { friendlyError } from "@/lib/friendly";
@@ -28,9 +31,15 @@ type ServiceRow = {
 };
 
 export function CommandCenterPage() {
-  const { data: status, loading, refresh } = useLiveData(() => apiGet.status(), 5000);
-  const { data: conflictsData } = useLiveData(() => apiGetExtra.conflicts("OPEN"), 10000);
-  const { data: activity } = useLiveData(() => apiGet.activity(12), 5000);
+  // Instant by construction: first paint from the last known-good payload,
+  // then the shared SSE bridge pushes every change (no 5s polling).
+  const { data: status, isLoading, refetch } = useInstantQuery<StatusResponse>(
+    ["status"], () => apiGet.status(), { staleTime: 5_000, refetchInterval: 30_000 });
+  const { data: conflictsData } = useInstantQuery(
+    ["conflicts", "OPEN"], () => apiGetExtra.conflicts("OPEN"), { staleTime: 30_000 });
+  const { data: activity } = useInstantQuery(
+    ["activity", 12], () => apiGet.activity(12), { staleTime: 15_000, refetchInterval: 30_000 });
+  const live = useSyncExternalStore(liveStore.subscribe, liveStore.getSnapshotState);
   const [openmanus, setOpenmanus] = useState<any>(null);
   const [probing, setProbing] = useState(false);
 
@@ -58,6 +67,15 @@ export function CommandCenterPage() {
   const failedJobs = jobsByState.FAILED || 0;
   const reviewLeads = status?.leads_by_stage?.REVIEW || 0;
   const openConflicts = conflictsData?.conflicts?.length || 0;
+
+  // SLO panel — the reliability numbers operators are held to. Targets live in
+  // the backend (metrics_api.SLO_TARGETS), so this card can never drift from
+  // what the API itself calls "healthy".
+  const { data: slo } = useInstantQuery<SloSummary>(
+    ["slo"],
+    () => apiGet.slo(),
+    { staleTime: 15_000, refetchInterval: 60_000 }
+  );
 
   const services: ServiceRow[] = useMemo(() => {
     const rows: ServiceRow[] = [
@@ -107,7 +125,7 @@ export function CommandCenterPage() {
     return out;
   }, [exhausted, cooldown, openConflicts, failedJobs, pausedJobs]);
 
-  if (loading && !status) return <Spinner />;
+  if (isLoading && !status) return <Spinner />;
 
   return (
     <div className="space-y-6">
@@ -116,9 +134,28 @@ export function CommandCenterPage() {
         title="مركز القيادة"
         description="صورة حية للنظام كله — كل رقم من قاعدة البيانات الحقيقية"
         action={
-          <Button variant="outline" onClick={refresh} className="text-[12px] h-8">
-            <RefreshCw className="h-3.5 w-3.5" /> تحديث
-          </Button>
+          <>
+            <span
+              className={cn(
+                "hidden sm:flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-[12px] font-medium",
+                live.state === "live"
+                  ? "border-[var(--success)]/40 bg-[color-mix(in_srgb,var(--success)_10%,transparent)] text-[var(--success)]"
+                  : "border-[var(--border-soft)] bg-[var(--bg-soft)] text-[var(--fg-muted)]"
+              )}
+              title={live.state === "live" ? "متصل مباشرًا" : "جارٍ الاتصال…"}
+            >
+              <span className={cn("h-2 w-2 rounded-full",
+                live.state === "live" ? "bg-[var(--success)] animate-pulse" : "bg-[var(--fg-soft)]")} />
+              {live.state === "live" ? "مباشر" : "اتصال…"}
+            </span>
+            <Button
+              variant="outline"
+              className="text-[12px] h-8"
+              onClick={() => { void refetch(); liveStore.refresh(); }}
+            >
+              <RefreshCw className="h-3.5 w-3.5" /> تحديث
+            </Button>
+          </>
         }
       />
 
@@ -156,6 +193,8 @@ export function CommandCenterPage() {
                   icon={Zap} tone="info" />
         <StatCard label="إجمالي الـleads" value={formatNumber(status?.leads_total || 0)} icon={Database} />
       </div>
+
+      <SloPanel slo={slo} />
 
       <div className="grid lg:grid-cols-2 gap-4">
         {/* services */}
@@ -219,4 +258,117 @@ export function CommandCenterPage() {
       </div>
     </div>
   );
+}
+
+/**
+ * SLO panel — availability / error rate / p95 latency against the targets the
+ * backend publishes, plus the rolling uptime. While the process is still cold
+ * (`warming_up`) the verdict is deliberately withheld instead of faked green.
+ */
+function SloPanel({ slo }: { slo?: SloSummary }) {
+  const observed = slo?.observed;
+  const targets = slo?.targets;
+
+  const rows: { label: string; value: string; ok: boolean | null; hint?: string }[] = [
+    {
+      label: "التوافر",
+      value: observed ? `${(observed.availability * 100).toFixed(2)}%` : "—",
+      ok: slo ? slo.checks.availability : null,
+      hint: targets ? `الهدف ≥ ${(targets.availability * 100).toFixed(1)}%` : undefined,
+    },
+    {
+      label: "معدل الأخطاء",
+      value: observed ? `${(observed.error_rate * 100).toFixed(2)}%` : "—",
+      ok: slo ? slo.checks.error_rate : null,
+      hint: targets ? `الهدف ≤ ${(targets.error_rate * 100).toFixed(1)}%` : undefined,
+    },
+    {
+      label: "زمن الاستجابة p95",
+      value: observed ? `${observed.latency_p95_ms.toFixed(0)} ms` : "—",
+      ok: slo ? slo.checks.latency_p95 : null,
+      hint: targets ? `الهدف ≤ ${targets.latency_p95_ms.toFixed(0)} ms` : undefined,
+    },
+    {
+      label: "زمن الاستجابة p50",
+      value: observed ? `${observed.latency_p50_ms.toFixed(0)} ms` : "—",
+      ok: null,
+    },
+  ];
+
+  const verdict = slo
+    ? slo.warming_up
+      ? "warmup"
+      : slo.within_slo
+        ? "ok"
+        : "breach"
+    : "unknown";
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Gauge className="h-4 w-4 text-[var(--accent)]" />
+          <span className="text-[12px] font-semibold text-[var(--fg-soft)]">
+            مستوى الخدمة (SLO)
+          </span>
+          <Badge
+            variant={verdict === "ok" ? "success" : verdict === "breach" ? "danger" : "warn"}
+            className="text-[9px]"
+          >
+            {verdict === "ok"
+              ? "داخل الهدف"
+              : verdict === "breach"
+                ? "تجاوز الحد"
+                : verdict === "warmup"
+                  ? "قيد التسخين"
+                  : "غير معروف"}
+          </Badge>
+          {observed && (
+            <span className="ms-auto text-[10.5px] text-[var(--fg-soft)] flex items-center gap-1.5">
+              <Timer className="h-3 w-3" />
+              تشغيل {formatUptime(observed.uptime_seconds)} · {formatNumber(observed.requests_total)} طلب
+            </span>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+          {rows.map((r) => (
+            <div
+              key={r.label}
+              className={cn(
+                "rounded-lg border px-3 py-2",
+                r.ok === null
+                  ? "border-[var(--border-soft)] bg-[var(--bg-soft)]"
+                  : r.ok
+                    ? "border-emerald-500/30 bg-emerald-500/5"
+                    : "border-rose-500/40 bg-rose-500/5"
+              )}
+            >
+              <div className="text-[10.5px] text-[var(--fg-soft)]">{r.label}</div>
+              <div className="text-[15px] font-bold tnum mt-0.5">{r.value}</div>
+              {r.hint && <div className="text-[10px] text-[var(--fg-soft)] mt-0.5">{r.hint}</div>}
+            </div>
+          ))}
+        </div>
+
+        {verdict === "breach" && (
+          <div className="text-[11.5px] rounded-lg px-2.5 py-1.5 bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-start gap-1.5">
+            <ShieldCheck className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            أحد مؤشرات مستوى الخدمة خارج الهدف — راجع الخدمات والتنبيهات بالأسفل.
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Human uptime: "3ي 4س" style, kept short because it sits inline in a badge row. */
+function formatUptime(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds || 0));
+  if (s < 60) return `${s} ث`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} د`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} س ${m % 60} د`;
+  return `${Math.floor(h / 24)} ي ${h % 24} س`;
 }

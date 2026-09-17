@@ -1,4 +1,4 @@
-// TODO: wire /activity → <ActivityPage /> in web/src/App.tsx (parent orchestrator)
+// Activity feed — routed in web/src/App.tsx (<ActivityPage /> on /activity).
 
 import { useState, useMemo } from "react";
 import {

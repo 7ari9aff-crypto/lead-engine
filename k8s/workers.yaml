@@ -40,9 +40,15 @@ spec:
       containers:
         - name: event-worker
           image: ghcr.io/7ari9aff-crypto/lead-engine:latest
-          command: ["python", "-m", "lead_engine", "event-worker", "--once"]
+          # NO --once: the CLI exits after a single dispatch pass, which would
+          # turn this Deployment into a CrashLoopBackOff restart loop instead
+          # of a long-running dispatcher. The bare command is the daemon.
+          command: ["python", "-m", "lead_engine", "event-worker", "--poll", "2"]
           envFrom:
             - secretRef: { name: lead-engine-secrets }
+          resources:
+            requests: { cpu: "50m", memory: "128Mi" }
+            limits: { cpu: "250m", memory: "256Mi" }
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -63,22 +69,29 @@ spec:
                 - |
                   from lead_engine.config import load_env; load_env()
                   from lead_engine.db import open_db
-                  db = open_db()
-                  # purge expired per-org retention via the governance endpoint logic
                   from lead_engine.entitlements import get_limits
                   from datetime import datetime, timedelta, timezone
-                  orgs = db.query("SELECT id, limits FROM public.organizations")
-                  for o in orgs:
-                      days = int((o.get("limits") or {}).get("retention_days", 30))
-                      cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
-                      ids = [r["lead_id"] for r in db.query(
-                          "SELECT lead_id FROM leads WHERE organization_id=? AND created_at < ?",
-                          (o["id"], cutoff))]
-                      for lid in ids:
-                          db.execute("DELETE FROM evidence WHERE lead_id = ?", (lid,))
-                      if ids:
-                          db.execute("DELETE FROM leads WHERE organization_id=? AND created_at < ?",
-                                     (o["id"], cutoff))
-                  print("retention purge done")
+
+                  db = open_db()
+                  try:
+                      # Per-org retention from organizations.limits. db.org_id
+                      # is set per org so RLS (app.current_org) scopes every
+                      # statement — an org-less connection only ever sees
+                      # NULL-org rows and would silently delete nothing. Run
+                      # this job with the service-role DSN.
+                      for o in db.query("SELECT id FROM public.organizations"):
+                          org_id = o["id"]
+                          db.org_id = org_id
+                          days = int(get_limits(db, org_id).get("retention_days") or 30)
+                          cutoff = (datetime.now(timezone.utc) - timedelta(days=days)) \
+                              .strftime("%Y-%m-%dT%H:%M:%SZ")
+                          db.execute(
+                              "DELETE FROM evidence WHERE lead_id IN"
+                              " (SELECT lead_id FROM leads WHERE created_at < ?)",
+                              (cutoff,))
+                          db.execute("DELETE FROM leads WHERE created_at < ?", (cutoff,))
+                      print("retention purge done")
+                  finally:
+                      db.close()
               envFrom:
                 - secretRef: { name: lead-engine-secrets }

@@ -34,6 +34,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge, StatusDot } from "@/components/ui/Badge";
 import { Input, Select } from "@/components/ui/Input";
 import { useLiveData } from "@/hooks/useLiveData";
+import { useWindowVirtualRows } from "@/hooks/useWindowVirtualRows";
 import { apiGet, apiPost, apiPitch, type LeadRow, type PitchData } from "@/lib/api";
 import { downloadFile, formatNumber, truncate, cn } from "@/lib/utils";
 import { friendlyError, ICP_LABELS } from "@/lib/friendly";
@@ -45,6 +46,12 @@ import { toast } from "sonner";
 import { parseAndValidatePhone } from "@/lib/phone";
 import { logAuditAction } from "@/lib/audit";
 import { WebhookExportModal } from "@/components/leads/WebhookExportModal";
+
+// Row height for the windowed table: `.pro-table tbody td` is 13px padding
+// top/bottom + ~20px line box + 1px border. The windowing math only needs an
+// estimate — the spacers keep the scrollbar proportional, and rows keep their
+// natural height.
+const LEAD_ROW_HEIGHT = 48;
 
 // Saved searches — persisted locally per browser.
 const SAVED_KEY = "leadEngine.savedSearches";
@@ -109,6 +116,14 @@ export function LeadsPage() {
       return true;
     });
   }, [leads, search, stage, jobId, selectedCity, quickFilter]);
+
+  // Virtualise the table body: at 500 rows this renders everything, at 10k it
+  // renders only the viewport slice. Selection/filtering still operate on the
+  // full `filtered` array, so nothing downstream changes behaviour.
+  const windowRange = useWindowVirtualRows({
+    count: filtered.length,
+    rowHeight: LEAD_ROW_HEIGHT,
+  });
 
   const stats = useMemo(() => {
     return {
@@ -555,7 +570,7 @@ export function LeadsPage() {
               description="شغّل مهمة من صفحة المهام وستظهر النتائج هنا تلقائيًا"
             />
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto" ref={windowRange.containerRef}>
               <table className="pro-table">
                 <thead>
                   <tr>
@@ -580,21 +595,30 @@ export function LeadsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((l, i) => (
-                    <LeadRowBlock
-                      key={leadKey(l, i)}
-                      lead={l}
-                      selected={selected.has(leadKey(l, i))}
-                      onToggleSelect={() => {
-                        const next = new Set(selected);
-                        const k = leadKey(l, i);
-                        if (next.has(k)) next.delete(k);
-                        else next.add(k);
-                        setSelected(next);
-                      }}
-                      onOpenDrawer={() => setDrawerLead(l)}
-                    />
-                  ))}
+                  {windowRange.padTop > 0 && (
+                    <tr aria-hidden style={{ height: windowRange.padTop }} />
+                  )}
+                  {filtered.slice(windowRange.start, windowRange.end).map((l, i) => {
+                    const index = windowRange.start + i;
+                    return (
+                      <LeadRowBlock
+                        key={leadKey(l, index)}
+                        lead={l}
+                        selected={selected.has(leadKey(l, index))}
+                        onToggleSelect={() => {
+                          const next = new Set(selected);
+                          const k = leadKey(l, index);
+                          if (next.has(k)) next.delete(k);
+                          else next.add(k);
+                          setSelected(next);
+                        }}
+                        onOpenDrawer={() => setDrawerLead(l)}
+                      />
+                    );
+                  })}
+                  {windowRange.padBottom > 0 && (
+                    <tr aria-hidden style={{ height: windowRange.padBottom }} />
+                  )}
                 </tbody>
               </table>
             </div>

@@ -140,7 +140,7 @@ Run benchmark → IF COMPLETED → Get Report (المزامنة بتتم تلق�
 ## Tests
 
 ```bash
-python3 -m pytest tests/ -q     # 50 test: dedup, verification, cache, router failover, state machine, legal gate, MCP
+python -m pytest tests/ -q     # ~300 test: dedup, verification, cache, router failover, state machine, legal gate, MCP, live stream
 ```
 
 ## MCP والتكاملات
