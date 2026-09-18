@@ -472,6 +472,11 @@ def auth_session(request: Request, db: Database = Depends(get_db)):
     mode = auth_jwt.auth_mode()
     if mode == "supabase":
         authenticated = claims is not None
+    elif mode == "closed":
+        # "closed" means the middleware rejects every protected request with
+        # 401. Reporting authenticated=True here was contradictory and caused
+        # the frontend to render the dashboard then crash on every API call.
+        authenticated = False
     else:
         authenticated = (not enabled()) or cookie_ok
     org_id = None
