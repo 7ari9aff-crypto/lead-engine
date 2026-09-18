@@ -43,7 +43,23 @@ class LiveStore {
   private readonly pollMs = 5000;
   private readonly maxAttempts = 6;
 
-  subscribe(listener: Listener): () => void {
+  // ── Public API ──────────────────────────────────────────────────────────
+  // These are *bound instance properties*, not prototype methods, on purpose.
+  //
+  // `subscribe` and `getSnapshotState` are handed to React as bare references
+  // (`useSyncExternalStore(liveStore.subscribe, liveStore.getSnapshotState)` in
+  // LiveBridge and CommandCenter) and React invokes them detached. ES modules
+  // are always strict mode, so a prototype method would run with
+  // `this === undefined` and throw
+  // `TypeError: Cannot read properties of undefined (reading 'state')` on the
+  // first dashboard paint — which is exactly the crash the app's ErrorBoundary
+  // used to report as "حدث خطأ غير متوقع".
+  //
+  // Property syntax ALSO keeps each function's identity stable for the lifetime
+  // of the store, which `useSyncExternalStore` requires: a fresh identity on
+  // every render would tear down and re-open the SSE stream.
+
+  subscribe = (listener: Listener): () => void => {
     this.listeners.add(listener);
     if (!this.started) {
       this.started = true;
@@ -53,19 +69,17 @@ class LiveStore {
       this.listeners.delete(listener);
       if (this.listeners.size === 0) this.stop();
     };
-  }
+  };
 
-  registerPoll(poll: (() => Promise<LiveSnapshot>) | undefined): () => void {
+  registerPoll = (poll: (() => Promise<LiveSnapshot>) | undefined): () => void => {
     if (!poll) return () => {};
     this.pollers.add(poll);
     // A poller arriving while we are not streaming should start the fallback now.
     if (!this.streaming && !this.pollTimer) this.schedulePoll();
     return () => { this.pollers.delete(poll); };
-  }
+  };
 
-  getSnapshotState(): StoreState {
-    return this.state;
-  }
+  getSnapshotState = (): StoreState => this.state;
 
   private emit(patch: Partial<StoreState>): void {
     this.state = { ...this.state, ...patch };
@@ -137,13 +151,14 @@ class LiveStore {
     }
   }
 
-  refresh(): void {
+  /** Bound for the same reason as `subscribe` — callers pass it around freely. */
+  refresh = (): void => {
     if (this.streaming) return;
     if (this.retryTimer) { clearTimeout(this.retryTimer); this.retryTimer = undefined; }
     this.failure = 0;
     this.emit({ state: "connecting", attempts: 0, error: null });
     void this.openStream();
-  }
+  };
 
   private stop(): void {
     this.started = false;
