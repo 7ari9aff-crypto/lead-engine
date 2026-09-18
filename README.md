@@ -163,6 +163,23 @@ curl -X POST https://<host>/mcp -H 'Content-Type: application/json' \
 
 نقاط دخول أخرى للتكامل: REST API كامل (شوف `/docs`)، وn8n scheduler workflow
 (`n8n/lead_engine_benchmark_scheduler.ts`).
+## النشر
+
+الـproduction على Vercel في حساب `lead-engine3` كـproject واحد اسمه `lead-engine`، مربوط
+بـ`7ari9aff-crypto/lead-engine` فرع `main` — أي دفع على `main` بيبني وينشر تلقائيًا.
+
+الـdashboard (الـstatic) بيتقدّم من `lead_engine/static`، و`sync-frontend-static` هو اللي
+بيجدّده ويضمن إن الإنتاج مبني من نفس الكوميت. يعني الفرونت **مش** بيتبني على Vercel، فمفيش
+`VITE_*` على Vercel (تعريفها الوحيد `web/.env.production` + repository variables للتبديل).
+
+- https://lead-engine-gamma-silk.vercel.app
+- https://lead-engine3.vercel.app
+
+```bash
+curl -s https://lead-engine-gamma-silk.vercel.app/health   # {"status":"ok"}
+```
+
+
 
 ## أمان
 
