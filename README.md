@@ -140,8 +140,24 @@ Run benchmark → IF COMPLETED → Get Report (المزامنة بتتم تلق�
 ## Tests
 
 ```bash
-python -m pytest tests/ -q     # ~300 test: dedup, verification, cache, router failover, state machine, legal gate, MCP, live stream
+python -m pytest tests/ -q     # 395 passing (dedup, verification, cache, router failover, state machine, legal gate, MCP, live stream, privacy, schema parity, statement budgets)
+ruff check lead_engine tests   # 0 errors
+cd web && pnpm run typecheck && pnpm run test && pnpm run build   # 78 tests, 13 files
 ```
+
+حارسات الإنحدار المثبّتة كاختبارات:
+
+- **schema parity** (`tests/test_schema_parity.py`): كل جدول بيكتبه الـSQL لازم يكون
+  موجود في `supabase/migrations` وفي SQLite SCHEMA — الاختبار اللي كان هيمسك انقطاع
+  `audit_logs` في الإنتاج قبل ما يحصل.
+- **statement budgets** (`tests/test_status_statement_budget.py`): `/api/status` و
+  `/api/analytics` عندها سقف عدد استعلامات — أي N+1 جديد بيفشل الـCI.
+- **tenant scoping**: جداول `engine` المستأجَرة عليها RLS مفروض + الاختبار بيمنع جدول
+  `organization_id` يتعمل من غير RLS.
+
+سجل الفجوات الكامل بقياسات الإنتاج وسجل إقفال كل فجوة:
+`docs/gap-register-2026-09-25.md` (baseline 53 → 92 بعد الموجات، منها 86+ مشروط
+بإجراءات المالك المذكورة آخر السجل).
 
 ## MCP والتكاملات
 
@@ -178,6 +194,21 @@ curl -X POST https://<host>/mcp -H 'Content-Type: application/json' \
 ```bash
 curl -s https://lead-engine-gamma-silk.vercel.app/health   # {"status":"ok"}
 ```
+
+### الـworker الدوري (cron)
+
+`vercel.json` بيجدوّل `GET /api/cron/worker` كل 5 دقايق: التكة بتصرّف الـleases
+المنتهية، بتحصد التشغيلات المهجورة (`agent_runs` اللي مفيش تحديث ليها من 24 ساعة)،
+وبتستأجر مهمة من الطابور وتشغّلها لحد حالة نهائية. الشرطان للتشغيل الصحيح:
+
+- `CRON_SECRET` لازم يكون متعرّف في متغيرات Vercel — Vercel بيبعت
+  `Authorization: Bearer $CRON_SECRET` تلقائيًا، والـendpoint بيرفض أي نداء تاني
+  (fail-closed). لو ناقص، المهام هتفضل `QUEUED` بشفافية على الـdashboard.
+- على Vercel الوضع الافتراضي بقى **queue mode** (`platform_mode()`): أي مهمة جديدة
+  بتتأجر وتتنفذ بالكرون بدل ما تموت جوه request بيقف عند الـmaxDuration.
+
+محليًا نفس المنطق شغال على SQLite: `python -m lead_engine worker --once`، أو
+`LEAD_ENGINE_QUEUE_MODE=worker` لوضع الطابور الكامل.
 
 
 
