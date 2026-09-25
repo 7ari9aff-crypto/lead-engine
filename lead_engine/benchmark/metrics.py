@@ -14,14 +14,14 @@ def _pct(part, whole):
 
 def compute_metrics(summary: dict, leads: list, usage_rows: list) -> dict:
     stages = summary.get("stages", {})
-    accepted = [l for l in leads if l.get("stage") == "ACCEPTED"]
-    review = [l for l in leads if l.get("stage") == "REVIEW"]
-    with_contact = [l for l in accepted if l.get("email") or l.get("phone")]
-    with_email = [l for l in accepted if l.get("email")]
-    deliverable = [l for l in accepted if l.get("email_status") == "DELIVERABLE"]
+    accepted = [lead for lead in leads if lead.get("stage") == "ACCEPTED"]
+    review = [lead for lead in leads if lead.get("stage") == "REVIEW"]
+    with_contact = [lead for lead in accepted if lead.get("email") or lead.get("phone")]
+    with_email = [lead for lead in accepted if lead.get("email")]
+    deliverable = [lead for lead in accepted if lead.get("email_status") == "DELIVERABLE"]
     dedup = stages.get("dedup", {})
     total_units = sum(float(r.get("units") or 0) for r in usage_rows)
-    degraded = any(l.get("processing_mode") == "degraded_local" for l in leads)
+    degraded = any(lead.get("processing_mode") == "degraded_local" for lead in leads)
 
     return {
         "job_id": summary.get("job_id"),
@@ -66,12 +66,12 @@ def export_csv(leads: list, path=None) -> str:
 
 def render_report(metrics: dict, summary: dict, leads: list) -> str:
     stages = summary.get("stages", {})
-    accepted = sorted([l for l in leads if l.get("stage") == "ACCEPTED"],
-                      key=lambda l: -(l.get("score") or 0))
+    accepted = sorted([lead for lead in leads if lead.get("stage") == "ACCEPTED"],
+                      key=lambda lead: -(lead.get("score") or 0))
     lines = [
         "# V0 Benchmark Report", "",
         f"- job_id: `{metrics['job_id']}`",
-        f"- mode: LIVE",
+        "- mode: LIVE",
         f"- discovery raw candidates: {metrics['discovery_raw_candidates']}",
         f"- unique after dedup: {metrics['unique_after_dedup']} "
         f"(duplicate rate {metrics['duplicate_rate']})",

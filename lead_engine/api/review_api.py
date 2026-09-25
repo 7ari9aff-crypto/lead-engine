@@ -22,7 +22,7 @@ import json
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from ..db import open_db, utcnow
+from ..db import utcnow
 from ..research.presentation import build_presentation
 from ..truth import FactsStore
 

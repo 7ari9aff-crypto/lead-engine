@@ -15,7 +15,6 @@ pipeline) produces lands here as a *fact* with:
 Engine tables (bare names resolve to `engine` on Postgres via the pinned
 search_path, and to the local file on SQLite) — no _t() needed here.
 """
-import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse

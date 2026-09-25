@@ -1,5 +1,5 @@
 """Discovery: ICP queries -> search pool -> raw candidates."""
-from .icp import build_plan  # re-export for convenience
+from .icp import build_plan as build_plan  # re-export for convenience
 from .normalize import clean_title, domain_from_url, extract_contacts, is_social
 
 

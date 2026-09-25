@@ -7,7 +7,6 @@ apply when the org has no explicit limits. Enforcement points:
 This is NOT billing: subscriptions synchronize these values, they do not
 compute them.
 """
-import os
 from datetime import datetime, timezone
 
 from .policy import DEFAULT_LIMITS, _t

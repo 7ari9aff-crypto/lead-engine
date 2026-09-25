@@ -4,7 +4,7 @@ import pytest
 
 from lead_engine.db import Database
 from lead_engine.jobs import (
-    CANCELLED, COMPLETED, FAILED, IllegalTransition, PAUSED, QUEUED,
+    CANCELLED, COMPLETED, IllegalTransition, PAUSED, QUEUED,
     READY_FOR_REVIEW, RESUMING, RUNNING, WAITING_FOR_USER, JobManager,
 )
 from lead_engine.research import ResearchJobManager

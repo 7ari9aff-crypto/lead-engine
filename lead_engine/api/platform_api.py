@@ -5,7 +5,7 @@ In production the token belongs to the billing/ops automation only.
 """
 import os
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from .. import provisioning

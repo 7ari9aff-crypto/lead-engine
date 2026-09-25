@@ -130,7 +130,6 @@ def research_answer(job_id: str, req: AnswerRequest, background: BackgroundTasks
         raise HTTPException(status_code=409,
                             detail=f"job is {manager.jobs.current(job_id)}, "
                                    "not WAITING_FOR_USER")
-    questions = None
     from ..truth import FactsStore
 
     store = FactsStore(db)

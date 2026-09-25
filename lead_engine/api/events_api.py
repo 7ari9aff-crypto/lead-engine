@@ -1,13 +1,10 @@
 """API surface for the event backbone: webhooks CRUD, notifications,
 reconciliation. Events themselves dispatch from the event-worker."""
-import base64
-import os
 
 from fastapi import Request, APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from ..config import load_env
-from ..db import open_db
 from ..secrets import encrypt_secret
 
 load_env()
@@ -117,7 +114,6 @@ def usage_reconciliation(request: Request, db=Depends(get_db)):
     from .app import require_admin
 
     require_admin(request, db)
-    org = getattr(db, "org_id", None)
     ledger = db.query(
         "SELECT provider, task, COUNT(*) AS calls, SUM(units) AS units"
         " FROM usage_ledger GROUP BY provider, task ORDER BY provider")

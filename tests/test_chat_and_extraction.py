@@ -1,5 +1,4 @@
 """Chat agent tools + snippet contact extraction + ad-hoc ICP."""
-import pytest
 
 from lead_engine.api.chat import execute_tool, run_agent
 from lead_engine.pipeline.icp import build_adhoc_icp

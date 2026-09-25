@@ -1,4 +1,3 @@
-import pytest
 
 from lead_engine.pipeline.dedup import DedupEngine, classify_ratio
 from lead_engine.pipeline.normalize import normalize_text

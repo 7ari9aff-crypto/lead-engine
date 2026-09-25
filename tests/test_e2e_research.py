@@ -5,21 +5,23 @@ presentation -> the four human decisions -> RESEARCH_MORE continuation.
 Runs over the real FastAPI app (TestClient) with a scripted router on a temp
 DB — no network, no quota — proving the full target flow (directive §46).
 """
-import json
 
 import pytest
 from fastapi.testclient import TestClient
 
 from lead_engine.api import research_api, review_api
 from lead_engine.api.app import app
-from lead_engine.db import Database, open_db
+from lead_engine.db import Database
 from lead_engine.research import ResearchJobManager
+from tests.conftest import seed_control_plane
 
 
 @pytest.fixture()
 def db(tmp_path):
     database = Database(tmp_path / "e2e.sqlite3")
     database.org_id = "org-e2e"
+    # The agentic loop resolves its agent + tool scopes from seeded rows.
+    seed_control_plane(database)
     return database
 
 

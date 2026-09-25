@@ -17,7 +17,9 @@ import uuid
 import hashlib
 import hmac as _hmac
 
-import requests
+# Test seam: tests patch `events.requests.post`; delivery itself goes through
+# netguard.pinned_post, which resolves the same module object at call time.
+import requests as requests
 
 from .db import utcnow
 from .secrets import decrypt_secret

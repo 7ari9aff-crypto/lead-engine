@@ -16,7 +16,6 @@ import time
 from functools import lru_cache
 
 import jwt
-import requests
 
 _JWKS_URL = "/auth/v1/.well-known/jwks.json"
 

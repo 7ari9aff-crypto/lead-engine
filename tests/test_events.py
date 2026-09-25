@@ -3,7 +3,6 @@ DLQ, notifications, provisioning state machine (SQLite-portable paths)."""
 import json
 
 import pytest
-import requests
 
 from lead_engine import events, provisioning
 from lead_engine.db import Database
@@ -162,7 +161,6 @@ def test_provisioning_failure_marks_failed(db):
     row = provisioning.status(db, "org-1")
     assert "cluster unavailable" in row["error"]
     # retry path: FAILED -> PROVISIONING is legal
-    import json as _json
     db.execute("UPDATE tenant_provisioning SET isolation_level='pooled' WHERE org_id='org-1'")
     result = provisioning.provision(db, "org-1")
     assert result["state"] == provisioning.ACTIVE

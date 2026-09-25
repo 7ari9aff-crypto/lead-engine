@@ -11,13 +11,14 @@ import pytest
 
 from lead_engine.db import Database
 from lead_engine.jobs import (
-    PAUSED, READY_FOR_REVIEW, RUNNING, WAITING_FOR_USER,
+    PAUSED, READY_FOR_REVIEW, WAITING_FOR_USER,
 )
 from lead_engine.research import ResearchJobManager
 from lead_engine.research.orchestrator import ResearchOrchestrator
 from lead_engine.research.tools import TOOLS, ScopeDenied, ToolContext, execute_tool
 from lead_engine.router import NoProviderAvailable
 from lead_engine.truth import FactsStore
+from tests.conftest import seed_control_plane
 
 
 class FakeRouter:
@@ -57,6 +58,8 @@ class FakeRouter:
 def db(tmp_path):
     db = Database(tmp_path / "orch.sqlite3")
     db.org_id = "org-test"
+    # The orchestrator resolves its agent + tool scopes from seeded rows.
+    seed_control_plane(db)
     return db
 
 

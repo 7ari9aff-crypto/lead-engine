@@ -5,13 +5,10 @@ Rules (docs/architecture.md: Data Governance):
 - purge_expired removes leads past the org retention window.
 - export returns the org's leads as JSON (portability right).
 """
-import json
-import os
 from datetime import datetime, timedelta, timezone
 
-from fastapi import Request, APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
-from ..db import open_db
 from ..entitlements import get_limits
 
 router = APIRouter(tags=["data-governance"])

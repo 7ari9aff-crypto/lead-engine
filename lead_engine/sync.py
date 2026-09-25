@@ -217,9 +217,9 @@ def _load_icp_for(db, engine_job_id):
 def _counts(leads):
     return {
         "discovered": len(leads),
-        "qualified": sum(1 for l in leads if l.get("stage") == "ACCEPTED"),
-        "rejected": sum(1 for l in leads if l.get("stage") == "REJECTED"),
-        "degraded": any(l.get("processing_mode") == "degraded_local" for l in leads),
+        "qualified": sum(1 for lead in leads if lead.get("stage") == "ACCEPTED"),
+        "rejected": sum(1 for lead in leads if lead.get("stage") == "REJECTED"),
+        "degraded": any(lead.get("processing_mode") == "degraded_local" for lead in leads),
     }
 
 

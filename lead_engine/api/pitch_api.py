@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from ..config import load_settings, load_cache_policy
 from ..cache import CacheLayer
-from ..db import open_db
 from ..router import Router
 router = APIRouter(tags=["pitch"])
 

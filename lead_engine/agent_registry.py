@@ -135,71 +135,112 @@ TOOL_SEED = [
 ]
 
 
+_MODEL_COLS: bool | None = None
+
+
+def _has_model_columns(db) -> bool:
+    """Whether agent_versions carries the model routing columns. Memoized per
+    process - the answer cannot change while the app is up."""
+    global _MODEL_COLS
+    if _MODEL_COLS is not None:
+        return _MODEL_COLS
+    try:
+        if getattr(db, "dialect", "sqlite") == "postgres":
+            cols = db.query(
+                "SELECT column_name FROM information_schema.columns WHERE table_name='agent_versions' AND column_name='model_provider'"
+            )
+            _MODEL_COLS = bool(cols)
+        else:
+            existing = {row["name"] for row in db.conn.execute("PRAGMA table_info(agent_versions)")}
+            _MODEL_COLS = "model_provider" in existing
+    except Exception:
+        _MODEL_COLS = False
+    return _MODEL_COLS
+
+
+def ensure_seeded(db) -> None:
+    """Seed agents, tools, connections and the provider registry.
+
+    Called from startup and `python -m lead_engine init` - never from a request
+    path. Safe to call repeatedly: every statement is an upsert."""
+    from .bootstrap import run_once
+
+    run_once("agent_registry", lambda: _seed(db))
+
+
+def _seed(db) -> None:
+    now = utcnow()
+    from .registry import Registry
+    Registry(db).seed_if_empty()
+    has_model_cols = _has_model_columns(db)
+    for slug, item in AGENT_SEED.items():
+        agent_id = f"agent:{slug}"
+        db.execute(
+            "INSERT INTO agents (agent_id, slug, name, description, status, current_version, created_at, updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?) ON CONFLICT (agent_id) DO NOTHING",
+            (agent_id, slug, item["name"], item["description"], "active", item["version"], now, now),
+        )
+        if has_model_cols:
+            db.execute(
+                "INSERT INTO agent_versions (agent_id, version, instructions, model_policy, model_provider, model_name, thinking_effort, tool_policy, output_schema, status, created_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (agent_id, version) DO NOTHING",
+                (agent_id, item["version"], item["instructions"], json.dumps(item["model_policy"]),
+                 item.get("model_provider"), item.get("model_name"), item.get("thinking_effort"),
+                 json.dumps(item["tool_policy"]), json.dumps(item["output_schema"]), "published", now),
+            )
+        else:
+            db.execute(
+                "INSERT INTO agent_versions (agent_id, version, instructions, model_policy, tool_policy, output_schema, status, created_at)"
+                " VALUES (?,?,?,?,?,?,?,?) ON CONFLICT (agent_id, version) DO NOTHING",
+                (agent_id, item["version"], item["instructions"], json.dumps(item["model_policy"]),
+                 json.dumps(item["tool_policy"]), json.dumps(item["output_schema"]), "published", now),
+            )
+    for name, description, scopes, approval in TOOL_SEED:
+        # Refresh description/scopes on upgrade so newly shipped tools reach
+        # existing databases, but never touch `enabled` — an operator may
+        # have deliberately disabled a tool and that choice must survive.
+        db.execute(
+            "INSERT INTO tools (name, description, scopes, requires_approval, enabled, created_at)"
+            " VALUES (?,?,?,?,?,?) ON CONFLICT (name) DO UPDATE SET"
+            "   description=excluded.description,"
+            "   scopes=excluded.scopes",
+            (name, description, json.dumps(scopes), int(approval), 1, now),
+        )
+    for row in db.query("SELECT name, MIN(env_key) AS env_key, MIN(base_url) AS base_url FROM providers GROUP BY name"):
+        db.execute(
+            "INSERT INTO connections (connection_id, provider, kind, base_url, status, created_at) VALUES (?,?,?,?,?,?) ON CONFLICT (connection_id) DO NOTHING",
+            (f"provider:{row['name']}", row["name"], "provider", row.get("base_url"),
+             "configured" if row.get("env_key") is None or os.environ.get(row["env_key"]) else "missing_key", now),
+        )
+
+
+def reclaim_stale_runs(db, stale_hours: int = 24) -> int:
+    """Mark RUNNING agent runs as FAILED when they have not updated within the
+    stale window: the worker that owned them is gone (a serverless request
+    killed mid-run), and nothing will ever call finish_run. This is the
+    /agents zombie fix (gap register FRONT-03); reaped runs keep their error
+    so the dashboard shows why the run died instead of lying "جاري".
+    """
+    stale_hours = int(stale_hours)
+    if getattr(db, "dialect", "sqlite") == "postgres":
+        stale = f"updated_at < now() - interval '{stale_hours} hours'"
+    else:
+        stale = (f"updated_at < strftime('%Y-%m-%dT%H:%M:%SZ','now',"
+                 f"'-{stale_hours * 60} minutes')")
+    cur = db.execute(
+        "UPDATE agent_runs SET status='FAILED', error=?, updated_at=?"
+        f" WHERE status='RUNNING' AND {stale}",
+        (f"stale run reaped: no update for {stale_hours}h (worker died)",
+         utcnow()))
+    return getattr(cur, "rowcount", 0)
+
+
 class AgentRegistry:
+    """Reads and writes agents, tools, connections and runs. Pure constructor:
+    schema and seed data are bootstrap concerns (see `ensure_seeded`)."""
+
     def __init__(self, db):
         self.db = db
-        self.seed()
-
-    
-    def _has_model_columns(self) -> bool:
-        if getattr(self, "_model_cols_checked", None) is not None:
-            return self._model_cols_checked
-        try:
-            if getattr(self.db, "dialect", "sqlite") == "postgres":
-                cols = self.db.query(
-                    "SELECT column_name FROM information_schema.columns WHERE table_name='agent_versions' AND column_name='model_provider'"
-                )
-                self._model_cols_checked = bool(cols)
-            else:
-                existing = {row["name"] for row in self.db.conn.execute("PRAGMA table_info(agent_versions)")}
-                self._model_cols_checked = "model_provider" in existing
-        except Exception:
-            self._model_cols_checked = False
-        return self._model_cols_checked
-
-    def seed(self):
-        now = utcnow()
-        from .registry import Registry
-        Registry(self.db).seed_if_empty()
-        for slug, item in AGENT_SEED.items():
-            agent_id = f"agent:{slug}"
-            self.db.execute(
-                "INSERT INTO agents (agent_id, slug, name, description, status, current_version, created_at, updated_at)"
-                " VALUES (?,?,?,?,?,?,?,?) ON CONFLICT (agent_id) DO NOTHING",
-                (agent_id, slug, item["name"], item["description"], "active", item["version"], now, now),
-            )
-            if self._has_model_columns():
-                self.db.execute(
-                    "INSERT INTO agent_versions (agent_id, version, instructions, model_policy, model_provider, model_name, thinking_effort, tool_policy, output_schema, status, created_at)"
-                    " VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (agent_id, version) DO NOTHING",
-                    (agent_id, item["version"], item["instructions"], json.dumps(item["model_policy"]),
-                     item.get("model_provider"), item.get("model_name"), item.get("thinking_effort"),
-                     json.dumps(item["tool_policy"]), json.dumps(item["output_schema"]), "published", now),
-                )
-            else:
-                self.db.execute(
-                    "INSERT INTO agent_versions (agent_id, version, instructions, model_policy, tool_policy, output_schema, status, created_at)"
-                    " VALUES (?,?,?,?,?,?,?,?) ON CONFLICT (agent_id, version) DO NOTHING",
-                    (agent_id, item["version"], item["instructions"], json.dumps(item["model_policy"]),
-                     json.dumps(item["tool_policy"]), json.dumps(item["output_schema"]), "published", now),
-                )
-        for name, description, scopes, approval in TOOL_SEED:
-            # Refresh description/scopes on upgrade so newly shipped tools reach
-            # existing databases, but never touch `enabled` — an operator may
-            # have deliberately disabled a tool and that choice must survive.
-            self.db.execute(
-                "INSERT INTO tools (name, description, scopes, requires_approval, enabled, created_at)"
-                " VALUES (?,?,?,?,?,?) ON CONFLICT (name) DO UPDATE SET"
-                "   description=excluded.description,"
-                "   scopes=excluded.scopes",
-                (name, description, json.dumps(scopes), int(approval), 1, now),
-            )
-        for row in self.db.query("SELECT name, MIN(env_key) AS env_key, MIN(base_url) AS base_url FROM providers GROUP BY name"):
-            self.db.execute(
-                "INSERT INTO connections (connection_id, provider, kind, base_url, status, created_at) VALUES (?,?,?,?,?,?) ON CONFLICT (connection_id) DO NOTHING",
-                (f"provider:{row['name']}", row["name"], "provider", row.get("base_url"),
-                 "configured" if row.get("env_key") is None or os.environ.get(row["env_key"]) else "missing_key", now),
-            )
 
     def agents(self):
         return self.db.query("SELECT * FROM agents ORDER BY name")

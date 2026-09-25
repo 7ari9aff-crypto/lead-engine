@@ -12,7 +12,6 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from lead_engine.api import app as app_module
 from lead_engine.api.app import app, get_db
 from lead_engine.db import Database
 

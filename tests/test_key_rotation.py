@@ -1,5 +1,6 @@
 """Multi-key pool rotation: 5 Tavily keys = 5x credits, rotate before failover."""
 import pytest
+from tests.conftest import seed_control_plane
 
 from lead_engine.cache import CacheLayer
 from lead_engine.config import load_cache_policy
@@ -44,6 +45,9 @@ class PooledAdapter:
 def router(tmp_path, monkeypatch):
     monkeypatch.setenv("TAVILY_API_KEY", "key0,key1,key2,key3,key4")
     db = Database(tmp_path / "r.sqlite3")
+    # The provider rows the quota multiplier is read from used to arrive as a
+    # side effect of Router.__init__; seeding is a bootstrap concern now.
+    seed_control_plane(db)
     return Router(db, CacheLayer(db, load_cache_policy()), {})
 
 

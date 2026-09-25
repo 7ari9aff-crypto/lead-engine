@@ -1,3 +1,5 @@
+from tests.conftest import seed_control_plane
+
 from lead_engine.cache import CacheLayer
 from lead_engine.config import load_cache_policy
 from lead_engine.db import Database
@@ -19,6 +21,9 @@ class StubAdapter:
 
 def make_router(tmp_path, response):
     db = Database(tmp_path / "t.sqlite3")
+    # Router no longer seeds the registry on construction (LAT-01): the rows
+    # this test routes against have to be asked for.
+    seed_control_plane(db)
     cache = CacheLayer(db, load_cache_policy())
     router = Router(db, cache, {})
     router.adapters = {"local_smtp": StubAdapter(response)}

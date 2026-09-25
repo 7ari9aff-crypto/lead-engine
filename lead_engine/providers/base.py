@@ -7,9 +7,7 @@ signals instead of guessing.
 import json
 import os
 import random
-import re
 import string
-import time as _time
 
 import requests
 

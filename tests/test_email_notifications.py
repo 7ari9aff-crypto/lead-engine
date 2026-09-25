@@ -7,7 +7,6 @@ sent without ever opening a socket.
 from __future__ import annotations
 
 import smtplib
-from email import message_from_string
 from email.message import EmailMessage
 from unittest.mock import MagicMock, patch
 

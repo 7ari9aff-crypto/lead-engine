@@ -156,7 +156,8 @@ def test_wrapper_task_lifecycle_with_fake_openmanus(wrapper_client, tmp_path, mo
     # the wrapper now runs the Manus agent IN-PROCESS — inject a fake
     # app.agent.manus module that "produces" the JSON result as an assistant
     # message, exercising the real extraction path
-    import sys, types, asyncio
+    import sys
+    import types
 
     result_json_msg = ("```json\n" + result_json + "\n```")
 
@@ -181,8 +182,10 @@ def test_wrapper_task_lifecycle_with_fake_openmanus(wrapper_client, tmp_path, mo
     class AgentState:
         pass
     fake_schema.AgentState = AgentState
-    fake_pkg = types.ModuleType("app"); fake_agent_pkg = types.ModuleType("app.agent")
-    fake_pkg.agent = fake_agent_pkg; fake_agent_pkg.manus = fake_manus
+    fake_pkg = types.ModuleType("app")
+    fake_agent_pkg = types.ModuleType("app.agent")
+    fake_pkg.agent = fake_agent_pkg
+    fake_agent_pkg.manus = fake_manus
     monkeypatch.setitem(sys.modules, "app", fake_pkg)
     monkeypatch.setitem(sys.modules, "app.agent", fake_agent_pkg)
     monkeypatch.setitem(sys.modules, "app.agent.manus", fake_manus)

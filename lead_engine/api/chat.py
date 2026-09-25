@@ -7,7 +7,6 @@ The loop runs up to MAX_STEPS tool rounds per user message.
 """
 import json
 
-from ..benchmark.metrics import compute_metrics
 from ..benchmark.run import run_benchmark
 from ..pipeline.icp import build_adhoc_icp
 from ..providers.email import VerificationPipeline
@@ -278,10 +277,10 @@ def execute_tool(name: str, args: dict, router, db) -> dict:
                             ("discovery_raw_candidates", "unique_after_dedup",
                              "qualification_scored", "final_leads", "review_leads",
                              "quota_units_total", "total_cost_usd")},
-                "accepted_leads": [_compact_lead(l) for l in leads
-                                   if l.get("stage") == "ACCEPTED"][:15],
-                "review_leads_sample": [_compact_lead(l) for l in leads
-                                        if l.get("stage") == "REVIEW"][:8],
+                "accepted_leads": [_compact_lead(lead) for lead in leads
+                                   if lead.get("stage") == "ACCEPTED"][:15],
+                "review_leads_sample": [_compact_lead(lead) for lead in leads
+                                        if lead.get("stage") == "REVIEW"][:8],
                 "contacts_note": "الأرقام/الإيميلات مستخرجة من مقتطفات نتائج البحث "
                                  "(بمصدرها) — إكمال جهات الاتصال يتطلب مفاتيح Apollo وHunter.",
             }
@@ -496,7 +495,7 @@ def execute_tool(name: str, args: dict, router, db) -> dict:
             jobs = {j["state"]: j["n"] for j in
                     db.query(f"SELECT state, COUNT(*) AS n FROM jobs WHERE 1=1{clause}"
                              " GROUP BY state", clause_params)}
-            leads = {l["stage"]: l["n"] for l in
+            leads = {lead["stage"]: lead["n"] for lead in
                      db.query(f"SELECT stage, COUNT(*) AS n FROM leads WHERE 1=1{clause}"
                               " GROUP BY stage", clause_params)}
             return {"providers": providers, "jobs": jobs, "leads": leads}

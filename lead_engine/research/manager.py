@@ -15,13 +15,11 @@ these rows (directive §33). Budgets are guardrails, not a workflow order
 recorded stop_reason instead of drifting.
 """
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from ..db import utcnow
 from ..jobs import (
-    CANCELLED, COMPLETED, DISCOVERING, FAILED, JobManager, PAUSED, QUALIFYING,
-    QUEUED, READY_FOR_REVIEW, RESEARCHING, RUNNING, VERIFYING,
-    WAITING_FOR_USER,
+    CANCELLED, COMPLETED, JobManager, READY_FOR_REVIEW, WAITING_FOR_USER,
 )
 
 # Guardrails (directive §40). Overridable per job via budget_json and per

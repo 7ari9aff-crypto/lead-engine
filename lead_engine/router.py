@@ -11,7 +11,6 @@ job manager PAUSES the job (quota exhaustion is a resource state, not a failure)
 import time
 
 from .cache import CacheLayer
-from .db import utcnow
 from .registry import COOLDOWN, EXHAUSTED, Registry
 
 
@@ -65,11 +64,20 @@ def build_adapters(settings: dict) -> dict:
 
 class Router:
     def __init__(self, db, cache: CacheLayer, settings: dict):
+        """Pure constructor: no I/O.
+
+        Provider rows used to be seeded from here, which made this the hottest
+        of the LAT-01 sites: a Router is built per request by five dashboard
+        handlers, per job by PipelineOrchestrator and ResearchOrchestrator, and
+        per CLI run. One engine statement is a full round trip (~0.6 s measured
+        on remote Supabase), so that was +0.6 s per construction — and ~20
+        statements (~12 s) the first time any process met an unseeded database.
+        Seed rows now belong to `lead_engine.bootstrap` (startup / `init`).
+        """
         self.db = db
         self.cache = cache
         self.settings = settings or {}
         self.registry = Registry(db)
-        self.registry.seed_if_empty()
         self.adapters = build_adapters(self.settings)
 
     # ---------------------------------------------------------------- public

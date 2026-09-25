@@ -30,8 +30,7 @@ from ..cache import CacheLayer
 from ..config import load_cache_policy
 from ..db import utcnow
 from ..jobs import (
-    CANCELLED, COMPLETED, FAILED, PAUSED, READY_FOR_REVIEW, RESUMING,
-    RUNNING, WAITING_FOR_USER, RESEARCH_PHASES,
+    CANCELLED, COMPLETED, FAILED, PAUSED, READY_FOR_REVIEW, RUNNING, WAITING_FOR_USER,
 )
 from ..router import NoProviderAvailable, Router
 from ..truth import FactsStore

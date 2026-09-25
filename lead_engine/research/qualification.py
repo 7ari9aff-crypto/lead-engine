@@ -16,7 +16,7 @@ change reuses the stored facts (directive §25).
 import json
 
 from ..router import NoProviderAvailable
-from ..truth import STATUS_CONFLICTED, STATUS_STALE, STATUS_VERIFIED, FactsStore
+from ..truth import STATUS_VERIFIED, FactsStore
 
 PROMPT = """أنت محلل تأهيل عملاء B2B صارم ومسؤول عن الحقيقة.
 قيّم الشركة التالية مقابل معايير الـICP اعتمادًا على الحقائق المخزنة **فقط**.

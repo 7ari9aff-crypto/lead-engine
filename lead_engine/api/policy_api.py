@@ -3,12 +3,10 @@
 The gate itself (PolicyGate.evaluate) runs before any outbound send; these
 endpoints manage the list and let the dashboard preview decisions.
 """
-import os
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from ..db import open_db
 from ..entitlements import get_limits
 from ..policy import PolicyGate, Suppression
 

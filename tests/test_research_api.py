@@ -6,12 +6,15 @@ from lead_engine.api import research_api
 from lead_engine.api.app import app
 from lead_engine.db import Database
 from lead_engine.research import ResearchJobManager
+from tests.conftest import seed_control_plane
 
 
 @pytest.fixture()
 def db(tmp_path, monkeypatch):
     database = Database(tmp_path / "research_api.sqlite3")
     database.org_id = "org-test"
+    # The agentic loop resolves its agent + tool scopes from seeded rows.
+    seed_control_plane(database)
     return database
 
 
@@ -167,8 +170,6 @@ def test_openmanus_health_endpoint_reports_unconfigured(client, db, monkeypatch)
 
 
 def test_openmanus_health_endpoint_proxies_live(client, db, monkeypatch):
-    import requests as _requests
-    from lead_engine.api import research_api
 
     class FakeResp:
         status_code = 200

@@ -1,7 +1,7 @@
 """Benchmark runner + seed-list loader (manual CSV path for V0)."""
 import csv
 
-from ..config import DATA_DIR, OUTPUTS_DIR, load_env, load_icp, load_settings
+from ..config import DATA_DIR, load_env, load_icp, load_settings
 from ..db import open_db
 from ..pipeline.orchestrator import PipelineOrchestrator
 from .metrics import compute_metrics, write_outputs

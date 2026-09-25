@@ -13,7 +13,6 @@ the router's quotas are the first risk throttle.
 """
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
 
 from .db import utcnow
 

@@ -11,6 +11,7 @@ from lead_engine.api.app import app
 from lead_engine.db import Database
 from lead_engine.research import ResearchJobManager
 from lead_engine.truth import FactsStore
+from tests.conftest import seed_control_plane
 from tests.test_research_orchestrator import FakeRouter
 
 
@@ -18,6 +19,8 @@ from tests.test_research_orchestrator import FakeRouter
 def db(tmp_path):
     db = Database(tmp_path / "stage3.sqlite3")
     db.org_id = "org-test"
+    # Research runs behind these paths resolve their agent from seeded rows.
+    seed_control_plane(db)
     return db
 
 
@@ -198,7 +201,7 @@ def test_research_more_creates_child_job_with_context(client, db):
 
 # ---------------------------------------------------------- requalify
 def test_requalify_from_facts_without_rediscovery(client, db):
-    job_id = _run_research_job(db)
+    _run_research_job(db)
     lead_id = db.one("SELECT lead_id FROM leads")["lead_id"]
     searches_before = db.one("SELECT COUNT(*) AS n FROM usage_ledger")["n"]
     facts_before = db.one("SELECT COUNT(*) AS n FROM research_facts")["n"]
@@ -239,7 +242,7 @@ def test_icp_api_create_activate_and_filter(db, client):
         "slug": "agentic",
         "definition": {"industry": "dental", "cities": [{"name": "Riyadh"}]},
     })
-    v2 = r2.json()["icp"]
+    assert r2.status_code == 200
     versions = {v["version"]: v["status"] for v in
                 client.get("/api/v1/icps").json()["versions"]}
     assert versions["v1"] == "retired" and versions["v2"] == "active"
@@ -269,12 +272,12 @@ def test_chat_define_icp_tool(db):
 
 
 def test_conflict_resolution_api(client, db):
-    from lead_engine.truth import FactsStore, STATUS_VERIFIED, STATUS_STALE
+    from lead_engine.truth import FactsStore, STATUS_VERIFIED
     store = FactsStore(db)
     f1 = store.record_fact("company", "org:clinic-c.com", "phone", "+966501111111",
                            source_url="https://c.com/1", provider="tavily")
-    f2 = store.record_fact("company", "org:clinic-c.com", "phone", "+966502222222",
-                           source_url="https://c.com/2", provider="brave")
+    store.record_fact("company", "org:clinic-c.com", "phone", "+966502222222",
+                      source_url="https://c.com/2", provider="brave")
     confs = client.get("/api/v1/conflicts").json()["conflicts"]
     assert len(confs) >= 1
     cid = confs[0]["conflict_id"]

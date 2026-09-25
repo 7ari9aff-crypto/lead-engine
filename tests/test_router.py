@@ -1,4 +1,5 @@
 import pytest
+from tests.conftest import seed_control_plane
 
 from lead_engine.cache import CacheLayer
 from lead_engine.config import load_cache_policy
@@ -40,6 +41,9 @@ def router(tmp_path, monkeypatch):
     monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "test-key")
     monkeypatch.setenv("EXA_API_KEY", "test-key")
     db = Database(tmp_path / "r.sqlite3")
+    # Router no longer seeds the registry on construction (LAT-01), so the
+    # provider rows these failover tests route against are seeded explicitly.
+    seed_control_plane(db)
     return Router(db, CacheLayer(db, load_cache_policy()), {})
 
 

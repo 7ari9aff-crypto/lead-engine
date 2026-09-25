@@ -107,7 +107,7 @@ class PipelineOrchestrator:
             self._record_stage("qualification", summary["stages"]["qualification"])
 
             # 6) selective enrichment (budgeted)
-            ordered = sorted(kept, key=lambda l: -(l.get("qualification_score") or 0))
+            ordered = sorted(kept, key=lambda lead: -(lead.get("qualification_score") or 0))
             estats = Enrichment(self.router).run(ordered, plan, job_id)
             summary["stages"]["enrichment"] = estats
             self._record_stage("enrichment", estats)
@@ -150,9 +150,9 @@ class PipelineOrchestrator:
                     self.db.add_evidence(lead.get("lead_id"), f"Listed in results for '{query}'",
                                          url, "web_search")
             summary["stages"]["legal_gate"] = {
-                "accepted": sum(1 for l in kept if l.get("stage") == "ACCEPTED"),
-                "review": sum(1 for l in kept if l.get("stage") == "REVIEW"),
-                "rejected": sum(1 for l in kept if l.get("stage") == "REJECTED"),
+                "accepted": sum(1 for lead in kept if lead.get("stage") == "ACCEPTED"),
+                "review": sum(1 for lead in kept if lead.get("stage") == "REVIEW"),
+                "rejected": sum(1 for lead in kept if lead.get("stage") == "REJECTED"),
             }
             self._record_stage("legal_gate", summary["stages"]["legal_gate"])
             summary["leads"] = kept
@@ -185,7 +185,6 @@ class PipelineOrchestrator:
             return summary
 
         except Exception as exc:  # noqa: BLE001 — broad catch to prevent zombie jobs
-            import traceback
             import logging
             _log = logging.getLogger(__name__)
             _log.exception("Unhandled error in run_job(%s): %s", job_id, exc)

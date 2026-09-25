@@ -5,10 +5,9 @@ these endpoints let the dashboard and the chat create, list, and activate
 ICP versions. Activation is per-slug; the agentic research pipeline and the
 re-qualification endpoint always evaluate against the ACTIVE version.
 """
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from ..db import open_db
 from ..icp_store import ICPStore
 
 router = APIRouter(prefix="/api/v1/icps", tags=["icp"])

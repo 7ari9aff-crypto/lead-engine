@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from lead_engine.api import app as app_module
 from lead_engine.api.app import app
 from lead_engine.db import Database
+from tests.conftest import seed_control_plane
 
 
 class _KeepOpen:
@@ -40,6 +41,8 @@ class _KeepOpen:
 def db(tmp_path, monkeypatch):
     database = Database(tmp_path / "e2e_stack.sqlite3")
     database.org_id = "org-e2e-stack"
+    # /benchmark/run opens an agent run, which needs the seeded control plane.
+    seed_control_plane(database)
     database.conn = _KeepOpen(database.conn)
     # The runner opens its own handle (production: DSN-backed). Point that
     # factory at the temp database so the whole path runs against real SQL

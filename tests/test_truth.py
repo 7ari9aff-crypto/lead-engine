@@ -139,8 +139,8 @@ def test_expired_value_superseded_without_conflict(store):
     old = store.record_fact("company", "org:c.com", "phone", "+966501111111",
                             source_url="https://old.com", provider="tavily")
     _expire(store, old["fact_id"])
-    new = store.record_fact("company", "org:c.com", "phone", "+966502222222",
-                            source_url="https://new.com", provider="brave")
+    store.record_fact("company", "org:c.com", "phone", "+966502222222",
+                      source_url="https://new.com", provider="brave")
     assert store.conflicts(subject_id="org:c.com") == []
     snap = store.snapshot("company", "org:c.com")
     assert snap["fields"]["phone"]["value"] == "+966502222222"
@@ -163,8 +163,8 @@ def test_reobservation_after_expiry_revives_the_fact(store):
 
 
 def test_resolved_loser_value_reobserved_reopens_conflict(store):
-    a = store.record_fact("company", "org:c.com", "employee_count", "50",
-                          source_url="https://a.com", provider="tavily")
+    store.record_fact("company", "org:c.com", "employee_count", "50",
+                      source_url="https://a.com", provider="tavily")
     b = store.record_fact("company", "org:c.com", "employee_count", "120",
                           source_url="https://b.com", provider="brave")
     conflict = store.conflicts(subject_id="org:c.com")[0]
@@ -426,10 +426,10 @@ def test_email_identity_is_case_insensitive(store):
 
 
 def test_three_way_conflict_partial_resolution_consistent(store):
-    a = store.record_fact("company", "org:c.com", "phone", "1",
-                          source_url="https://a.com", provider="tavily")
-    b = store.record_fact("company", "org:c.com", "phone", "2",
-                          source_url="https://b.com", provider="brave")
+    store.record_fact("company", "org:c.com", "phone", "1",
+                      source_url="https://a.com", provider="tavily")
+    store.record_fact("company", "org:c.com", "phone", "2",
+                      source_url="https://b.com", provider="brave")
     c = store.record_fact("company", "org:c.com", "phone", "3",
                           source_url="https://c.com", provider="exa")
     conflicts = sorted(store.conflicts(subject_id="org:c.com"),
