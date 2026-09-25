@@ -72,6 +72,10 @@ CREATE TABLE IF NOT EXISTS jobs (
   state TEXT NOT NULL,
   pause_reason TEXT,
   resume_at TEXT,
+  worker_id TEXT,
+  lease_expires_at TEXT,
+  attempts INTEGER DEFAULT 0,
+  max_attempts INTEGER DEFAULT 3,
   params TEXT,
   result TEXT,
   created_at TEXT,
@@ -377,6 +381,7 @@ class Database:
         self._migrate_agent_version_columns()
         self._migrate_lead_disposition_columns()
         self._migrate_research_context_columns()
+        self._migrate_job_lease_columns()
         self._migrate_org_columns()
         self.conn.commit()
 
@@ -431,6 +436,20 @@ class Database:
         existing = {row["name"] for row in self.conn.execute("PRAGMA table_info(research_context)")}
         if existing and "run_id" not in existing:
             self.conn.execute("ALTER TABLE research_context ADD COLUMN run_id TEXT")
+
+    def _migrate_job_lease_columns(self):
+        """Queue-lease columns (queue.py drives these on Postgres): a jobs
+        table from an older SQLite schema lacks them, and the worker CLI then
+        dies on `no such column: worker_id` at first lease."""
+        existing = {row["name"] for row in self.conn.execute("PRAGMA table_info(jobs)")}
+        for name, definition in (
+            ("worker_id", "TEXT"),
+            ("lease_expires_at", "TEXT"),
+            ("attempts", "INTEGER DEFAULT 0"),
+            ("max_attempts", "INTEGER DEFAULT 3"),
+        ):
+            if name not in existing:
+                self.conn.execute(f"ALTER TABLE jobs ADD COLUMN {name} {definition}")
 
     def _migrate_org_columns(self):
         """Add organization_id to the org-scoped tables when a database was

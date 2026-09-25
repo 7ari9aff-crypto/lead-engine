@@ -21,13 +21,18 @@ Adapter conventions — documented and covered by integration tests:
 """
 import decimal
 import json
+import logging
+import os
 import re
+import threading
 from datetime import date, datetime, timezone
 
 import psycopg
 from psycopg.rows import dict_row
 
 from .db import utcnow
+
+log = logging.getLogger(__name__)
 
 # Tables whose INSERTs must carry organization_id.
 ORG_TABLES = {"jobs", "leads", "usage_ledger", "agent_runs", "approvals",
@@ -82,7 +87,6 @@ def _inject_org(sql: str, params: list, org_id: str | None) -> tuple[str, list]:
         return sql, params
 
     def _add(match: re.Match) -> str:
-        table = match.group(2)
         columns = match.group(3)
         values = match.group(4)
         if "organization_id" in columns.lower():
@@ -146,6 +150,111 @@ class _CursorProxy:
         return getattr(self._cur, name)
 
 
+class _ConnProxy:
+    """Transparent forwarder around the psycopg connection.
+
+    `close()` is the reason this exists: call sites across the codebase close
+    the raw connection directly (`db.conn.close()`) as well as via `db.close()`.
+    With a pool, a real close() would leak one leased pool slot per call until
+    the pool exhausts, so the proxy turns close() into _release_conn — every
+    existing call site becomes pool-correct without modification. Any use of
+    the proxy after close raises AttributeError, mirroring the old behavior of
+    using a closed connection.
+    """
+
+    __slots__ = ("_conn", "_on_close")
+
+    def __init__(self, conn, on_close):
+        self._conn = conn
+        self._on_close = on_close
+
+    def close(self):
+        if self._conn is None:
+            return
+        conn, self._conn = self._conn, None
+        self._on_close(conn)
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
+_POOL_LOCK = threading.Lock()
+_POOLS: dict[str, object] = {}
+_POOL_DISABLED = "__off__"
+
+
+def _pool_max() -> int:
+    try:
+        return max(1, int(os.environ.get("LEAD_ENGINE_DB_POOL_MAX", "5")))
+    except ValueError:
+        return 5
+
+
+def _get_pool(dsn: str, conn_kwargs: dict):
+    """Return the process-wide pool for this DSN, or None when pooling is off.
+
+    Pooling exists because a connection handshake to this database was measured
+    at 1.13 s while a statement costs only ~0.2-0.4 s on a warm connection:
+    connecting per request put a ~0.9 s floor under every endpoint regardless of
+    how few queries it ran (gap register LAT-02).
+
+    LEAD_ENGINE_DB_POOL=0 disables it and restores the previous per-request
+    connect, which is the supported escape hatch for a transaction-mode pooler
+    or a runtime without psycopg_pool installed.
+
+    A pool is per process, so on serverless each warm instance holds its own;
+    max_size must therefore stay small enough that instances x max_size does not
+    exhaust the database's connection budget.
+    """
+    if os.environ.get("LEAD_ENGINE_DB_POOL", "1") == "0":
+        return None
+    existing = _POOLS.get(dsn)
+    if existing is not None:
+        return None if existing is _POOL_DISABLED else existing
+    with _POOL_LOCK:
+        existing = _POOLS.get(dsn)
+        if existing is not None:
+            return None if existing is _POOL_DISABLED else existing
+        try:
+            from psycopg_pool import ConnectionPool
+        except ImportError:
+            # psycopg is installed as [binary]; [binary,pool] is the deployment
+            # requirement. Running without the pool extra is a slower but valid
+            # fallback, so record the decision once rather than retrying per
+            # request and log it loudly enough to be noticed.
+            log.warning("psycopg_pool not installed: connecting per request "
+                        "(~1.1s added to every DB call)")
+            _POOLS[dsn] = _POOL_DISABLED
+            return None
+        pool = ConnectionPool(
+            conninfo=dsn,
+            kwargs=conn_kwargs,
+            min_size=1,
+            max_size=_pool_max(),
+            # Thawed serverless instances keep sockets the server may have
+            # dropped; validating on checkout discards those instead of
+            # surfacing a broken-connection error to a user request.
+            check=ConnectionPool.check_connection,
+            name=f"lead-engine-{abs(hash(dsn))}",
+            timeout=10.0,
+            max_idle=60.0,
+        )
+        _POOLS[dsn] = pool
+        return pool
+
+
+def reset_pools() -> None:
+    """Close and forget every pool. Used by tests and by graceful shutdown."""
+    with _POOL_LOCK:
+        for dsn, pool in list(_POOLS.items()):
+            if pool is not _POOL_DISABLED:
+                try:
+                    pool.close()
+                except Exception:
+                    pass
+            _POOLS.pop(dsn, None)
+
+
 class PgDatabase:
     """Postgres implementation of the engine Database interface."""
 
@@ -173,14 +282,23 @@ class PgDatabase:
         # MUST resolve to the `engine` schema, never to public.* (which holds
         # the legacy sync tables with different columns). Transaction-pooler
         # compatibility: prepared statements disabled.
-        self.conn = psycopg.connect(
-            dsn, row_factory=dict_row, autocommit=False,
+        self._conn_kwargs = dict(
+            row_factory=dict_row, autocommit=False,
             options="-c search_path=engine", prepare_threshold=None,
         )
+        self._pool = _get_pool(dsn, self._conn_kwargs)
+        # With a pool the socket and TLS session are reused across requests;
+        # without one every request pays a fresh handshake, measured at 1.13 s
+        # against this database, which alone floored every endpoint at ~0.9 s.
+        raw = (self._pool.getconn() if self._pool is not None
+               else psycopg.connect(dsn, **self._conn_kwargs))
+        self.conn = _ConnProxy(raw, self._release_conn)
         # Database-layer tenant isolation (RLS): the org GUC is bound
         # per-statement (see _bind_org) - a session-scoped set_config is not
         # reliable under transaction-mode poolers, where a session can hop
-        # physical connections between transactions.
+        # physical connections between transactions. Per-statement binding is
+        # also what makes sharing pooled connections safe: no request can
+        # inherit another tenant's GUC because none is ever session-scoped.
         self.dsn = dsn
         _audit_db_role(dsn)
 
@@ -300,5 +418,23 @@ class PgDatabase:
         return self.query("SELECT * FROM evidence WHERE lead_id = ?", (lead_id,))
 
     # -- misc -----------------------------------------------------------
+    def _release_conn(self, conn) -> None:
+        """Return a connection to the pool (or close it when pooling is off).
+
+        rollback first so the connection leaves this request in IDLE state:
+        psycopg_pool does roll back returned INTRANS/INERROR connections, but
+        it does so with a per-return WARNING log — an explicit rollback keeps
+        pool logs clean and makes the transaction boundary visible here.
+        """
+        try:
+            if not conn.closed:
+                conn.rollback()
+        except Exception:
+            pass
+        if self._pool is not None:
+            self._pool.putconn(conn)
+        else:
+            conn.close()
+
     def close(self):
         self.conn.close()

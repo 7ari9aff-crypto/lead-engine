@@ -6,7 +6,9 @@ dnspython~=2.7.0
 # starlette>=1.3.1 floor required by pip-audit (CVE fixes).
 fastapi~=0.141.1
 uvicorn~=0.34.0
-psycopg[binary]~=3.2.4
+# [pool] adds psycopg_pool, required for connection pooling in db_pg.py;
+# without it the app still runs but pays a per-request connect handshake.
+psycopg[binary,pool]~=3.2.4
 pyjwt~=2.13
 cryptography~=50.0
 loguru~=0.7.3

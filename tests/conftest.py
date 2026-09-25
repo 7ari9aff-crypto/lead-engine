@@ -16,3 +16,20 @@ for _key in ("TAVILY_API_KEY", "BRAVE_SEARCH_API_KEY", "EXA_API_KEY",
              "SUPABASE_DB_URL", "DATABASE_URL",
              "LEAD_ENGINE_ADMIN_PASSWORD", "LEAD_ENGINE_ORG_ID"):
     os.environ[_key] = ""
+
+
+def seed_control_plane(db) -> None:
+    """Seed the agent control plane (agents/tools/connections/providers) into a
+    fixture database.
+
+    Seeding used to be a side effect of `AgentRegistry(db)`, which every request
+    constructed; it now lives in the startup/`init` bootstrap (gap register
+    LAT-01(a)), so tests that exercise agent-backed behaviour must ask for it
+    explicitly. `bootstrap.run_once` is process-scoped, hence the reset: each
+    fixture database gets seeded on its own terms regardless of test order.
+    """
+    from lead_engine.agent_registry import ensure_seeded
+    from lead_engine.bootstrap import reset
+
+    reset()
+    ensure_seeded(db)

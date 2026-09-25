@@ -13,6 +13,33 @@ import os
 import sys
 
 
+def _bootstrap_control_plane(db=None) -> None:
+    """Run the startup data steps, optionally on an already-open handle.
+
+    `worker`, `benchmark`, `resume` and `verify-email` all read the provider
+    registry and the agent/tool tables. They only ever worked on a fresh
+    database because `Router.__init__` seeded providers as a side effect - and
+    that side effect never covered agents/tools, so an operator who started the
+    worker before `init` got silent empties. Same `run_once`-guarded,
+    never-fatal steps the API lifespan runs; `init` stays the authoritative
+    retry path.
+    """
+    from .bootstrap import run_data_bootstrap
+    from .db import open_db
+
+    owns = db is None
+    if owns:
+        db = open_db()
+    try:
+        run_data_bootstrap(db)
+    except Exception as exc:  # pragma: no cover - defensive: boot regardless
+        print(f"warning: startup bootstrap failed ({type(exc).__name__}: {exc})"
+              f" - run `python -m lead_engine init`")
+    finally:
+        if owns:
+            db.close()
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="lead_engine", description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -44,7 +71,7 @@ def main(argv=None):
 
     args = parser.parse_args(argv)
 
-    from .config import DATA_DIR, DB_PATH, load_env, load_settings
+    from .config import DATA_DIR, load_env, load_settings
     from .db import open_db
 
     load_env()
@@ -56,6 +83,18 @@ def main(argv=None):
         from .registry import Registry
 
         Registry(db).seed_if_empty()
+        # Authoritative schema+seed path: the request path never does this work.
+        from .activity.store import ensure_schema as _ensure_activity_schema
+        try:
+            _ensure_activity_schema(db)
+        except Exception as exc:
+            # Postgres: migrations own DDL and the app role has no CREATE
+            # privilege on `engine`, so this statement can never succeed there
+            # - the table arrives via a migration. Not fatal: seeding follows.
+            print(f"note: activity schema skipped "
+                  f"({type(exc).__name__}: {exc})")
+        from .agent_registry import ensure_seeded as _seed_agents
+        _seed_agents(db)
         print(f"database ready ({getattr(db, 'dialect', 'sqlite')} backend)")
         return 0
 
@@ -75,6 +114,8 @@ def main(argv=None):
     if args.cmd == "benchmark":
         from .benchmark.run import run_benchmark
 
+        # run_benchmark opens its own handle, so seed on a throwaway one.
+        _bootstrap_control_plane()
         summary, metrics, outputs = run_benchmark(
             args.icp, seed_csv=args.seed, write=not args.no_report)
         print(json.dumps(metrics, ensure_ascii=False, indent=2))
@@ -90,6 +131,7 @@ def main(argv=None):
         from .providers.email import VerificationPipeline
         from .router import Router
 
+        _bootstrap_control_plane(db)
         router = Router(db, CacheLayer(db, load_cache_policy()), settings)
         result = VerificationPipeline(router).verify(args.email)
         print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -100,6 +142,7 @@ def main(argv=None):
         from .jobs import JobManager
         from .pipeline.orchestrator import PipelineOrchestrator
 
+        _bootstrap_control_plane(db)
         jobs = JobManager(db)
         jobs.resume(args.job)
         row = db.one("SELECT icp_id FROM jobs WHERE job_id=?", (args.job,))
@@ -115,73 +158,30 @@ def main(argv=None):
         import socket
         import time as _time
 
-        from . import queue
-        from .benchmark.run import run_benchmark
-        from .events import dispatch_pending
+        from .config import load_settings
+        from .worker import run_worker_tick
 
         worker_id = f"worker-{socket.gethostname()}-{os.getpid()}"
+        # A worker started before `init` used to lease jobs against an empty
+        # control plane and produce silent nothing. Startup now seeds here too.
+        _bootstrap_control_plane()
         print(f"worker {worker_id} polling every {args.poll}s")
         while True:
             # fresh connection per iteration: poolers/servers drop long-held
             # sessions and a job run takes minutes between queue operations
             db = open_db()
-            queue.reclaim_expired(db)
-            job = queue.lease_next(db, worker_id)
-            if not job:
+            result = run_worker_tick(db, worker_id, settings=load_settings())
+            if not result["leased"]:
                 if args.once:
                     print("queue empty")
                     return 0
                 _time.sleep(args.poll)
                 continue
-            job_id, icp_id = job["job_id"], job["icp_id"]
-            print(f"leased {job_id} (icp={icp_id}, attempt={job['attempts']})")
-            try:
-                from .research import ResearchJobManager
-
-                if ResearchJobManager(db).is_research(job_id):
-                    # agentic research path — resumable, budgeted, human gate
-                    from .research.orchestrator import ResearchOrchestrator
-
-                    summary = ResearchOrchestrator(db, settings, job_id).run()
-                    state = summary.get("state") or "READY_FOR_REVIEW"
-                    if state == "PAUSED":
-                        queue.fail(db, job_id, summary.get("pause_reason") or "paused")
-                    else:
-                        # READY_FOR_REVIEW / WAITING_FOR_USER / CANCELLED:
-                        # the state belongs to the human gate now, not the queue
-                        queue.release(db, job_id)
-                    print(f"{job_id} -> {state} ({summary.get('stop_reason')})")
-                    if args.once:
-                        return 0
-                    continue
-                from .config import load_icp
-
-                summary, _metrics, _outputs = run_benchmark(
-                    load_icp(icp_id), job_id=job_id)
-                state = summary.get("state") or "COMPLETED"
-                if state == "PAUSED":
-                    queue.fail(db, job_id, summary.get("pause_reason") or "paused")
-                else:
-                    queue.complete(db, job_id)
-                print(f"{job_id} -> {state}")
-                # Flush outbox: send webhooks/notifications without a
-                # separate event-worker process (serverless-safe).
-                try:
-                    dispatch_pending(db)
-                except Exception:
-                    pass
-            except Exception as exc:
-                state = queue.fail(db, job_id, f"{type(exc).__name__}: {exc}")
-                print(f"{job_id} failed -> {state}: {exc}")
-                try:
-                    from .events import emit
-
-                    emit(db, os.environ.get("LEAD_ENGINE_ORG_ID"), "job.failed",
-                         "job", job_id, {"job_id": job_id,
-                                         "error": f"{type(exc).__name__}: {exc}"})
-                    dispatch_pending(db)
-                except Exception:
-                    pass
+            if result["error"]:
+                print(f"{result['job_id']} failed -> "
+                      f"{result['state']}: {result['error']}")
+            else:
+                print(f"{result['job_id']} -> {result['state']}")
             if args.once:
                 return 0
 

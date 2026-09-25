@@ -33,3 +33,6 @@ vercel_deploy.log
 # tracked file instead of being duplicated in source and per-mode env files.
 !web/.env
 *.bootstrap
+
+# pytest coverage artifact
+.coverage
