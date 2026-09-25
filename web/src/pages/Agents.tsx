@@ -16,6 +16,8 @@ import { friendlyError, ACTION_LABELS, describePayload, toolLabel } from "@/lib/
 import { cn, formatNumber, relativeTime } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Spinner, EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { StaleBanner, NOT_AVAILABLE } from "@/components/ui/StaleBanner";
 
 type Agent = { slug: string; name: string; description: string; status: string; current_version: string };
 type AgentRun = { run_id: string; slug: string; name: string; version: string; status: string; cost_usd?: number; prompt_tokens?: number; completion_tokens?: number; created_at?: string; updated_at?: string; error?: string | null };
@@ -28,6 +30,11 @@ export function AgentsPage() {
   const [tools, setTools] = useState<Tool[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<unknown>(null);
+  // `loaded` means "what is on screen came from a real response". A later
+  // failure keeps the stale rows visible behind a warning banner instead of
+  // blanking them; a first failure has nothing to show, so it blocks.
+  const [loaded, setLoaded] = useState(false);
   const [running, setRunning] = useState(false);
   const [busyApproval, setBusyApproval] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -42,7 +49,10 @@ export function AgentsPage() {
       setRuns(runData.runs);
       setTools(toolData.tools);
       setApprovals(approvalData.approvals);
+      setLoaded(true);
+      setError(null);
     } catch (error: unknown) {
+      setError(error);
       toast.error(friendlyError(error));
     } finally {
       setLoading(false);
@@ -115,6 +125,18 @@ export function AgentsPage() {
         }
       />
 
+      {error && !loaded ? (
+        <ErrorState
+          error={error}
+          onRetry={() => void load()}
+          subject="الوكلاء والتشغيلات وطلبات الموافقة"
+        />
+      ) : (
+        <>
+      {error && loaded && (
+        <StaleBanner error={error} subject="بيانات الوكلاء" onRetry={() => void load()} />
+      )}
+
       {/* Pending approvals — the most important block, first */}
       <Card className={cn(approvals.length > 0 && "border-[var(--warn)]/50")}>
         <div className="p-5">
@@ -123,12 +145,14 @@ export function AgentsPage() {
             <h2 className="text-sm font-bold">طلبات الموافقة</h2>
             {approvals.length > 0 && <Badge variant="warn" className="text-[10px] tnum">{approvals.length} معلقة</Badge>}
           </div>
-          {approvals.length === 0 ? (
+          {approvals.length === 0 && loaded ? (
             <div className="text-center py-6">
               <CheckCircle2 className="h-8 w-8 text-[var(--success)] mx-auto mb-3 opacity-70" />
               <p className="text-sm text-[var(--fg-muted)]">مفيش موافقات مستنية — التشغيلات العادية ماشية تلقائي</p>
               <p className="text-[11px] text-[var(--fg-soft)] mt-1">لما يطلب المساعد الذكي تشغيل حي من الشات، هتلاقي الطلب هنا</p>
             </div>
+          ) : approvals.length === 0 ? (
+            <div className="flex justify-center py-8"><Spinner className="h-5 w-5 text-[var(--accent)]" /></div>
           ) : (
             <div className="space-y-2">
               {approvals.map((a) => (
@@ -174,12 +198,13 @@ export function AgentsPage() {
         </div>
       </Card>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-        <Metric icon={Bot} label="وكلاء مسجلون" value={agents.length} detail="بتعريفات وإصدارات" />
-        <Metric icon={History} label="التشغيلات" value={runs.length} detail="آخر 50" />
-        <Metric icon={Wrench} label="أدوات مكشوفة" value={tools.length} detail="بصلاحيات محددة" />
-        <Metric icon={Coins} label="التوكنز المستهلكة" value={totalTokens} detail="تشغيلات الوكلاء" />
+      {/* aria-live: the tiles flip from pending to real counts on first load;
+          assistive tech must hear that flip, not just see it (register A11Y-01) */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3" aria-live="polite">
+        <Metric icon={Bot} label="وكلاء مسجلون" value={loaded ? agents.length : NOT_AVAILABLE} detail="بتعريفات وإصدارات" />
+        <Metric icon={History} label="التشغيلات" value={loaded ? runs.length : NOT_AVAILABLE} detail="آخر 50" />
+        <Metric icon={Wrench} label="أدوات مكشوفة" value={loaded ? tools.length : NOT_AVAILABLE} detail="بصلاحيات محددة" />
+        <Metric icon={Coins} label="التوكنز المستهلكة" value={loaded ? totalTokens : NOT_AVAILABLE} detail="تشغيلات الوكلاء" />
       </div>
 
       {/* Agents + runs */}
@@ -189,7 +214,9 @@ export function AgentsPage() {
             <Bot className="h-4 w-4 text-[var(--accent)]" />
             <h2 className="text-sm font-bold">الوكلاء والإصدارات</h2>
           </div>
-          {agents.length === 0 ? (
+          {loading && !loaded ? (
+            <div className="flex justify-center py-14"><Spinner className="h-6 w-6 text-[var(--accent)]" /></div>
+          ) : agents.length === 0 ? (
             <EmptyState icon={<Bot className="h-8 w-8" />} title="لا وكلاء مسجلين" description="هتلاقي الوكيل الافتراضي بعد أول تشغيل" />
           ) : (
             <div className="space-y-2.5">
@@ -281,18 +308,22 @@ export function AgentsPage() {
         scopes={allScopes}
         onCreated={() => { load(); }}
       />
+        </>
+      )}
     </div>
   );
 }
 
-function Metric({ icon: Icon, label, value, detail }: { icon: typeof Bot; label: string; value: number; detail: string }) {
+function Metric({ icon: Icon, label, value, detail }: { icon: typeof Bot; label: string; value: number | string; detail: string }) {
   return (
     <Card className="p-4">
       <div className="flex items-center justify-between mb-2.5">
         <span className="text-xs text-[var(--fg-muted)]">{label}</span>
         <Icon className="h-4 w-4 text-[var(--accent)]" />
       </div>
-      <div className="text-xl font-bold tnum">{formatNumber(value)}</div>
+      <div className="text-xl font-bold tnum">
+        {typeof value === "number" ? formatNumber(value) : value}
+      </div>
       <div className="text-[11px] text-[var(--fg-soft)] mt-1">{detail}</div>
     </Card>
   );
@@ -548,3 +579,5 @@ function CreateAgentDialog({
     </Dialog>
   );
 }
+
+export default AgentsPage;

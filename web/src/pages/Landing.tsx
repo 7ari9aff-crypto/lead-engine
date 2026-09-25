@@ -5,12 +5,14 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// Real numbers from the first live V0 run on Supabase — no invented stats.
+// Capability truths only — no invented result counts. The hero claims real
+// data, so every number here must be true by construction (registry size,
+// verification states, billing rules), not a snapshot of a past run.
 const LIVE_STATS = [
-  { value: "٨٤", label: "عميل محتمل في أول تشغيل حقيقي" },
-  { value: "٣٢", label: "عميل مؤهل ومقبول تلقائيًا" },
-  { value: "١٨", label: "مزوّد بيانات متصل" },
+  { value: "١٩", label: "مزوّد بيانات جاهز للربط" },
   { value: "٥", label: "حالات فحص لكل إيميل" },
+  { value: "٠", label: "تكلفة على الاستدعاءات الفاشلة أو المكررة" },
+  { value: "١٠٠٪", label: "من الاستدعاءات مسجّلة بالتوكنز" },
 ];
 
 const FEATURES = [
@@ -108,7 +110,7 @@ export function LandingPage() {
         <div className="max-w-6xl mx-auto px-5 pt-16 pb-10 md:pt-24 text-center relative">
           <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full border border-[var(--accent)]/40 bg-[var(--accent-soft)] text-[var(--accent)] text-[11px] font-semibold mb-5">
             <span className="h-1.5 w-1.5 rounded-full bg-[var(--success)] animate-pulse" />
-            محرك استقطاب عالمي دقيق — بأرقام ونتائج حقيقية
+            محرك استقطاب عالمي دقيق — بأرقام حقيقية ومصادر موثقة
           </span>
           <h1 className="text-4xl md:text-6xl font-black leading-[1.15] max-w-3xl mx-auto">
             محرك توليد عملاء محتملين

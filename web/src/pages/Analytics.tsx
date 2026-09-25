@@ -19,6 +19,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { StatCard, FilterPills } from "@/components/ui/FilterPills";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { StaleBanner } from "@/components/ui/StaleBanner";
 import { apiGet, type StatusResponse } from "@/lib/api";
 import { useInstantQuery } from "@/hooks/useInstantQuery";
 import { formatNumber } from "@/lib/utils";
@@ -43,12 +45,18 @@ const axisTick = { fontSize: 11 } as const;
 export function AnalyticsPage() {
   const [period, setPeriod] = useState("30");
 
-  const { data: status, isLoading: statusLoading } = useInstantQuery<StatusResponse>(
+  const { data: status, isLoading: statusLoading, error: statusError, refetch: refetchStatus } =
+    useInstantQuery<StatusResponse>(
     ["status"],
     () => apiGet.status(),
     { staleTime: 5_000, refetchInterval: 30_000 }
   );
-  const { data: analytics, isLoading: analyticsLoading } = useInstantQuery(
+  const {
+    data: analytics,
+    isLoading: analyticsLoading,
+    error: analyticsError,
+    refetch: refetchAnalytics,
+  } = useInstantQuery(
     ["analytics"],
     () => apiGet.analytics(),
     { staleTime: 60_000, refetchInterval: 60_000 }
@@ -114,6 +122,20 @@ export function AnalyticsPage() {
     return <PageSkeleton />;
   }
 
+  // Every chart and every aggregate on this page derives from `analytics`.
+  // If it never loaded, "لا بيانات في هذا النطاق بعد" is a lie and the KPI row
+  // reads 0 — so this is a failure, not an empty window.
+  if (analyticsError && !analytics) {
+    return (
+      <ErrorState
+        error={analyticsError}
+        onRetry={() => void refetchAnalytics()}
+        subject="الاتجاهات الزمنية"
+        className="m-4"
+      />
+    );
+  }
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -122,6 +144,14 @@ export function AnalyticsPage() {
         description="اتجاهات زمنية للعملاء والحملات واستهلاك المزودين — من نفس مصدر أرقام مركز القيادة"
         action={<FilterPills value={period} onChange={setPeriod} options={PERIODS} />}
       />
+
+      {statusError && !status && (
+        <StaleBanner
+          error={statusError}
+          subject="بطاقات اللقطة الحية"
+          onRetry={() => void refetchStatus()}
+        />
+      )}
 
       {/* KPI row — window-scoped aggregates */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">

@@ -13,6 +13,8 @@ import { toast } from "sonner";
 import { friendlyError } from "@/lib/friendly";
 import { cn, formatNumber } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { StaleBanner } from "@/components/ui/StaleBanner";
 
 const BACKEND_BASE = (import.meta.env.VITE_BACKEND_URL || window.location.origin).replace(/\/$/, "");
 const MCP_URL = `${BACKEND_BASE}/mcp`;
@@ -26,7 +28,7 @@ const MCP_TOOLS = [
 ];
 
 export function IntegrationsPage() {
-  const { data, loading, refresh } = useLiveData(() => apiGet.status(), 10000);
+  const { data, loading, error: statusError, refresh } = useLiveData(() => apiGet.status(), 10000);
   const [testing, setTesting] = useState(false);
   const [mcpOnline, setMcpOnline] = useState<boolean | null>(null);
 
@@ -36,6 +38,15 @@ export function IntegrationsPage() {
   const entitlements = useLiveData(() => apiGet.entitlements(), 15000);
   const [newEntry, setNewEntry] = useState({ channel: "email", value: "", reason: "manual" });
   const calls = (data?.usage_totals ?? []).reduce((sum, r) => sum + (r.units || 0), 0);
+  // The MCP card and the suppression form are real without any fetch, so this
+  // page never blocks: each failing source reports inside its own section.
+  const anyError = statusError || integrations.error || suppression.error || entitlements.error;
+  const refreshAll = () => {
+    void refresh();
+    integrations.refresh();
+    suppression.refresh();
+    entitlements.refresh();
+  };
 
   async function copy(text: string, label: string) {
     await navigator.clipboard.writeText(text);
@@ -107,6 +118,10 @@ export function IntegrationsPage() {
           </Button>
         }
       />
+
+      {anyError && (
+        <StaleBanner error={anyError} subject="بعض بيانات التكاملات" onRetry={refreshAll} />
+      )}
 
       {/* ===== MCP server — the hero integration ===== */}
       <Card className="overflow-hidden">
@@ -194,6 +209,13 @@ export function IntegrationsPage() {
             <RefreshCw className={cn("h-3.5 w-3.5", integrations.loading && "animate-spin")} />
           </Button>
         </div>
+        {integrations.error && !integrations.data ? (
+          <ErrorState
+            error={integrations.error}
+            onRetry={() => integrations.refresh()}
+            subject="اتصالات المنصات"
+          />
+        ) : (
         <div className="grid md:grid-cols-2 gap-3">
           {(integrations.data?.integrations ?? []).map((row) => (
             <div key={row.provider} className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] p-3.5">
@@ -223,6 +245,7 @@ export function IntegrationsPage() {
             </div>
           ))}
         </div>
+        )}
       </Card>
 
       {/* ===== Suppression list ===== */}
@@ -267,7 +290,13 @@ export function IntegrationsPage() {
             إضافة
           </Button>
         </div>
-        {(suppression.data?.entries ?? []).length === 0 ? (
+        {suppression.error && !suppression.data ? (
+          <ErrorState
+            error={suppression.error}
+            onRetry={() => suppression.refresh()}
+            subject="قائمة الحجب"
+          />
+        ) : (suppression.data?.entries ?? []).length === 0 ? (
           <div className="text-center py-5 text-xs text-[var(--fg-muted)]">القائمة فاضية — أضِف من النموذج أعلاه أو تلقائيًا من نتائج فحص الإيميل</div>
         ) : (
           <div className="rounded-xl border border-[var(--border)] divide-y divide-[var(--border-soft)] overflow-hidden">
@@ -332,7 +361,7 @@ export function IntegrationsPage() {
 
       {/* Usage line */}
       <div className="text-center text-[11px] text-[var(--fg-soft)]">
-        إجمالي الوحدات المستهلكة عبر كل التكاملات حتى الآن: <span className="tnum font-semibold text-[var(--fg-muted)]">{formatNumber(calls)}</span>
+        إجمالي الوحدات المستهلكة عبر كل التكاملات حتى الآن: <span className="tnum font-semibold text-[var(--fg-muted)]">{statusError && !data ? "غير متاح" : formatNumber(calls)}</span>
       </div>
     </div>
   );

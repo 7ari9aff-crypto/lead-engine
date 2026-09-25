@@ -37,7 +37,8 @@ import { useLiveData } from "@/hooks/useLiveData";
 import { useWindowVirtualRows } from "@/hooks/useWindowVirtualRows";
 import { apiGet, apiPost, apiPitch, type LeadRow, type PitchData } from "@/lib/api";
 import { downloadFile, formatNumber, truncate, cn } from "@/lib/utils";
-import { friendlyError, ICP_LABELS } from "@/lib/friendly";
+import { ICP_LABELS } from "@/lib/friendly";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { Spinner, EmptyState } from "@/components/ui/EmptyState";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatCard } from "@/components/ui/FilterPills";
@@ -551,16 +552,10 @@ export function LeadsPage() {
               <Spinner className="h-6 w-6 text-[var(--accent)]" />
             </div>
           ) : error && !data ? (
-            <EmptyState
-              icon={<XCircle className="h-8 w-8 text-[var(--danger)]" />}
-              title="تعذر تحميل العملاء المحتملين"
-              description={friendlyError(error)}
-              action={
-                <Button variant="outline" size="sm" onClick={() => void refresh()}>
-                  <Search className="h-3.5 w-3.5" />
-                  إعادة المحاولة
-                </Button>
-              }
+            <ErrorState
+              error={error}
+              onRetry={() => void refresh()}
+              subject="العملاء المحتملين"
               className="m-4"
             />
           ) : filtered.length === 0 ? (

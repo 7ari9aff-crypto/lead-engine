@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { Zap, Github, Twitter, Linkedin, Heart, ExternalLink } from "lucide-react";
+import { Zap, Github, Heart, ExternalLink } from "lucide-react";
 
 export function Footer() {
   return (
@@ -34,9 +34,15 @@ export function Footer() {
         </div>
 
         <div className="flex items-center gap-3">
-          <a href="#" className="hover:text-[var(--fg-muted)]" aria-label="GitHub"><Github className="h-3.5 w-3.5" /></a>
-          <a href="#" className="hover:text-[var(--fg-muted)]" aria-label="Twitter"><Twitter className="h-3.5 w-3.5" /></a>
-          <a href="#" className="hover:text-[var(--fg-muted)]" aria-label="LinkedIn"><Linkedin className="h-3.5 w-3.5" /></a>
+          <a
+            href="https://github.com/7ari9aff-crypto/lead-engine"
+            target="_blank"
+            rel="noopener"
+            className="hover:text-[var(--fg-muted)]"
+            aria-label="GitHub"
+          >
+            <Github className="h-3.5 w-3.5" />
+          </a>
           <span className="hidden sm:flex items-center gap-1">
             صنع بـ <Heart className="h-3 w-3 text-[var(--danger)] fill-current" /> لرواد الأعمال وفرق النمو
           </span>

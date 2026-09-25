@@ -12,6 +12,8 @@ import { formatNumber, relativeTime } from "@/lib/utils";
 import { friendlyError, ICP_LABELS } from "@/lib/friendly";
 import { toast } from "sonner";
 import { PageSkeleton } from "@/components/ui/Skeleton";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { StaleBanner } from "@/components/ui/StaleBanner";
 import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { cn } from "@/lib/utils";
 
@@ -55,20 +57,7 @@ export function OverviewPage() {
   if (isLoading && !data) return <PageSkeleton />;
 
   if (statusError && !data) {
-    return (
-      <div className="rounded-xl border border-[var(--danger)]/30 bg-[var(--danger)]/5 p-6" role="alert">
-        <div className="flex items-start gap-3">
-          <AlertTriangle className="h-5 w-5 text-[var(--danger)] mt-0.5 shrink-0" />
-          <div>
-            <h1 className="font-bold">تعذر تحميل الملخص</h1>
-            <p className="text-sm text-[var(--fg-muted)] mt-1">{friendlyError(statusError)}</p>
-            <Button variant="outline" size="sm" className="mt-4" onClick={() => void refetch()}>
-              إعادة المحاولة
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
+    return <ErrorState error={statusError} onRetry={() => void refetch()} subject="الملخص" />;
   }
 
   const providers: ProviderRow[] = data?.providers ?? [];
@@ -112,15 +101,11 @@ export function OverviewPage() {
   return (
     <div className="space-y-6">
       {(statusError || analyticsError || integrationsError) && (
-        <div className="flex items-start gap-2.5 rounded-xl border border-[var(--warn)]/30 bg-[var(--warn)]/5 px-4 py-3 text-[12px] text-[var(--fg-muted)]" role="status">
-          <AlertTriangle className="h-4 w-4 text-[var(--warn)] mt-0.5 shrink-0" />
-          <span>
-            بعض بيانات الملخص لم تُحدّث: {friendlyError(statusError || analyticsError || integrationsError)}
-            <button type="button" onClick={() => void refetch()} className="ms-2 font-semibold text-[var(--accent)] hover:underline">
-              إعادة المحاولة
-            </button>
-          </span>
-        </div>
+        <StaleBanner
+          error={statusError || analyticsError || integrationsError}
+          subject="بعض بيانات الملخص"
+          onRetry={() => void refetch()}
+        />
       )}
       {/* Header: workspace identity + primary action */}
       <div className="flex items-start justify-between flex-wrap gap-3">

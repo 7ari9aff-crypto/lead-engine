@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { formatDate, relativeTime, cn } from "@/lib/utils";
 import { friendlyError, ICP_LABELS } from "@/lib/friendly";
 import { Spinner, EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { PageHeader } from "@/components/layout/PageHeader";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -226,19 +227,7 @@ export function JobsPage() {
           <Spinner className="h-6 w-6 text-[var(--accent)]" />
         </div>
       ) : error && !data ? (
-        <Card className="p-6" role="alert">
-          <EmptyState
-            icon={<XCircle className="h-8 w-8 text-[var(--danger)]" />}
-            title="تعذر تحميل المهام"
-            description={friendlyError(error)}
-            action={
-              <Button variant="outline" size="sm" onClick={() => void refresh()}>
-                <RotateCcw className="h-3.5 w-3.5" />
-                إعادة المحاولة
-              </Button>
-            }
-          />
-        </Card>
+        <ErrorState error={error} onRetry={() => void refresh()} subject="المهام" />
       ) : filtered.length === 0 ? (
         <Card>
           <EmptyState

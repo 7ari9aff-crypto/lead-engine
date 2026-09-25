@@ -22,6 +22,8 @@ import { Loader2 } from "lucide-react";
 import { friendlyError } from "@/lib/friendly";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Spinner } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { StaleBanner } from "@/components/ui/StaleBanner";
 import { StatCard } from "@/components/ui/FilterPills";
 import { toast } from "sonner";
 
@@ -33,11 +35,11 @@ type ServiceRow = {
 export function CommandCenterPage() {
   // Instant by construction: first paint from the last known-good payload,
   // then the shared SSE bridge pushes every change (no 5s polling).
-  const { data: status, isLoading, refetch } = useInstantQuery<StatusResponse>(
+  const { data: status, isLoading, error: statusError, refetch } = useInstantQuery<StatusResponse>(
     ["status"], () => apiGet.status(), { staleTime: 5_000, refetchInterval: 30_000 });
-  const { data: conflictsData } = useInstantQuery(
+  const { data: conflictsData, error: conflictsError } = useInstantQuery(
     ["conflicts", "OPEN"], () => apiGetExtra.conflicts("OPEN"), { staleTime: 30_000 });
-  const { data: activity } = useInstantQuery(
+  const { data: activity, error: activityError } = useInstantQuery(
     ["activity", 12], () => apiGet.activity(12), { staleTime: 15_000, refetchInterval: 30_000 });
   const live = useSyncExternalStore(liveStore.subscribe, liveStore.getSnapshotState);
   const [openmanus, setOpenmanus] = useState<any>(null);
@@ -71,7 +73,7 @@ export function CommandCenterPage() {
   // SLO panel — the reliability numbers operators are held to. Targets live in
   // the backend (metrics_api.SLO_TARGETS), so this card can never drift from
   // what the API itself calls "healthy".
-  const { data: slo } = useInstantQuery<SloSummary>(
+  const { data: slo, error: sloError } = useInstantQuery<SloSummary>(
     ["slo"],
     () => apiGet.slo(),
     { staleTime: 15_000, refetchInterval: 60_000 }
@@ -126,6 +128,18 @@ export function CommandCenterPage() {
   }, [exhausted, cooldown, openConflicts, failedJobs, pausedJobs]);
 
   if (isLoading && !status) return <Spinner />;
+  // Every card on this page derives from `status`. Without it the page is a
+  // wall of zeroes describing a system that is broken, not idle (FAIL-01).
+  if (statusError && !status) {
+    return (
+      <ErrorState
+        error={statusError}
+        onRetry={() => void refetch()}
+        subject="مركز القيادة"
+        className="m-4"
+      />
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -159,6 +173,14 @@ export function CommandCenterPage() {
         }
       />
 
+      {(conflictsError || activityError || sloError) && (
+        <StaleBanner
+          error={conflictsError || activityError || sloError}
+          subject="بعض بطاقات مركز القيادة"
+          onRetry={() => { void refetch(); liveStore.refresh(); }}
+        />
+      )}
+
       {/* overall status bar */}
       <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-[var(--border-soft)] bg-[var(--bg-elev)]">
         <span className={cn("h-2 w-2 rounded-full",
@@ -187,7 +209,12 @@ export function CommandCenterPage() {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <StatCard label="بحث حي" value={formatNumber(researchLive)} icon={Briefcase} />
         <StatCard label="جاهزة للمراجعة" value={formatNumber(reviewLeads)} icon={CheckCircle2} />
-        <StatCard label="تعارضات" value={formatNumber(openConflicts)} icon={ShieldAlert} tone="warn" />
+        <StatCard
+          label="تعارضات"
+          value={conflictsError && !conflictsData ? "غير متاح" : formatNumber(openConflicts)}
+          icon={ShieldAlert}
+          tone="warn"
+        />
         <StatCard label="مهام فاشلة" value={formatNumber(failedJobs)} icon={XCircle} tone="danger" />
         <StatCard label="مفاتيح مفعلة" value={formatNumber(providers.filter((p) => p.key_state === "set" || p.key_state === "local").length)}
                   icon={Zap} tone="info" />
@@ -239,7 +266,11 @@ export function CommandCenterPage() {
               <div className="text-[12px] font-semibold text-[var(--fg-soft)] mb-2 flex items-center gap-1.5">
                 <Activity className="h-3.5 w-3.5" /> النشاط الحي
               </div>
-              {(activity?.events || []).length === 0 ? (
+              {activityError && !activity ? (
+                <div className="text-[12px] text-[var(--danger)] py-2" role="alert">
+                  تعذر تحميل النشاط الحي — {friendlyError(activityError)}
+                </div>
+              ) : (activity?.events || []).length === 0 ? (
                 <div className="text-[12px] text-[var(--fg-muted)] py-2">لا نشاط مسجل بعد.</div>
               ) : (
                 <div className="space-y-1.5 max-h-72 overflow-y-auto">

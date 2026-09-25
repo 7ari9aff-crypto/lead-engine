@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Settings, Save, RotateCcw, Check, Search, SlidersHorizontal, Timer,
   Target, Scale, Plus, X, Users, Gauge, ShieldCheck, Info,
@@ -12,6 +12,7 @@ import { apiGet, apiPost } from "@/lib/api";
 import { friendlyError } from "@/lib/friendly";
 import { toast } from "sonner";
 import { Spinner } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/PageHeader";
 
@@ -49,16 +50,26 @@ export function ConfigPage() {
   const [files, setFiles] = useState<Files>({});
   const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("general");
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<unknown>(null);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoading(true);
     apiGet
       .config()
-      .then((r) => setFiles(r.files ?? {}))
-      .catch((e) => toast.error(friendlyError(e)))
+      .then((r) => {
+        setFiles(r.files ?? {});
+        setError(null);
+      })
+      .catch((e) => {
+        setError(e);
+        toast.error(friendlyError(e));
+      })
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   const settings = files.settings?.parsed ?? {};
   const cache = files.cache_policy?.parsed ?? {};
@@ -87,6 +98,15 @@ export function ConfigPage() {
       <div className="flex items-center justify-center py-20">
         <Spinner className="h-6 w-6 text-[var(--accent)]" />
       </div>
+    );
+  }
+
+  // An empty `files` map used to render every control with its hardcoded
+  // default, i.e. a form of guesses the operator would read as the live
+  // configuration and press "save" on. Never do that (FAIL-01).
+  if (error && Object.keys(files).length === 0) {
+    return (
+      <ErrorState error={error} onRetry={load} subject="ملفات الإعدادات" className="m-4" />
     );
   }
 

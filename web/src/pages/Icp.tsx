@@ -30,6 +30,8 @@ import { apiGetExtra, apiPostExtra, type IcpVersion } from "@/lib/api";
 import { friendlyError } from "@/lib/friendly";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Spinner } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { StaleBanner } from "@/components/ui/StaleBanner";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -105,7 +107,7 @@ const SUGGESTED_LOCATIONS = [
 ];
 
 export function IcpPage() {
-  const { data, loading, refresh } = useLiveData(() => apiGetExtra.icps("agentic"), 15000);
+  const { data, loading, error, refresh } = useLiveData(() => apiGetExtra.icps("agentic"), 15000);
   const versions = data?.versions || [];
   const active = data?.active;
 
@@ -314,13 +316,19 @@ export function IcpPage() {
         }
       />
 
+      {error && data && (
+        <StaleBanner error={error} subject="نسخ معايير الاستهداف" onRetry={() => void refresh()} />
+      )}
+
       {/* Active Version Live Banner */}
       <Card className="border-[var(--accent)]/40 bg-gradient-to-r from-[var(--accent)]/5 via-transparent to-transparent">
         <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-[var(--fg)]">النسخة المعتمدة النشطة حالياً:</span>
-              {active ? (
+              {error && !data ? (
+                <Badge variant="danger" className="text-xs">غير متاح — تعذر جلب النسخة النشطة</Badge>
+              ) : active ? (
                 <Badge variant="success" className="text-xs px-2.5 py-0.5">
                   <CheckCircle2 className="h-3.5 w-3.5 inline me-1" />
                   {active.slug} ({active.version})
@@ -677,7 +685,9 @@ export function IcpPage() {
                 سجل الإصدارات والتراجع (Audit Trail)
               </div>
 
-              {loading && !data ? (
+              {error && !data ? (
+                <ErrorState error={error} onRetry={() => void refresh()} subject="سجل الإصدارات" />
+              ) : loading && !data ? (
                 <div className="py-6 flex justify-center"><Spinner className="h-5 w-5" /></div>
               ) : versions.length === 0 ? (
                 <div className="text-xs text-[var(--fg-muted)] py-3 text-center">لا توجد إصدارات سابقة بعد.</div>

@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/Input";
 import { Switch } from "@/components/ui/Switch";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PageSkeleton } from "@/components/ui/Skeleton";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { StaleBanner } from "@/components/ui/StaleBanner";
 import { useInstantQuery } from "@/hooks/useInstantQuery";
 import { apiGet, apiPost, type KeyUsageResponse, type ProviderUsageRow, type StatusResponse } from "@/lib/api";
 import { toast } from "sonner";
@@ -64,6 +66,19 @@ export function KeysPage() {
 
   if (loading && !usage.data) return <PageSkeleton />;
 
+  // The whole page is the provider/key table. Without `keysUsage` it renders as
+  // "no keys configured", which reads as an invitation to re-enter every key.
+  if (usage.error && !usage.data) {
+    return (
+      <ErrorState
+        error={usage.error}
+        onRetry={() => { void usage.refetch(); void keys.refetch(); void status.refetch(); }}
+        subject="المفاتيح والمزودون"
+        className="m-4"
+      />
+    );
+  }
+
   const providerRows = usage.data?.providers ?? [];
   const totals = usage.data?.totals;
   const keyRows = keys.data?.keys ?? [];
@@ -113,6 +128,14 @@ export function KeysPage() {
           </>
         }
       />
+
+      {(keys.error || status.error) && (
+        <StaleBanner
+          error={keys.error || status.error}
+          subject="بعض بيانات المفاتيح"
+          onRetry={() => { void keys.refetch(); void status.refetch(); }}
+        />
+      )}
 
       {/* Summary strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

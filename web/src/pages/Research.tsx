@@ -18,6 +18,8 @@ import { friendlyError } from "@/lib/friendly";
 import { formatNumber } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState, Spinner } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { StaleBanner } from "@/components/ui/StaleBanner";
 import { cn, truncate } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -39,7 +41,7 @@ const LIVE_STATES = new Set(["QUEUED", "RUNNING", "DISCOVERING", "RESEARCHING",
   "VERIFYING", "QUALIFYING", "PAUSED", "WAITING_FOR_USER", "RESUMING", "DEGRADED"]);
 
 export function ResearchPage() {
-  const { data: jobs, loading, refresh } = useLiveData(() => apiGet.jobs(), 5000);
+  const { data: jobs, loading, error, refresh } = useLiveData(() => apiGet.jobs(), 5000);
   const researchJobs = useMemo(
     () => (jobs || []).filter((j) => j.icp_id === "agentic"),
     [jobs]
@@ -91,6 +93,10 @@ export function ResearchPage() {
         description="اكتب الهدف بالعربي — الوكيل يبحث ويحقق ويوثق الحقائق بمصادرها ويتوقف عند مراجعتك"
       />
 
+      {error && jobs && (
+        <StaleBanner error={error} subject="قائمة مهام البحث" onRetry={() => void refresh()} />
+      )}
+
       <Card>
         <CardContent className="p-4 space-y-3">
           <textarea
@@ -121,7 +127,9 @@ export function ResearchPage() {
         </CardContent>
       </Card>
 
-      {loading && !jobs ? <Spinner /> : researchJobs.length === 0 ? (
+      {error && !jobs ? (
+        <ErrorState error={error} onRetry={() => void refresh()} subject="مهام البحث" />
+      ) : loading && !jobs ? <Spinner /> : researchJobs.length === 0 ? (
         <EmptyState icon={<Search className="h-8 w-8" />} title="لا توجد مهام بحث بعد"
                     description="ابدأ بأول هدف بحث من الفوق — كل مهمة بتوثق كل حقيقة بمصدرها." />
       ) : (

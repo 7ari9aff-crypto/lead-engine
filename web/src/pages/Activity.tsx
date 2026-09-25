@@ -12,12 +12,13 @@ import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { StaleBanner } from "@/components/ui/StaleBanner";
 import { FilterPills } from "@/components/ui/FilterPills";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiGet, type ActivityEvent } from "@/lib/api";
 import { loadAuditLog, type AuditAction } from "@/lib/audit";
 import { useLiveData } from "@/hooks/useLiveData";
-import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { describePayload } from "@/lib/friendly";
 
@@ -129,7 +130,6 @@ export function ActivityPage() {
 
   async function handleRefresh() {
     await refresh();
-    if (error) toast.error("فشل تحديث السجل");
   }
 
   return (
@@ -158,13 +158,21 @@ export function ActivityPage() {
           onChange={(v) => setFilter(v as FilterMode)}
         />
         <div className="text-xs text-[var(--fg-muted)]">
-          {events.length} حدث
+          {error && events.length === 0 ? "غير متاح" : `${events.length} حدث`}
         </div>
       </div>
 
+      {/* Rows are still on screen (server cache or local audit) but the feed is
+          no longer live — say so instead of letting the operator trust a freeze. */}
+      {error && events.length > 0 && (
+        <StaleBanner error={error} subject="سجل النشاط" onRetry={() => void refresh()} />
+      )}
+
       <Card>
         <CardContent className="p-0">
-          {loading && events.length === 0 ? (
+          {error && events.length === 0 ? (
+            <ErrorState error={error} onRetry={refresh} subject="سجل النشاط" />
+          ) : loading && events.length === 0 ? (
             <div className="p-10 text-center text-sm text-[var(--fg-muted)]">
               جاري التحميل…
             </div>

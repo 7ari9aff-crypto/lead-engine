@@ -13,12 +13,14 @@ import { apiGet, apiGetExtra, apiPostExtra, type Presentation } from "@/lib/api"
 import { friendlyError } from "@/lib/friendly";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState, Spinner } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { StaleBanner } from "@/components/ui/StaleBanner";
 import { ReviewPanel } from "@/components/review/ReviewPanel";
 import { cn, truncate } from "@/lib/utils";
 import { toast } from "sonner";
 
 export function ReviewPage() {
-  const { data, loading, refresh } = useLiveData(
+  const { data, loading, error, refresh } = useLiveData(
     () => apiGet.reviewPending(), 8000
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -53,12 +55,18 @@ export function ReviewPage() {
         description="كل عميل معله السبب والأدلة والنواقص — القرار النهائي بيدك، ومفيش أي إرسال تلقائي"
       />
 
+      {error && data && (
+        <StaleBanner error={error} subject="قائمة المراجعة" onRetry={() => void refresh()} />
+      )}
+
       {relevantConflicts.length > 0 && (
         <ConflictBanner conflicts={relevantConflicts} factLabels={factLabels}
                         onResolved={() => { refreshConflicts(); refresh(); }} />
       )}
 
-      {loading && !data ? <Spinner /> : leads.length === 0 ? (
+      {error && !data ? (
+        <ErrorState error={error} onRetry={() => void refresh()} subject="قائمة المراجعة" />
+      ) : loading && !data ? <Spinner /> : leads.length === 0 ? (
         <EmptyState icon={<Search className="h-8 w-8" />} title="لا يوجد مرشحون بانتظار المراجعة"
                     description="شغّل مهمة بحث من صفحة مهام البحث — أول ما تخلص هتلاقي النتائج هنا بالأسباب." />
       ) : (
