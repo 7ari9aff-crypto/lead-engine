@@ -253,6 +253,10 @@ async def admin_session_guard(request: Request, call_next):
         # Stripe signs webhook deliveries with its own HMAC (verified inside
         # the handler) — JWT auth cannot apply to an outbound caller.
         "/api/v1/billing/webhook",
+        # Same shape for the scheduler: a dedicated bearer secret verified in
+        # cron_api.py. Without this exemption the tick is unreachable, because
+        # closed mode 401s it before the handler ever sees the request.
+        "/api/cron/worker",
     }
     protected = path.startswith(PROTECTED_PATHS)
     if protected and not public:
@@ -2057,6 +2061,10 @@ app.include_router(metrics_router)
 # and authenticates via the Stripe-Signature HMAC instead.
 from .billing_api import router as billing_router
 app.include_router(billing_router)
+# Worker tick (GET /api/cron/worker): bearer-authenticated scheduler entrypoint,
+# public at the middleware and verified inside the handler.
+from .cron_api import router as cron_router
+app.include_router(cron_router)
 # NOTE: the live SSE stream is defined here in app.py (this module) — see
 # api_live_stream. Never re-introduce a second route for /api/*/live/stream:
 # the first registration wins and silently shadows the other implementation.

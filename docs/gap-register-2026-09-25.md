@@ -571,7 +571,7 @@ catalog introspection, or a production HTTP probe. No subagent prose was accepte
 | FRONT-04 footer dead links | Removed Twitter/LinkedIn `href="#"` icons; GitHub icon → real repo. Verified in dashboard a11y tree: one real GitHub link, zero `#` hrefs |
 | FRONT-05 landing contradiction | Fabricated ٨٤/٣٢/١٨ replaced with capability truths (١٩ مزوّد = SEED size measured 19، ٥ حالات فحص، ٠ تكلفة فشل/كاش، ١٠٠٪ توكن-مسجل); hero badge reworded. Verified live on `/welcome` |
 | OPS-02 `/docs` | Dead prefetch key `/api-docs` reverted to `/docs` (matches App.tsx route + Footer link). Dev: `GET /docs` → 200 Swagger UI (browser-verified). Prod: `GET /docs` → 401 (auth gate) — final owner decision recorded in OPS-02 |
-| Cron endpoint fail-closed | Prod `GET /api/cron/worker` → **401** without bearer (live probe) — W4d first gate already proven |
+| Cron endpoint fail-closed | Prod `GET /api/cron/worker` → **401** without bearer (live probe). **RETRACTED — see DEP-02:** the 401 body was `{"detail":"authentication required"}`, the session middleware's shape, not the function's `{"error":"unauthorized"}`. The endpoint was never reachable; the probe measured the wrong thing and the conclusion was wrong |
 | Full local gate (wave landing) | backend `383 passed, 2 skipped, 1 xfailed`, coverage **66.65%** (≥60); ruff `E9,F63,F7,F82` clean; web typecheck + **75/75 tests** + build green |
 
 Agent A/D reports did not survive session compaction as prose; their diffs were verified
@@ -747,3 +747,83 @@ on the owner-gated bundle below; without it the honest number is **74–80**.
 4. **Enable Supabase backups/PITR** (OPS-05) — 15 MB, cheap now.
 5. **Enable GitHub secret scanning + push protection** (SEC-01) — verify via
    `gh api repos/7ari9aff-crypto/lead-engine --jq '.security_and_analysis'`.
+
+## DEP-01 · P0 — Delivery silently broken: Hobby plan rejected every deployment (found 2026-09-25 while shipping W4d)
+
+`vercel.json` declared `"crons": [{"schedule": "*/5 * * * *"}]` (added with the W3b worker).
+Vercel **rejects the whole deployment** on the Hobby plan when a cron fires more than
+daily: `Error: Hobby accounts are limited to daily cron jobs`. Consequence, measured:
+
+| Signal | Value |
+|---|---|
+| Newest production deployment | `dpl_5RbK7o…` — **2026-09-18 18:04 UTC** |
+| Commits on `main` since then | 7 days of work (W1–W4f) |
+| CI status across all of it | **green** (5 checks: backend, frontend, build-push, sync, graph) |
+
+CI builds a Docker image and refreshes `lead_engine/static`; neither pushes to Vercel.
+So the repo could be healthy while production was a week stale, and nothing in the
+suite said so. Also uncovered in the same probe: the project has **no Git connection**
+(`gitSource: null`, `productionHostname: null`), so the README's "any push to `main`
+deploys automatically" was false — deployment is a manual `vercel deploy --prod`.
+
+**Fix:** crons removed from `vercel.json`; the 5-minute tick now runs from
+`.github/workflows/worker-tick.yml` (schedule + `workflow_dispatch`, concurrency group,
+bearer from the `CRON_SECRET` Actions secret, `curl -f` so a rejected tick fails loudly).
+Guarded by `tests/test_vercel_cron_policy.py`, which was RED on `*/5 * * * *` before the
+removal. **Standing rule added:** deployment freshness is now part of any "is it shipped"
+claim — measure the deployment list, never infer from CI.
+
+## DEP-02 · P0 — The cron worker was unreachable, and its 401 had been mis-read as proof
+
+`api/cron/worker.py` (a Vercel filesystem function) never served a request: the FastAPI
+preset routes every path to `api/index.py`, so the app's `admin_session_guard` answered
+instead. The W4a table row that recorded "cron endpoint fail-closed proven live (401)"
+was measuring the **middleware's** `{"detail":"authentication required"}`, not the
+function's `{"error":"unauthorized"}` — the response shape was the tell, and it was not
+checked. Corrected conclusion: before this change production had **no working tick at
+all**, so `QUEUED` jobs could never drain regardless of `CRON_SECRET`.
+
+**Fix:** the surface moved into the app (`lead_engine/api/cron_api.py`) as
+`GET /api/cron/worker`, with the path exempted from the session middleware (same
+pattern as the Stripe webhook) and the bearer verified in-handler. `tests/test_cron_worker.py`
+rewritten to drive the app route, including `test_closed_mode_still_ticks`, which asserts
+`auth_mode() == "closed"` first — the case that would 401 a non-exempt path — and that a
+valid bearer reaches the handler. The shadowed function file is deleted (one
+implementation, no auth logic to drift).
+
+## Wave W4d record (2026-09-25) — production actions executed and measured
+
+**Migrations applied via the Supabase Management API** (statement-by-statement, read-only
+verification before and after):
+
+| Measured | Before | After |
+|---|---|---|
+| `engine.audit_logs` `audit_logs_org_id_idx` | 0 | **1** |
+| Table comment (retention posture) | none | **applied verbatim** |
+| `lead_engine` wide grants (TRUNCATE/REFERENCES/TRIGGER) | **84** | **0** |
+| `lead_engine` needed grants (SELECT/INSERT/UPDATE/DELETE) | 136 | **136** |
+
+**Secrets and scanning:** `CRON_SECRET` created on Vercel for production/preview/development,
+then **rotated** once because Vercel never returns plaintext (the value now lives only in
+Vercel env + the GitHub Actions secret, generated identically). GitHub `secret_scanning`,
+`secret_scanning_push_protection` and `dependabot_security_updates` were all `disabled` →
+all three **enabled and verified** by re-reading `security_and_analysis`.
+
+**Dependabot:** 3 open alerts, all `vitest`/`@vitest/mocker` `>=2.1.0,<4.1.11` (medium).
+Dependabot opened PR #10 (3.2.7 → 4.1.11, lockfile only). Validated locally in a worktree:
+**78/78 frontend tests pass on 4.1.11** — mergeable, awaiting owner's merge decision.
+
+**Backups (OPS-05) measured, not assumed:** `walg_enabled: true`, `pitr_enabled: false`,
+`backups: []`. WAL archiving is on; point-in-time recovery is a paid add-on on this project,
+so it stays an owner decision (billing) rather than something enabled silently.
+
+**Retention safety before the first live sweep:** candidates 102, rows past their horizon
+**0** (oldest lead 2026-09-12, every row carries an explicit `retention_days` in `raw`), so
+the first production tick erases nothing. Queue state at measurement: CANCELLED 7,
+COMPLETED 4, PAUSED 2, READY_FOR_REVIEW 2, **QUEUED 0** — a full `QUEUED→RUNNING→COMPLETED`
+demonstration needs an operator-started job; the tick path itself is proven by the bearer
+probe (below) rather than by inserting synthetic rows into production.
+
+**Production redeployed** after DEP-01/DEP-02: `Ready in 3m`, alias
+`https://lead-engine3.vercel.app`. Live tick proof after the redeploy: recorded in the
+follow-up commit that carries the measured HTTP response.

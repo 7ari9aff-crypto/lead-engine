@@ -181,31 +181,50 @@ curl -X POST https://<host>/mcp -H 'Content-Type: application/json' \
 (`n8n/lead_engine_benchmark_scheduler.ts`).
 ## النشر
 
-الـproduction على Vercel في حساب `lead-engine3` كـproject واحد اسمه `lead-engine`، مربوط
-بـ`7ari9aff-crypto/lead-engine` فرع `main` — أي دفع على `main` بيبني وينشر تلقائيًا.
+الـproduction على Vercel في حساب `lead-engine3` كـproject واحد اسمه `lead-engine`.
 
-الـdashboard (الـstatic) بيتقدّم من `lead_engine/static`، و`sync-frontend-static` هو اللي
-بيجدّده ويضمن إن الإنتاج مبني من نفس الكوميت. يعني الفرونت **مش** بيتبني على Vercel، فمفيش
-`VITE_*` على Vercel (تعريفها الوحيد `web/.env.production` + repository variables للتبديل).
-
-- https://lead-engine-gamma-silk.vercel.app
-- https://lead-engine3.vercel.app
+**النشر يدوي لحد دلوقتي:** الـproject **مش مربوط بـGitHub** (`gitSource: null`)، فالـpush
+على `main` **ما بينشرش لوحده** — النشر بيبقى من الـCLI:
 
 ```bash
-curl -s https://lead-engine-gamma-silk.vercel.app/health   # {"status":"ok"}
+vercel deploy --prod --yes    # من جذر الريبو، بعد ما السويت المحلية تبقى خضرا
+```
+
+القياس اللي كشف ده: آخر deployment للإنتاج كان 2026-09-18 وبعده 7 أيام من الكميتات
+ما وصلتش أبدًا (والـCI كان أخضر طول الفترة دي — الـCI بيبني صورة Docker و`sync-frontend-static`
+فقط). ربط الـGit integration هو الإصلاح الدائم، وخطوة بتحتاج موافقة المالك.
+
+الـdashboard (الـstatic) بيتقدّم من `lead_engine/static`، و`sync-frontend-static` هو اللي
+بيجدّده ويضمن إن الريبو دايمًا فيه بناء الفرونت بتاع آخر كميت. يعني الفرونت **مش** بيتبني على
+Vercel، فمفيش `VITE_*` على Vercel (تعريفها الوحيد `web/.env.production` + repository variables).
+
+- https://lead-engine3.vercel.app (الـalias الإنتاجي الحالي)
+- https://lead-engine-gamma-silk.vercel.app
+
+```bash
+curl -s https://lead-engine3.vercel.app/health   # {"status":"ok"}
 ```
 
 ### الـworker الدوري (cron)
 
-`vercel.json` بيجدوّل `GET /api/cron/worker` كل 5 دقايق: التكة بتصرّف الـleases
-المنتهية، بتحصد التشغيلات المهجورة (`agent_runs` اللي مفيش تحديث ليها من 24 ساعة)،
-وبتستأجر مهمة من الطابور وتشغّلها لحد حالة نهائية. الشرطان للتشغيل الصحيح:
+`GET /api/cron/worker` هو نقطة الدخول للتشغيل الدائم: التكة بتصرّف الـleases المنتهية،
+بتحصد التشغيلات المهجورة (`agent_runs` اللي مفيش تحديث ليها من 24 ساعة)، بتستأجر مهمة من
+الطابور وتشغّلها لحد حالة نهائية، وبتشغّل sweep الاحتفاظ بالـPII. المسار معرّف جوه الـFastAPI
+app نفسه (`lead_engine/api/cron_api.py`) — مش function ملف على Vercel، لأن preset الفاست-إيه
+بيراجع كل المسارات لـ`api/index.py`، فملف `api/cron/worker.py` كان **غير قابل للوصول**
+والـ401 اللي كانت باينة كانت من الـmiddleware مش منه.
 
-- `CRON_SECRET` لازم يكون متعرّف في متغيرات Vercel — Vercel بيبعت
-  `Authorization: Bearer $CRON_SECRET` تلقائيًا، والـendpoint بيرفض أي نداء تاني
-  (fail-closed). لو ناقص، المهام هتفضل `QUEUED` بشفافية على الـdashboard.
-- على Vercel الوضع الافتراضي بقى **queue mode** (`platform_mode()`): أي مهمة جديدة
-  بتتأجر وتتنفذ بالكرون بدل ما تموت جوه request بيقف عند الـmaxDuration.
+الجدولة بتتم من **GitHub Actions** (`.github/workflows/worker-tick.yml` كل 5 دقايق +
+`workflow_dispatch` للتشغيل اليدوي)، مش من Vercel cron:
+
+- خطة الحساب **Hobby**، ودي بترفض الـdeployment كله لو `vercel.json` فيه `crons` أسرع من
+  مرة في اليوم ("Hobby accounts are limited to daily cron jobs"). الحارس:
+  `tests/test_vercel_cron_policy.py`.
+- `CRON_SECRET` لازم يكون موجود في **متغيرات Vercel** وفي **GitHub Actions secrets** بنفس
+  القيمة — والـendpoint بيرفض أي نداء تاني (fail-closed)، فالنقص معناه المهام هتفضل
+  `QUEUED` بشفافية على الـdashboard بدل ما تتنفذ نص نص.
+- على Vercel الوضع الافتراضي **queue mode** (`platform_mode()`): أي مهمة جديدة بتتأجر
+  وتتنفذ بالتكة بدل ما تموت جوه request بيقف عند الـmaxDuration (60s).
 
 محليًا نفس المنطق شغال على SQLite: `python -m lead_engine worker --once`، أو
 `LEAD_ENGINE_QUEUE_MODE=worker` لوضع الطابور الكامل.

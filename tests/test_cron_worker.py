@@ -1,109 +1,133 @@
-"""The Vercel cron worker endpoint (api/cron/worker.py).
+"""The worker-tick HTTP surface: GET /api/cron/worker.
 
-Drives the handler as a raw ASGI app — no framework, no network. The tick
-itself is faked at its import point; its behaviour is covered by
-tests/test_worker_tick.py.
+Lives on the FastAPI app, not on a Vercel filesystem function, because the
+FastAPI preset rewrites every path to `api/index.py` — a sibling
+`api/cron/worker.py` was never reachable in production, and its 401 was the
+app's auth middleware answering, not the endpoint's own fail-closed check.
+The same route therefore serves Vercel, Docker and the local worker loop.
+
+Auth is a dedicated bearer secret (CRON_SECRET), verified inside the handler
+and exempted from the session middleware exactly like the Stripe webhook: the
+caller is a scheduler with no session, cookie or JWT. Absent CRON_SECRET means
+"reject everything", so a misconfigured platform cannot drive the queue.
+
+conftest's env leaves the app in `open` mode (LEAD_ENGINE_DEV_OPEN=1 from
+.env), so `test_closed_mode_still_ticks` forces the gate shut to prove the
+middleware really exempts this path — without the exemption the answer would
+be the middleware's `{"detail": ...}` 401, never the handler's own decision.
 """
-import asyncio
-import importlib.util
 import json
-import sqlite3
-import sys
-from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
 from lead_engine.db import Database
-
-ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "api" / "cron" / "worker.py"
 
 SECRET = "cron-secret-1"
 
 
-def load_handler():
-    spec = importlib.util.spec_from_file_location("cron_worker_under_test", MODULE_PATH)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
-    return mod.handler
+@pytest.fixture
+def cron_client(monkeypatch, tmp_path):
+    """A TestClient whose DB is a temp SQLite file and whose tick is fakeable.
+
+    The handler resolves `open_db` lazily from `lead_engine.db`, so that is the
+    patch point — patching the app module's binding would silently leave the
+    test pointed at the real database.
+    """
+    import lead_engine.api.app as appmod
+
+    store = tmp_path / "cron.sqlite3"
+    monkeypatch.setattr("lead_engine.db.open_db", lambda *a, **k: Database(store))
+    monkeypatch.delenv("LEAD_ENGINE_MCP_TOKEN", raising=False)
+    return TestClient(appmod.app), monkeypatch
 
 
-async def drive(app, headers):
-    scope = {"type": "http", "method": "GET", "path": "/api/cron/worker",
-             "headers": headers, "query_string": b"", "http_version": "1.1"}
-    sent = []
-
-    async def receive():
-        return {"type": "http.request", "body": b"", "more_body": False}
-
-    async def send(msg):
-        sent.append(msg)
-
-    await app(scope, receive, send)
-    status = sent[0]["status"]
-    body = b"".join(m.get("body", b"") for m in sent[1:])
-    return status, body
+def test_missing_secret_rejects(cron_client):
+    client, mp = cron_client
+    mp.setenv("CRON_SECRET", "")
+    r = client.get("/api/cron/worker")
+    assert r.status_code == 401
+    assert r.json() == {"error": "unauthorized"}  # the endpoint's own shape
 
 
-def bearer(token):
-    return [(b"authorization", f"Bearer {token}".encode())]
+def test_wrong_token_rejects(cron_client):
+    client, mp = cron_client
+    mp.setenv("CRON_SECRET", SECRET)
+    r = client.get("/api/cron/worker", headers={"Authorization": "Bearer nope"})
+    assert r.status_code == 401
+    assert r.json() == {"error": "unauthorized"}
 
 
-def test_missing_configuration_rejects(monkeypatch):
-    monkeypatch.setenv("CRON_SECRET", "")
-    status, _ = asyncio.run(drive(load_handler(), []))
-    assert status == 401
+def test_bearer_is_the_only_accepted_form(cron_client):
+    """A raw token without the scheme, or the wrong scheme, must not pass."""
+    client, mp = cron_client
+    mp.setenv("CRON_SECRET", SECRET)
+    for header in ({"Authorization": SECRET}, {"Authorization": f"Basic {SECRET}"}):
+        assert client.get("/api/cron/worker", headers=header).status_code == 401
 
 
-def test_wrong_token_rejects(monkeypatch):
-    monkeypatch.setenv("CRON_SECRET", SECRET)
-    status, _ = asyncio.run(drive(load_handler(), bearer("nope")))
-    assert status == 401
+def test_closed_mode_still_ticks(cron_client):
+    """The production defect this file exists for.
+
+    With no auth backend configured the session middleware 401s every
+    protected path (`mode == "closed"`). `/api/cron/worker` must be exempt at
+    the middleware and answer from its own bearer check — otherwise the
+    scheduler can never reach the queue, which is exactly what happened in
+    production with `api/cron/worker.py`: the 401 in the logs was the
+    middleware, and the tick was unreachable.
+    """
+    client, mp = cron_client
+    mp.delenv("LEAD_ENGINE_DEV_OPEN", raising=False)
+    mp.delenv("SUPABASE_URL", raising=False)
+    mp.delenv("LEAD_ENGINE_ADMIN_PASSWORD", raising=False)
+    from lead_engine.api import auth_jwt
+
+    assert auth_jwt.auth_mode() == "closed"  # the gate is genuinely shut
+
+    mp.setenv("CRON_SECRET", SECRET)
+    mp.setattr("lead_engine.worker.run_worker_tick",
+               lambda db, worker_id, settings=None, lease_seconds=600: {
+                   "worker_id": worker_id, "reclaimed": 0, "stale_runs_reaped": 0,
+                   "leased": False, "job_id": None, "state": None,
+                   "retention_erased": 0, "error": None})
+    ok = client.get("/api/cron/worker",
+                    headers={"Authorization": f"Bearer {SECRET}"})
+    assert ok.status_code == 200
+    # Denied without the bearer, and it is the HANDLER that says so.
+    denied = client.get("/api/cron/worker")
+    assert denied.status_code == 401
+    assert denied.json() == {"error": "unauthorized"}
 
 
-def test_valid_cron_runs_one_tick(monkeypatch, tmp_path):
-    monkeypatch.setenv("CRON_SECRET", SECRET)
-    opened = []
+def test_valid_cron_runs_one_tick(cron_client):
+    client, mp = cron_client
+    mp.setenv("CRON_SECRET", SECRET)
+    mp.setenv("VERCEL_REGION", "iad1")
     tick_args = {}
-
-    def fake_open_db():
-        db = Database(tmp_path / "cron.sqlite3")
-        opened.append(db)
-        return db
 
     def fake_tick(db, worker_id, settings=None, lease_seconds=600):
         tick_args["worker_id"] = worker_id
-        tick_args["db"] = db
-        return {"worker_id": worker_id, "reclaimed": 1, "leased": False,
-                "job_id": None, "state": None, "error": None}
+        return {"worker_id": worker_id, "reclaimed": 1, "stale_runs_reaped": 0,
+                "leased": False, "job_id": None, "state": None,
+                "retention_erased": 0, "error": None}
 
-    monkeypatch.setattr("lead_engine.db.open_db", fake_open_db)
-    monkeypatch.setattr("lead_engine.worker.run_worker_tick", fake_tick)
-
-    status, body = asyncio.run(drive(load_handler(), bearer(SECRET)))
-
-    assert status == 200
-    assert json.loads(body)["reclaimed"] == 1
-    assert tick_args["worker_id"].startswith("cron-")
-    assert opened and tick_args["db"] is opened[0]
-    with pytest.raises(sqlite3.ProgrammingError):
-        opened[0].conn.execute("select 1")  # db was closed by the handler
+    mp.setattr("lead_engine.worker.run_worker_tick", fake_tick)
+    r = client.get("/api/cron/worker", headers={"Authorization": f"Bearer {SECRET}"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["reclaimed"] == 1
+    assert body["worker_id"] == "cron-iad1"
+    assert tick_args["worker_id"] == "cron-iad1"
 
 
-def test_tick_failure_returns_500_not_crash(monkeypatch, tmp_path):
-    monkeypatch.setenv("CRON_SECRET", SECRET)
-
-    def fake_open_db():
-        return Database(tmp_path / "cron2.sqlite3")
+def test_tick_failure_returns_500_with_reason(cron_client):
+    client, mp = cron_client
+    mp.setenv("CRON_SECRET", SECRET)
 
     def fake_tick(db, worker_id, settings=None, lease_seconds=600):
         raise RuntimeError("db down")
 
-    monkeypatch.setattr("lead_engine.db.open_db", fake_open_db)
-    monkeypatch.setattr("lead_engine.worker.run_worker_tick", fake_tick)
-
-    status, body = asyncio.run(drive(load_handler(), bearer(SECRET)))
-
-    assert status == 500
-    assert "db down" in json.loads(body)["error"]
+    mp.setattr("lead_engine.worker.run_worker_tick", fake_tick)
+    r = client.get("/api/cron/worker", headers={"Authorization": f"Bearer {SECRET}"})
+    assert r.status_code == 500
+    assert "db down" in json.loads(r.text)["error"]

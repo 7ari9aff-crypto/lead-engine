@@ -1,0 +1,55 @@
+name: worker-tick
+
+# Durable execution heartbeat for the job queue. Vercel's own cron feature is
+# unavailable on this plan (Hobby allows only daily schedules, and a faster
+# `crons` entry in vercel.json REJECTS the entire deployment — guarded by
+# tests/test_vercel_cron_policy.py). GitHub's scheduler drives the same
+# endpoint instead: one tick leases a queued job and runs it to a terminal
+# state, reclaims expired leases, reaps stale agent runs, flushes the outbox.
+#
+# Cadence note: GitHub schedules start within ~5 minutes but are not punctual
+# under load. The tick is idempotent and lease-based, so a late or duplicated
+# invocation is safe — an expired lease is reclaimed before the next lease.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      ticks:
+        description: "How many ticks to run back-to-back (drain a queue faster)"
+        required: false
+        default: "1"
+
+# No token permissions needed: this job only makes an authenticated HTTP call.
+permissions: {}
+
+concurrency:
+  # Serialise ticks: two overlapping leases are safe (lease_next is atomic),
+  # but serialising keeps the audit trail and the "leased" accounting legible.
+  group: worker-tick
+  cancel-in-progress: false
+
+env:
+  WORKER_URL: https://lead-engine3.vercel.app/api/cron/worker
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Drive the worker queue
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          TICKS: ${{ github.event.inputs.ticks || '1' }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET is not configured — the endpoint is fail-closed and every tick would 401."
+            exit 1
+          fi
+          for i in $(seq 1 "$TICKS"); do
+            # -f: non-2xx fails the job loudly. -sS: quiet but errors surface.
+            # 60 s maxDuration server-side; 90 s client-side ceiling.
+            echo "tick $i/$TICKS"
+            curl -fsS --max-time 90 -H "Authorization: Bearer $CRON_SECRET" "$WORKER_URL"
+            echo
+          done

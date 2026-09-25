@@ -36,3 +36,6 @@ vercel_deploy.log
 
 # pytest coverage artifact
 .coverage
+
+# ephemeral local secret material (never commit)
+*.secret_tmp
