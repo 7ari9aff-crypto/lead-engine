@@ -827,3 +827,30 @@ probe (below) rather than by inserting synthetic rows into production.
 **Production redeployed** after DEP-01/DEP-02: `Ready in 3m`, alias
 `https://lead-engine3.vercel.app`. Live tick proof after the redeploy: recorded in the
 follow-up commit that carries the measured HTTP response.
+
+## W4d live proof (measured on production, 2026-09-25 21:12 UTC)
+
+After the DEP-01/DEP-02 fixes were pushed and production redeployed (`Ready in 47s`,
+alias `lead-engine3.vercel.app`):
+
+| Probe | Result |
+|---|---|
+| `GET /api/cron/worker` with no bearer | **401 `{"error":"unauthorized"}`** — the handler's shape, proving the route is reachable (the middleware's shape is `{"detail": …}`) |
+| same with a wrong bearer | 401, same shape (fail-closed on mismatch) |
+| same with the valid bearer | **200** `{"worker_id":"cron-iad1","reclaimed":0,"stale_runs_reaped":0,"retention_erased":0,"leased":false,"job_id":null,"state":null,"error":null}` |
+| `.github/workflows/worker-tick.yml` via `workflow_dispatch` (ticks=2) | **success in 8 s**, both ticks 200 in the job log — proves the Actions `CRON_SECRET` matches Vercel's, and the scheduled path works end to end |
+| served dashboard bundle vs committed `lead_engine/static` | identical hashes (`index-DUZRm2wP.js`, `vendor-react-BEkAYs7R.js`, `vendor-data-BDZUXP9K.js`) — production is shipping the audited build |
+| data side effects of the probes | none: `retention_erased: 0` (matches the pre-measurement), no job created, no synthetic rows |
+
+**Not proven, and why:** a full `QUEUED → RUNNING → COMPLETED` transition. Production's
+queue held no `QUEUED` job (CANCELLED 7, COMPLETED 4, PAUSED 2, READY_FOR_REVIEW 2), and
+starting one requires an operator login — `LEAD_ENGINE_ADMIN_PASSWORD` is not in `.env`,
+so the credential was never in scope here. The tick machinery around it (lease, reap,
+outbox, sweep) is proven live; the transition needs one dashboard "شغّل مهمة حقيقية"
+click by the owner.
+
+**Dependabot's own updater job fails** on `main` ("npm_and_yarn in /web for
+@vitest/mocker — Run Dependabot"): the app's five CI checks are green; this is
+Dependabot unable to open a security-update PR, most plausibly because PR #10 already
+covers the same ecosystem bump. Merging #10 (validated locally: 78/78 on vitest 4.1.11)
+closes all three alerts and should clear the updater.
