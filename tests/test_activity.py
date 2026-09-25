@@ -1,16 +1,19 @@
 """Activity feed: store round-trip + filter + FastAPI router."""
-import json
 
 import pytest
 from fastapi.testclient import TestClient
 
 from lead_engine.activity import ActivityStore, get_router
+from lead_engine.activity.store import ensure_schema
 from lead_engine.db import Database
 
 
 @pytest.fixture
 def db(tmp_path):
-    return Database(tmp_path / "act.sqlite3")
+    database = Database(tmp_path / "act.sqlite3")
+    # Schema is no longer a constructor side effect (gap register LAT-01(b)).
+    ensure_schema(database)
+    return database
 
 
 @pytest.fixture
@@ -97,6 +100,7 @@ def test_router_list_and_record(tmp_path):
 
     def override_get_db():
         d = Database(db_file)
+        ensure_schema(d)
         try:
             yield d
         finally:
@@ -151,6 +155,7 @@ def test_router_post_without_kind_rejected(tmp_path):
 
     def override_get_db():
         d = Database(db_file)
+        ensure_schema(d)
         try:
             yield d
         finally:

@@ -19,6 +19,7 @@ import ipaddress
 import os
 import sys
 import threading
+from contextlib import asynccontextmanager
 from typing import Any, Literal
 from urllib.parse import urlparse
 
@@ -46,8 +47,10 @@ from ..config import (
 )
 from ..db import open_db, Database
 from ..agent_registry import AgentRegistry
+from ..observability import get_logger
 from .policy_api import router as policy_router
 from ..jobs import PAUSED, JobManager
+from ..privacy import erase_lead
 from ..providers.email import VerificationPipeline
 from ..registry import Registry
 from ..router import Router
@@ -55,6 +58,9 @@ from ..router import Router
 load_env()
 DATA_DIR.mkdir(exist_ok=True)
 settings = load_settings()
+
+# After load_env() so LOG_LEVEL / LOG_FORMAT from .env are honoured.
+log = get_logger("lead_engine.api")
 
 # Org-scoped provider credentials live encrypted in the platform DB; hydrate
 # them into the process env so every provider adapter reads them unchanged.
@@ -97,11 +103,29 @@ CONFIG_FILES = {
     "legal_sa": CONFIG_DIR / "legal_policies" / "sa.yaml",
 }
 
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """One-shot schema+seed bootstrap. Never on the request path (LAT-01)."""
+    from ..bootstrap import run_data_bootstrap
+
+    try:
+        db = open_db()
+        try:
+            run_data_bootstrap(db)
+        finally:
+            db.close()
+    except Exception as exc:
+        log.warning("bootstrap at startup failed; `python -m lead_engine init` retries: %s", exc)
+    yield
+
+
 app = FastAPI(
     title="Lead Engine API",
     version=__version__,
     description="Quota-aware multi-provider lead generation engine "
                 "(n8n = orchestration, FastAPI = brain, Supabase = storage)",
+    lifespan=_lifespan,
 )
 
 
@@ -606,6 +630,25 @@ def api_approval_resolve(approval_id: str, req: ApprovalResolution,
     return {"ok": True, "approval_id": approval_id, "status": req.status}
 
 
+# ===== Privacy: data-subject erasure (register DATA-03) =====
+
+@app.post("/api/privacy/erase")
+def api_privacy_erase(req: dict, request: Request,
+                      db: Database = Depends(get_db)):
+    """Erase one lead's contact PII on request. Shares the sweep's anonymize
+    routine (privacy.erase_lead), redacts `raw` too, and audits the actor."""
+    require_admin(request, db)
+    lead_id = str((req or {}).get("lead_id") or "").strip()
+    if not lead_id:
+        raise HTTPException(status_code=422, detail="lead_id is required")
+    claims = getattr(request.state, "claims", None)
+    actor = (str(claims.get("sub") or claims.get("email") or "authenticated")
+             if claims else "dev-open")
+    if not erase_lead(db, lead_id, actor):
+        raise HTTPException(status_code=404, detail="lead not found")
+    return {"lead_id": lead_id, "erased": True}
+
+
 # ===== Code-aware agent operations (diagnose freely, patch on approval) =====
 
 @app.get("/api/approvals/{approval_id}")
@@ -881,7 +924,6 @@ def drain_queued_jobs(request: Request, db: Database = Depends(get_db)):
     Safe to call on Vercel / serverless deployments where platform_mode is False
     and no queue worker process exists.  Returns the list of cancelled job IDs."""
     from ..jobs import JobManager, QUEUED, CANCELLED
-    from ..db import utcnow
 
     org_clause, org_params = _org_clause(db)
     rows = db.query(
@@ -1109,9 +1151,12 @@ def _build_status(db: Database) -> dict:
     per call — seconds of latency for a dashboard that polls it. Everything
     below is batched: one providers read, one grouped usage read, and the
     tenant predicate is computed once and reused instead of once per query.
+
+    It also used to seed the registry here, which is a write on a GET and one
+    extra round trip per poll (LAT-01): provider rows now arrive from the
+    startup/`init` bootstrap, so this reads only.
     """
     registry = Registry(db)
-    registry.seed_if_empty()
     org_clause, org_params = _org_clause(db)
 
     # ONE grouped query for every provider's ledger totals (was N queries).
@@ -1564,7 +1609,7 @@ def _run_background_job(icp_name: str, job_id: str, seed_csv: str | None):
 
     try:
         run_benchmark(icp_name, job_id=job_id, seed_csv=seed_csv)
-    except Exception as exc:  # config/startup errors: mark FAILED, never hang
+    except Exception:  # config/startup errors: mark FAILED, never hang
         db = open_db()
         JobManager(db).mark_failed(job_id, "background job failed")
         db.conn.close()
@@ -1712,8 +1757,10 @@ def api_keys_save(req: dict, request: Request, db: Database = Depends(get_db)):
 
         hydrate_environment(db, org_id)
 
-    # keys changed -> re-evaluate availability right away
-    Registry(db).seed_if_empty()
+    # Availability is derived at read time (Registry.status_table reads env_key
+    # against os.environ), so the masked response below already reflects the
+    # new keys. The `seed_if_empty()` that used to sit here seeded provider rows
+    # - a write on this path that the startup/`init` bootstrap already owns.
     return {"ok": True, "saved": sorted(updates.keys()),
             "keys": api_keys_list()["keys"]}
 
@@ -1867,7 +1914,6 @@ def api_keys_usage(db: Database = Depends(get_db),
 
         # per-key buckets: match on key_index when recorded, else one bucket
         key_cards = []
-        total_pct_bases = []
         if keys_pool:
             for idx, key in enumerate(keys_pool):
                 rows = [r for r in ledger_rows if (r["key_index"] if r["key_index"] is not None else 0) == idx]
