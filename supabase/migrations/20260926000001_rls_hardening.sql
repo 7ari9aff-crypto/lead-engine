@@ -1,0 +1,54 @@
+-- ============================================================
+-- Migration — engine schema: least-privilege grants for lead_engine
+--           + recorded RLS posture (W4b of the road-to-90 plan)
+--
+-- Evidence base (2026-09-25, live catalog introspection — scratch/rls_introspection.py):
+--   * 28 ordinary tables in `engine`; 16 already carry a FORCED
+--     `tenant_isolation` policy. Every table in db_pg.ORG_TABLES is protected.
+--   * The `lead_engine` role holds DELETE/REFERENCES/TRIGGER/TRUNCATE on all
+--     28 tables (112 grants) — Supabase's blanket default, far beyond what
+--     the application uses.
+--   * grep over lead_engine/ finds ZERO `TRUNCATE`, `CREATE TRIGGER`, or FK
+--     `REFERENCES` statements issued by application code.
+--
+-- Part 1 — revoke privileges the application never uses.
+--
+-- TRUNCATE is the dangerous one: it bypasses every row filter INCLUDING row
+-- level security, so one stray call would wipe every tenant's data in a
+-- single statement. REFERENCES/TRIGGER are constraint-authoring rights the
+-- app never exercises; revoked under least privilege. DELETE is retained —
+-- the pipeline legitimately deletes rows (dedup, cleanup, erasure paths).
+REVOKE TRUNCATE   ON ALL TABLES IN SCHEMA engine FROM lead_engine;
+REVOKE REFERENCES ON ALL TABLES IN SCHEMA engine FROM lead_engine;
+REVOKE TRIGGER    ON ALL TABLES IN SCHEMA engine FROM lead_engine;
+
+-- Part 2 — RLS posture: NO new policies here, deliberately.
+--
+-- Introspection shows exactly one table outside the protected set that HAS
+-- an organization_id column: audit_logs — which must stay policy-free (the
+-- write path must never fail, and a `__no_org__` sentinel context has no
+-- app.current_org GUC to satisfy a WITH CHECK; full rationale in
+-- 20260925000002_audit_logs_read_path.sql).
+--
+-- The remaining 11 RLS-off tables (agent_steps, agent_versions, cache,
+-- connections, event_consumptions, evidence, job_events, providers,
+-- tenant_provisioning, tools, webhook_deliveries) have NO organization_id
+-- column at all, so a tenant_isolation policy is not expressible on them
+-- without a schema change (add column + backfill from the org-scoped parent
+-- + matching code changes). Candidate follow-up, each requiring its own
+-- owner authorization — listed highest-value-first:
+--     evidence, job_events, cache   (tenant-derived payloads today scoped
+--                                    only by parent-key joins in app SQL)
+--     providers, tools, connections, agent_versions, agent_steps
+--                                   (shared control-plane catalogs)
+--     event_consumptions, webhook_deliveries, tenant_provisioning
+--                                   (platform infrastructure; empty today)
+-- Until then their isolation is enforced in application SQL (org predicates
+-- in handlers) with the app role as the only DB accessor (anon holds zero
+-- grants; verified 401 on the REST surface).
+--
+-- Enforced statically by
+-- tests/test_schema_parity.py::test_org_scoped_migrations_enable_rls —
+-- any FUTURE migration that creates an organization_id table without an
+-- ENABLE ROW LEVEL SECURITY statement (and without a documented exemption)
+-- fails CI.
