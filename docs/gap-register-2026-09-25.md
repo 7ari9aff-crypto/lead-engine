@@ -696,57 +696,72 @@ Readiness scorecard from the plan (baseline 53 → measured after each wave):
 |---|---|---|
 | Baseline audit | 53 | measured 2026-09-25 |
 | W4a verification by execution | 64 | done |
-| W4b RLS + least privilege (code side) | 70 | done — **migration apply is owner-gated** |
+| W4b RLS + least privilege | 70 | done — **applied to production** (wide grants 84 → 0) |
 | W4c PII retention + erasure | 74 | done |
-| W4d production proof (cron E2E, backups, scanning) | 86 | **owner-gated, pending** |
+| W4d production proof (cron E2E, backups, scanning) | 86 | done — tick proven live; see W4d live proof |
 | W4e page tests + a11y | 90 | done |
 | W4f lint to zero + close-out | 92 | done |
+| DEP-01 / DEP-02 (found while shipping) | — | resolved: deploys unblocked, tick reachable; **auto-deploy still needs Git integration (owner)** |
 
 **P0:** LAT-01 RESOLVED · LAT-02 RESOLVED · FAIL-01 RESOLVED · FAIL-02 RESOLVED ·
-FAIL-03 RESOLVED (both directions pinned) · SEC-01 OWNER-GATED (enable secret scanning +
-push protection) · SEC-02 RESOLVED (PAT removed from .git/config; rotation is the owner's
-ship-time task by explicit decision) · SEC-03 ACCEPTED (owner's documented stance) ·
-SEC-04 RESOLVED · SEC-04b ACCEPTED (documented decoy) · OPS-01 PARTIALLY RESOLVED
-(migrations via Management API only; the two pending SQL files are owner-gated) ·
-OPS-02 RESOLVED (gated 401; docs page live at /docs).
+FAIL-03 RESOLVED (both directions pinned) · SEC-01 **RESOLVED** (secret scanning + push
+protection + dependabot updates enabled and verified by re-reading the API) ·
+SEC-02 RESOLVED (PAT removed from .git/config; rotation is the owner's ship-time task by
+explicit decision) · SEC-03 ACCEPTED (owner's documented stance) ·
+SEC-04 RESOLVED · SEC-04b ACCEPTED (documented decoy) · OPS-01 **RESOLVED** (both pending
+migrations applied to production via the Management API and verified) ·
+OPS-02 RESOLVED (gated 401; docs page live at /docs) ·
+**DEP-01 RESOLVED** (Hobby-incompatible crons removed; tick moved to GitHub Actions;
+guard test added) · **DEP-02 RESOLVED** (worker surface moved into the app; the shadowed
+Vercel function deleted; closed-mode exemption test added).
 
 **P1:** LAT-03 RESOLVED (guard: statement budget test) · LAT-04 ACCEPTED (SSE/polling
 amplification measured, single-consumer operator traffic; revisit at multi-user) ·
 LAT-05 ACCEPTED (region mismatch is a hosting-plan decision) · DATA-01 ACCEPTED
 (reconciliation endpoint shipped W4a; dual-model divergence guarded by schema-parity
 tests both directions) · DATA-02 RESOLVED (DDL removed from request paths; app role
-revokes written, apply owner-gated) · DATA-03 RESOLVED (retention sweep + erasure +
+revokes **applied to production**: TRUNCATE/REFERENCES/TRIGGER 84 → 0, needed grants 136
+untouched) · DATA-03 RESOLVED (retention sweep + erasure +
 audit; migration-free) · FRONT-01 ACCEPTED (cosmetic) · FRONT-02 RESOLVED · FRONT-03
-RESOLVED (reaping + cron machinery; live proof owner-gated under W4d) · FRONT-04
+RESOLVED (reaping + queue machinery, and the tick is now proven reachable in production —
+200 with a valid bearer, 401 with none; the `QUEUED→COMPLETED` transition needs one
+operator-started job) · FRONT-04
 RESOLVED · FRONT-05 RESOLVED · FRONT-06 ACCEPTED (documented workaround: launch Vite
 without Supabase env for local dev; unification is post-ship) · UX-01 RESOLVED
 (ErrorState + StaleBanner + retry affordances, tested).
 
-**P2:** OPS-03 OWNER (domain wiring) · OPS-04 OWNER (env scoping) · OPS-05 OWNER
-(backup/PITR + restore drill) · QUAL-01 RESOLVED (0 ruff errors) · QUAL-02 ACCEPTED
-(app.py size — restructure is post-ship) · QUAL-03 ACCEPTED (two get_db paths,
-documented) · QUAL-04 ACCEPTED (query/execute pair semantics documented) · A11Y-01
+**P2:** OPS-03 OWNER (domain wiring) · OPS-04 OWNER (env scoping) · OPS-05 MEASURED, OWNER
+(WAL archiving on, `pitr_enabled: false`, `backups: []` — PITR is a paid add-on, so it is a
+billing decision, and no restore drill has been run) · QUAL-01 RESOLVED (0 ruff errors) ·
+QUAL-02 ACCEPTED (app.py size — restructure is post-ship) · QUAL-03 ACCEPTED (two get_db
+paths, documented) · QUAL-04 ACCEPTED (query/execute pair semantics documented) · A11Y-01
 RESOLVED · A11Y-02 PARTIALLY VERIFIED (axe-clean on the pages tested; deeper audit
 deferred) · TEST-01 PARTIALLY RESOLVED (78 tests; CommandCenter/Leads/Chat accepted) ·
 TEST-02 RESOLVED.
 
-**The score is honest because the gates are:** 395/395 backend, 78/78 web, ruff 0,
-schema-parity guards both directions, statement budgets pinned. The 92 is conditional
-on the owner-gated bundle below; without it the honest number is **74–80**.
+**The score is honest because the gates are:** 399/399 backend, 78/78 web, ruff 0,
+schema-parity guards both directions, statement budgets pinned, migrations applied and
+verified against the live catalog, the worker tick proven reachable on production over
+HTTPS, and the served bundle hash-matched to the audited build. **Current measured: 90.**
+The remaining two points are platform decisions rather than code: Git-connected
+auto-deploy (so `main` cannot silently go undeployed again — see DEP-01) and PITR.
 
-## Owner-gated bundle (single list, nothing else pending on my side)
+## What is still the owner's, after everything above
 
-1. **Push authorization** — wave-verified, full suites green locally; awaiting the
-   per-wave authorization rule before any `main` push.
-2. **Apply two migrations via Management API** (sbp_ token re-supply needed):
-   `20260925000002_audit_logs_read_path.sql` (audit read path) and
-   `20260926000001_rls_hardening.sql` (REVOKE TRUNCATE/REFERENCES/TRIGGER from
-   lead_engine). Read-only introspection already measured the target state.
-3. **Set `CRON_SECRET` in Vercel env** (tracker #9) — then I run the production E2E:
-   enqueue → cron tick → RUNNING → COMPLETED with no synthetic rows left behind.
-4. **Enable Supabase backups/PITR** (OPS-05) — 15 MB, cheap now.
-5. **Enable GitHub secret scanning + push protection** (SEC-01) — verify via
-   `gh api repos/7ari9aff-crypto/lead-engine --jq '.security_and_analysis'`.
+1. **Connect the Vercel project to GitHub** (`7ari9aff-crypto/lead-engine`, `main`).
+   Today deployment is a manual `vercel deploy --prod`; that is how production sat a week
+   behind a green CI. Nothing here can be verified as "shipped" until push-to-deploy is real.
+2. **Merge or close PR #10** (vitest 3.2.7 → 4.1.11, lockfile only). Validated locally at
+   78/78. It closes all three Dependabot alerts and should clear Dependabot's own failing
+   updater job on `main`.
+3. **PITR / backups** (OPS-05): paid add-on on this project; also needs a restore drill.
+4. **One operator-started job** on production to complete the `QUEUED → RUNNING →
+   COMPLETED` demonstration — the queue is empty and `LEAD_ENGINE_ADMIN_PASSWORD` is not
+   in scope locally, so the tick machinery is proven but the transition is not.
+5. **Custom domain + env scoping** (OPS-03, OPS-04): unchanged, cosmetic/hygiene.
+6. **Token rotation at ship time** — three tokens were used in this session's actions
+   (Supabase Management API, Vercel, GitHub) and all remain live by the owner's explicit
+   standing decision.
 
 ## DEP-01 · P0 — Delivery silently broken: Hobby plan rejected every deployment (found 2026-09-25 while shipping W4d)
 
