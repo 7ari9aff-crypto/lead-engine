@@ -1125,6 +1125,25 @@ _STATUS_TTL_SECONDS = 4
 _status_cache: dict = {}  # per-org slots (bounded below)
 
 
+def _storage_report(db, dsn: str | None = None) -> dict:
+    """Which store this process is actually talking to, and where.
+
+    The backend is discriminated by class name so this never imports `db_pg`
+    (and thus psycopg) on a SQLite deployment. `dsn_host` keeps the port — it
+    is what distinguishes the transaction pooler from a direct connection —
+    but never the user or password."""
+    import re
+
+    if dsn is None:
+        dsn = os.environ.get("SUPABASE_DB_URL") or os.environ.get("DATABASE_URL") or ""
+    match = re.search(r"@([^/?]+)", dsn) if dsn else None
+    return {
+        "backend": "postgres" if type(db).__name__ == "PgDatabase" else "sqlite",
+        "dsn_present": bool(dsn),
+        "dsn_host": match.group(1) if match else None,
+    }
+
+
 @app.get("/api/status")
 def api_status(db: Database = Depends(get_db)):
     """Everything the dashboard needs in one call: real registry state,
@@ -1209,6 +1228,7 @@ def _build_status(db: Database) -> dict:
         pending_approvals = 0  # platform table may not exist on a dev SQLite
     return {
         "version": __version__,
+        "storage": _storage_report(db),
         "providers": providers,
         "jobs_by_state": jobs_by_state,
         "recent_jobs": db.query(
