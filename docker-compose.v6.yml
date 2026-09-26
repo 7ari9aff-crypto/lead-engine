@@ -1,0 +1,35 @@
+# Lead Engine V6 — Local Development Stack
+#
+# Postgres is the only source of truth. Redis is transport-only (ADR-0007);
+# the outbox relay uses DB polling by default and works without Redis.
+# The V6 stack is fully isolated from the legacy stack (ports 5433/6380).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ledev
+      POSTGRES_PASSWORD: ledev
+      POSTGRES_DB: lead_engine_v6
+    ports:
+      - "5433:5432"
+    volumes:
+      - le_v6_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ledev -d lead_engine_v6"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  le_v6_pgdata:
