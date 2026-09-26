@@ -748,12 +748,12 @@ auto-deploy (so `main` cannot silently go undeployed again — see DEP-01) and P
 
 ## What is still the owner's, after everything above
 
-1. **Connect the Vercel project to GitHub** (`7ari9aff-crypto/lead-engine`, `main`).
-   Today deployment is a manual `vercel deploy --prod`; that is how production sat a week
-   behind a green CI. Nothing here can be verified as "shipped" until push-to-deploy is real.
-2. **Merge or close PR #10** (vitest 3.2.7 → 4.1.11, lockfile only). Validated locally at
-   78/78. It closes all three Dependabot alerts and should clear Dependabot's own failing
-   updater job on `main`.
+1. ~~**Connect the Vercel project to GitHub**~~ — **resolved by measurement, not action**:
+   the connection was already live; the deployments were failing for the DEP-01 Hobby-cron
+   reason. Verified by pushing a docs commit and reading back a production deployment
+   carrying `githubCommitSha` + `githubDeployment: "1"`. Push-to-deploy works.
+2. ~~**Merge or close PR #10**~~ — **done**: merged as `f5d0c93` after validating 78/78 on
+   vitest 4.1.11; all three Dependabot alerts now read `state: fixed`.
 3. **PITR / backups** (OPS-05): paid add-on on this project; also needs a restore drill.
 4. **One operator-started job** on production to complete the `QUEUED → RUNNING →
    COMPLETED` demonstration — the queue is empty and `LEAD_ENGINE_ADMIN_PASSWORD` is not
@@ -785,8 +785,22 @@ deploys automatically" was false — deployment is a manual `vercel deploy --pro
 `.github/workflows/worker-tick.yml` (schedule + `workflow_dispatch`, concurrency group,
 bearer from the `CRON_SECRET` Actions secret, `curl -f` so a rejected tick fails loudly).
 Guarded by `tests/test_vercel_cron_policy.py`, which was RED on `*/5 * * * *` before the
-removal. **Standing rule added:** deployment freshness is now part of any "is it shipped"
-claim — measure the deployment list, never infer from CI.
+removal. **Standing rule added:** delivery health is measured from the deployment list
+(`GET /v6/deployments/{uid}?meta=true` → `githubCommitSha`, `githubDeployment: "1"`), never
+inferred from CI status and never from a single config field.
+
+**Correction to this gap's first reading.** The initial diagnosis claimed the project had no
+Git connection and that the README's "any push to `main` deploys automatically" was false,
+because `GET /v9/projects/lead-engine` returns `gitSource: null`. That inference was wrong.
+`vercel git connect` reports the repo already connected, and a docs push produced a
+production deployment within a minute carrying `githubCommitSha: ceec732…`,
+`githubCommitRef: main`, `githubDeployment: "1"` and the Git alias
+`lead-engine-git-main-…`. The connection was live all along — **every Git-triggered
+deployment was simply failing** for the Hobby cron reason, which is also why PR #10 showed a
+red `Vercel` check ("Deployment failed") while `backend`/`frontend` passed. The README's
+original claim stands; the v9 field is not evidence of linkage. Same error shape as DEP-02
+(trusting one signal's shape instead of testing behavior), so it stays as a correction
+rather than being edited away.
 
 ## DEP-02 · P0 — The cron worker was unreachable, and its 401 had been mis-read as proof
 
@@ -891,6 +905,65 @@ unrelated PR.
 **Push-to-deploy claim, re-measured:** `vercel git connect` reports
 "`7ari9aff-crypto/lead-engine` is already connected to your project", while
 `GET /v9/projects/lead-engine` returns `gitSource: null`, `repository: null`,
-`productionDeployment: null`, `productionHostname: null`. The contradiction is resolved by
-behavior, not by prose: a docs-only push was made and the deployment list is polled for a
-build that was not requested manually. Result recorded in the next section.
+`productionDeployment: null`, `productionHostname: null`. **Resolved by behavior:** that docs
+push produced production deployment `dpl_HepzYpBN…` (READY, aliased `lead-engine3.vercel.app`)
+with `githubCommitSha: ceec732…`, `githubCommitRef: main`, `githubDeployment: "1"` in 60
+seconds. The v9 `gitSource` field is not evidence of linkage — see the DEP-01 correction.
+The same poll also showed the merge commit `f5d0c93` had auto-deployed at 13:00Z, i.e.
+push-to-deploy has been working continuously since the crons block was fixed.
+
+## EXEC-01 · P0 — Production runs on ephemeral SQLite: no `SUPABASE_DB_URL` at runtime (found by E2E, 2026-09-26)
+
+Found by running the thing instead of reading about it. Chain of evidence, every step
+measured:
+
+| # | Probe | Result |
+|---|---|---|
+| 1 | `POST /api/jobs/start {"icp":"v0"}` with the machine bearer | 200, `{"job_id":"job-e05d107a8b","state":"QUEUED","mode":"queue"}` — enqueue path works |
+| 2 | `worker-tick` workflow, `ticks=2` | both ticks leased: `{"leased":true,"job_id":"job-e78e72f7ce","error":"OperationalError: database is locked"}` — **a SQLite error string** |
+| 3 | `GET /api/status` → new `storage` field | `{"backend":"sqlite","dsn_present":false,"dsn_host":null}` — the process has no DSN |
+| 4 | `GET /api/status` minutes later, after a redeploy | `jobs_by_state: {}` — the two queued jobs **vanished**: the store is per-instance ephemeral |
+| 5 | `GET /api/leads`, `/api/activity` | `[]`, `{"events":[]}` while Postgres holds 102 leads and the ledger 181 rows |
+
+`OperationalError: database is locked` + `dsn_present: false` + jobs disappearing is one
+story: `open_db()` saw no `SUPABASE_DB_URL`/`DATABASE_URL`, fell back to
+`Database(DB_PATH)`, and every write went to a file inside a serverless instance. Job
+execution has therefore **never** run against Supabase Postgres in this deployment
+generation, and the retention sweep measured today as `retention_erased: 0` ran against
+that file, not against the 102 real leads.
+
+**What this does NOT mean.** Two claims I made mid-investigation and retract:
+- *Wrong-database theory*: "production writes to a different Supabase project". It doesn't
+  write to any project. The `.env` DSN resolves to user
+  `lead_engine.abshiqxxsvdtbdngycpb` @ `aws-1-eu-west-1.pooler.supabase.com:5432` — the same
+  project the two migrations were applied to, and the same role whose wide grants went
+  84 → 0. That work is correctly placed; its newest rows date to 2026-09-17 because that is
+  when production stopped writing to it.
+- *Vercel `sensitive` type theory*: `SUPABASE_URL` is also type `sensitive`, and
+  `GET /api/auth/session` returns `mode: "supabase"` — so it DOES reach the runtime. The
+  gap is specific to `SUPABASE_DB_URL`'s **value** being empty in production, not a
+  platform-wide behavior. (I do not fix this myself: setting it means transmitting the DB
+  credential, which needs the owner, not an agent improvising with secrets on disk.)
+
+**Why the sensors exist now.** Before step 3 nothing in the system could answer "which
+store are you on", and every hypothesis about this failure was guesswork — including two
+wrong ones I wrote down. `/api/status` now carries `storage` at zero extra statements
+(`tests/test_storage_report.py`, budgets still enforced by
+`tests/test_status_statement_budget.py`).
+
+**Owner action, one command** (value is already in local `.env`; the app needs
+`sslmode` on the pooler DSN, which the current value omits):
+
+```bash
+cd "D:/lead generation" && vercel env rm SUPABASE_DB_URL production --yes && \
+  vercel env add SUPABASE_DB_URL production <<< "$(grep -m1 '^SUPABASE_DB_URL=' .env | cut -d= -f2-)" && \
+  vercel redeploy --prod --yes
+```
+
+Then `curl -s https://lead-engine3.vercel.app/api/status | jq .storage` must read
+`{"backend":"postgres","dsn_present":true,"dsn_host":"aws-1-eu-west-1.pooler.supabase.com:5432"}`.
+Once that is true, the queued→running→completed proof, the retention sweep, the audit
+trail and the new index all become live behavior rather than intentions.
+
+**Residue check:** the E2E created no rows in Postgres (jobs lived in the ephemeral file
+and are gone); nothing synthetic remains in production.
