@@ -878,3 +878,19 @@ the last deploy covers all application code (`9705aff`); the two commits after i
 register documentation only, so the deployed artifact is functionally current — which is
 exactly the kind of claim that needs the Git-integration fix (owner item 1) to stop being
 hand-verified.
+
+## Post-close-out: security updates shipped (2026-09-26)
+
+PR #10 (vitest 3.2.7 → 4.1.11) merged as `f5d0c93` after validating the full web gate on
+4.1.11 in the real tree: **78/78, typecheck clean, build green**. All three Dependabot
+alerts now read `state: fixed`. Note that the PR's `Vercel` check was failing while
+`backend`/`frontend` passed — its branch predated DEP-01, so its `vercel.json` still
+carried the Hobby-rejected `*/5` crons: the same policy bug, visible as a red X on an
+unrelated PR.
+
+**Push-to-deploy claim, re-measured:** `vercel git connect` reports
+"`7ari9aff-crypto/lead-engine` is already connected to your project", while
+`GET /v9/projects/lead-engine` returns `gitSource: null`, `repository: null`,
+`productionDeployment: null`, `productionHostname: null`. The contradiction is resolved by
+behavior, not by prose: a docs-only push was made and the deployment list is polled for a
+build that was not requested manually. Result recorded in the next section.
