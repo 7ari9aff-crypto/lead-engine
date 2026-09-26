@@ -1,0 +1,42 @@
+# Lead Engine V6 CI — architecture gates + tests
+# Runs on the v6-foundation branch and PRs targeting it.
+# The legacy CI (ci.yml) keeps guarding the legacy stack on main.
+
+name: v6
+
+on:
+  push:
+    branches: [v6-foundation]
+  pull_request:
+    branches: [v6-foundation]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  v6:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest pytest-asyncio httpx
+
+      - name: Lint (ruff) — V6 layers
+        run: python -m ruff check domain application infrastructure runtime api contracts apps tests/v6
+
+      - name: Architecture gates + tests (unit / integration / failure / security / E2E)
+        env:
+          # Supplied as repo secrets; the suite runs against the Supabase
+          # Postgres inside the dedicated V6 schemas only.
+          LEAD_ENGINE_V6_DATABASE_URL: ${{ secrets.V6_DATABASE_URL }}
+          LEAD_ENGINE_V6_SUPABASE_ACCESS_TOKEN: ${{ secrets.V6_SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.V6_SUPABASE_PROJECT_REF }}
+        run: python -m pytest tests/v6 -q

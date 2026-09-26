@@ -23,8 +23,7 @@ def main(argv: list[str] | None = None) -> int:
     from infrastructure.events.relay import OutboxRelay
     from infrastructure.pii.vault import PiiVault
     from infrastructure.postgres.pool import Database
-    from infrastructure.providers.fakes import FakeSearchProvider, FakeVerifyProvider
-    from infrastructure.providers.gateway import ProviderGateway
+    from infrastructure.providers.bootstrap import build_gateway
     from infrastructure.uow import PgUowFactory
     from runtime.worker import Worker
 
@@ -32,9 +31,7 @@ def main(argv: list[str] | None = None) -> int:
     db = Database(settings.database_url)
     vault = PiiVault(db, settings)
 
-    gateway = ProviderGateway()
-    gateway.register(FakeSearchProvider("fake-search", priority=10, results=[], cost=0))
-    gateway.register(FakeVerifyProvider("fake-verify", priority=10))
+    gateway = build_gateway()
 
     container = Container(
         settings=settings, db=db, vault=vault, gateway=gateway, model_gateway=None,

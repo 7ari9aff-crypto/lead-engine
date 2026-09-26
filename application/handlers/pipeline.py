@@ -85,6 +85,12 @@ class AcquisitionPipelineHandler:
             phase = checkpoint["phase"]
         if phase == "QUALIFYING":
             checkpoint = self._qualify(ctx, ops, checkpoint)
+        if not checkpoint.get("company_ids"):
+            # honesty rule: a run that discovered nothing is PARTIAL_SUCCESS,
+            # never a silent green READY_FOR_REVIEW
+            return "PARTIAL_SUCCESS"
+        with ops.uow() as tx:
+            tx.repos.acquisition.set_campaign_state(ctx.campaign_id or "", "READY_FOR_REVIEW")
         return "READY_FOR_REVIEW"
 
     # ------------------------------------------------------------------
@@ -430,6 +436,4 @@ class AcquisitionPipelineHandler:
                     payload={"company_id": company_id, "decision": decision.value,
                              "score": score},
                 ))
-        with ops.uow() as tx:
-            tx.repos.acquisition.set_campaign_state(ctx.campaign_id or "", "READY_FOR_REVIEW")
         return {**ck, "phase": "DONE"}

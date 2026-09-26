@@ -22,22 +22,20 @@ def main(argv: list[str] | None = None) -> int:
     from application.handlers.pipeline import AcquisitionPipelineHandler
     from infrastructure.config import Settings
     from infrastructure.events.relay import OutboxRelay
-    from infrastructure.models.gateway import FakeModel, ModelGateway
     from infrastructure.pii.vault import PiiVault
     from infrastructure.postgres.pool import Database
-    from infrastructure.providers.fakes import FakeSearchProvider, FakeVerifyProvider
-    from infrastructure.providers.gateway import ProviderGateway
 
     settings = Settings.load()
     db = Database(settings.database_url)
     vault = PiiVault(db, settings)
 
-    gateway = ProviderGateway()
-    gateway.register(FakeSearchProvider("fake-search", priority=10, results=[]))
-    gateway.register(FakeVerifyProvider("fake-verify", priority=10))
+    from infrastructure.providers.bootstrap import build_gateway
 
-    model_gateway = ModelGateway()
-    model_gateway.register("planning", FakeModel())
+    gateway = build_gateway()
+
+    from infrastructure.providers.bootstrap import build_model_gateway
+
+    model_gateway = build_model_gateway()
 
     container = Container(
         settings=settings, db=db, vault=vault, gateway=gateway,

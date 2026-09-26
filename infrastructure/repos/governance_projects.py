@@ -174,11 +174,12 @@ class LineageRepo:
         )
         provider_calls = _q(
             self.cur,
-            """SELECT provider_id, operation, status, cost_cents, created_at
-               FROM effects.effect_ledger
-               WHERE org_id = current_setting('app.tenant_id', true)::uuid
-                 AND job_id = %s
-               ORDER BY created_at DESC LIMIT 20""",
+            """SELECT e.provider_id, e.operation, e.status, e.cost_cents, e.created_at
+               FROM effects.effect_ledger e
+               JOIN runtime.jobs j ON j.id = e.job_id
+               WHERE e.org_id = current_setting('app.tenant_id', true)::uuid
+                 AND j.campaign_id = %s
+               ORDER BY e.created_at DESC LIMIT 20""",
             (lead.get("campaign_id"),),
         )
         return {
