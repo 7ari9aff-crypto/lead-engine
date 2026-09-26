@@ -869,3 +869,12 @@ click by the owner.
 Dependabot unable to open a security-update PR, most plausibly because PR #10 already
 covers the same ecosystem bump. Merging #10 (validated locally: 78/78 on vitest 4.1.11)
 closes all three alerts and should clear the updater.
+
+**Scheduled cadence proven unattended (2026-09-26 00:12 UTC):** the `worker-tick` workflow
+has since fired on its own `schedule` trigger — every listed run `event: schedule`,
+`conclusion: success` (13 check-runs on the current `main`), no manual dispatch involved.
+Durable queue execution is therefore live, not just reachable. Production deployment state:
+the last deploy covers all application code (`9705aff`); the two commits after it are
+register documentation only, so the deployed artifact is functionally current — which is
+exactly the kind of claim that needs the Git-integration fix (owner item 1) to stop being
+hand-verified.
