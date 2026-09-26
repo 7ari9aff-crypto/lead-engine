@@ -33,8 +33,6 @@ def test_sqlite_when_no_dsn(monkeypatch):
 
 
 def test_postgres_reported_with_dsn_and_masked_host():
-    from lead_engine.db import Database
-    db = Database(":memory:")
     dsn = "postgresql://postgres.abc123:sup3r-s3cret@aws-1-eu-west-1.pooler.supabase.com:6543/postgres"
     report = _storage_report(PgDatabase(), dsn=dsn)
     assert report["backend"] == "postgres"
@@ -48,7 +46,6 @@ def test_postgres_reported_with_dsn_and_masked_host():
 def test_status_endpoint_carries_storage():
     import json
 
-    import fastapi
     from fastapi.testclient import TestClient
 
     from lead_engine.api import app as appmod
