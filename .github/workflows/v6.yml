@@ -69,7 +69,10 @@ jobs:
           a.execute("alter table public._rls_probe force row level security")
           app = psycopg.connect('postgresql://lead_engine:v6-ci-app@localhost:5433/lead_engine_v6', autocommit=True)
           print('app user:', app.execute("select current_user, (select rolsuper from pg_roles where rolname = current_user), (select rolbypassrls from pg_roles where rolname = current_user)").fetchone())
-          print('probe rows seen by app:', app.execute("select count(*) from public._rls_probe").fetchone())
+          try:
+              print('probe rows seen by app:', app.execute("select count(*) from public._rls_probe").fetchone())
+          except psycopg.errors.InsufficientPrivilege:
+              print('probe rows seen by app: DENIED (RLS deny-by-default works)')
           a.execute("drop table public._rls_probe")
           a.close(); app.close()
           PY
