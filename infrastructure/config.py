@@ -71,8 +71,8 @@ def _sanitize_dsn(url: str) -> str:
 class Settings:
     database_url: str
     master_key: bytes
-    admin_database_url: str = ""
     service_token: str
+    admin_database_url: str = ""
     supabase_jwt_secret: str = ""
     redis_url: str = ""
     relay_batch_size: int = 100
