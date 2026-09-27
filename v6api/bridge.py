@@ -110,7 +110,14 @@ def mount_v6(legacy_app) -> None:
 
     # Embedded mode namespaces V6 under /v6 — the legacy app already owns
     # /api/v1/* and registration order would shadow the V6 projection reads.
+    # The included router is moved to the FRONT of the match order: newer
+    # Starlette's _IncludedRouter defers to same-path legacy routes otherwise.
     legacy_app.include_router(build_v6_router(container), prefix="/v6")
+    try:
+        included = legacy_app.router.routes.pop()
+        legacy_app.router.routes.insert(0, included)
+    except IndexError:  # pragma: no cover — router always non-empty
+        pass
 
     legacy_app.dependency_overrides[require_principal_ref()] = _bridge_principal
     legacy_app.dependency_overrides[require_manager_ref()] = _bridge_manager
