@@ -54,6 +54,7 @@ const NAV_SECTIONS = [
     items: [
       { href: "/agents", label: "الوكلاء", icon: Bot },
       { href: "/integrations", label: "التكاملات", icon: Plug },
+      { href: "/v6", label: "محرك V6", icon: Zap },
     ],
   },
   {

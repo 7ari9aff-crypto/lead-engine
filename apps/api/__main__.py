@@ -6,6 +6,7 @@ Postgres, PII vault, fake providers until real adapters are enabled).
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 
@@ -28,6 +29,16 @@ def main(argv: list[str] | None = None) -> int:
     settings = Settings.load()
     db = Database(settings.database_url)
     vault = PiiVault(db, settings)
+
+    # Legacy credential hydration: the operator's real keys live in the
+    # legacy encrypted credential store — reuse it instead of duplicating.
+    try:
+        from lead_engine.db import open_db as _legacy_open_db
+        from lead_engine.secrets import hydrate_environment as _hydrate
+
+        _hydrate(_legacy_open_db(), os.environ.get("LEAD_ENGINE_ORG_ID"))
+    except Exception:
+        pass  # tests / V6-only environments have no legacy store
 
     from infrastructure.providers.bootstrap import build_gateway
 

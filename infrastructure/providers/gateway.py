@@ -59,8 +59,15 @@ class _Ledger:
         return str(row["id"]), False
 
     def complete(self, effect_id: str, ok: bool, cost_cents: int,
-                 result_digest: str | None, status: str | None = None) -> None:
-        final = status or ("succeeded" if ok else "failed")
+                 result_digest: str | None, failure_class: str | None = None) -> None:
+        # Ledger status is constrained to reserved/succeeded/failed/uncertain;
+        # the failure CLASS lives in enrichment_attempts / job error, not here.
+        if ok:
+            final = "succeeded"
+        elif failure_class == "AMBIGUOUS":
+            final = "uncertain"
+        else:
+            final = "failed"
         self.cur.execute(
             """UPDATE effects.effect_ledger
                SET status = %s, cost_cents = %s, result_digest = %s
@@ -113,7 +120,7 @@ class ProviderGateway:
                 return result
 
             ledger.complete(effect_id, False, 0, None,
-                            status=result.failure.value if result.failure else "failed")
+                            failure_class=result.failure.value if result.failure else None)
             if result.failure in (FailureClass.TRANSIENT, FailureClass.RATE_LIMIT,
                                   FailureClass.CAPACITY, FailureClass.AMBIGUOUS):
                 continue  # try the next provider in the waterfall

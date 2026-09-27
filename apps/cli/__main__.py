@@ -29,11 +29,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "seed":
         from application.usecases.onboard import OnboardOrg
         from infrastructure.postgres.pool import Database
+        from infrastructure.repos.system import BootstrapPg
 
         db = Database(settings.database_url)
         try:
-            result = OnboardOrg(db).execute(
-                slug=args.org_slug, name="Demo Org", plan_code="pro", owner_ext_id="local-dev-owner"
+            result = OnboardOrg(BootstrapPg(db)).execute(
+                slug=args.org_slug, name="Demo Org", plan_code="pro",
+                owner_ext_id="local-dev-owner"
             )
             print(f"org {result['org_id']} ready (plan pro)")
         finally:

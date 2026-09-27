@@ -21,6 +21,10 @@ export default defineConfig(({ mode }) => {
       host: true,
       proxy: {
         "/api": { target: BACKEND, changeOrigin: true },
+        // V6 embedded router: only the API surface is proxied — the bare /v6
+        // path stays in vite so the SPA route serves the dev index.
+        "/v6/api": { target: BACKEND, changeOrigin: true },
+        "/v6/healthz": { target: BACKEND, changeOrigin: true },
         "/providers": { target: BACKEND, changeOrigin: true },
         "/leads": { target: BACKEND, changeOrigin: true },
         "/jobs": { target: BACKEND, changeOrigin: true },

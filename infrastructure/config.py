@@ -19,6 +19,18 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS_DIR = REPO_ROOT / "migrations"
 ENV_FILE = REPO_ROOT / ".env"
 
+
+
+def _file_value(key: str) -> str:
+    """Read one KEY from .env directly (bypassing blanked env overrides)."""
+    if not ENV_FILE.exists():
+        return ""
+    for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line.startswith(f"{key}="):
+            return line.partition("=")[2].strip().strip('"').strip("'")
+    return ""
+
 DEV_MASTER_KEY_B64 = "3q2+7wIDh8aSb1mZnKpQvXyT5uJcR2eL4oP8gW0sA9E="  # dev-only; rotate in prod
 DEV_SERVICE_TOKEN = "v6-dev-service-token"  # dev-only; service/CLI authentication
 
@@ -39,6 +51,11 @@ def _load_env_file(path: Path) -> None:
         key, value = key.strip(), value.strip().strip('"').strip("'")
         if key and key not in os.environ:
             os.environ[key] = value
+
+
+def _nonblank_env(key: str) -> str:
+    value = (os.environ.get(key) or "").strip()
+    return value if value else ""
 
 
 def _sanitize_dsn(url: str) -> str:
@@ -67,9 +84,14 @@ class Settings:
     @classmethod
     def load(cls) -> "Settings":
         _load_env_file(ENV_FILE)
+        # Priority: explicit V6 DSN > live env Supabase DSN > .env file value
+        # (the file value saves us when a host blanks the env for legacy SQLite
+        # mode but V6 still needs the authoritative Postgres).
         dsn = (
             os.environ.get("LEAD_ENGINE_V6_DATABASE_URL")
-            or os.environ.get("SUPABASE_DB_URL")
+            or _nonblank_env("SUPABASE_DB_URL")
+            or _file_value("SUPABASE_DB_URL")
+            or os.environ.get("DATABASE_URL")
             or "postgresql://ledev:ledev@localhost:5433/lead_engine_v6"
         )
         master_b64 = os.environ.get("LEAD_ENGINE_V6_MASTER_KEY", DEV_MASTER_KEY_B64)

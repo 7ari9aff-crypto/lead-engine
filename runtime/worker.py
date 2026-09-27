@@ -83,10 +83,47 @@ class Worker:
         self._uow_factory = uow_factory
 
     def run_maintenance(self) -> dict[str, int]:
-        """Reaper + relay tick — safe to run inside any worker loop."""
+        """Reaper + relay tick + effect reconciliation — all idempotent."""
         requeued = leasing.reclaim_expired(self._db)
         dispatched = self._relay.tick() if self._relay else 0
-        return {"requeued": len(requeued), "dispatched": dispatched}
+        flagged = self._reconcile_uncertain_effects()
+        return {"requeued": len(requeued), "dispatched": dispatched,
+                "reconciliation_flags": flagged}
+
+    def _reconcile_uncertain_effects(self) -> int:
+        """Effects stuck in 'uncertain' for over a day get a durable human
+        review item (§15: ambiguity → reconciliation, never blind retry)."""
+        with self._db.tx_system() as conn, conn.cursor() as cur:
+            rows = cur.execute(
+                """SELECT id, org_id FROM effects.effect_ledger
+                   WHERE status = 'uncertain'
+                     AND created_at < now() - interval '24 hours'
+                     AND reconciled_at IS NULL
+                   LIMIT 20""").fetchall()
+            flagged = 0
+            for row in rows:
+                exists = cur.execute(
+                    """SELECT 1 FROM agents.approvals
+                       WHERE subject_type = 'effect' AND subject_id = %s
+                         AND status = 'pending' LIMIT 1""",
+                    (str(row["id"]),),
+                ).fetchone()
+                if exists:
+                    continue
+                cur.execute(
+                    """INSERT INTO agents.approvals
+                         (org_id, subject_type, subject_id, action, status,
+                          requested_by)
+                       VALUES (%s, 'effect', %s, 'reconcile_effect', 'pending',
+                               'reconciliation-worker')""",
+                    (str(row["org_id"]), str(row["id"])),
+                )
+                cur.execute(
+                    "UPDATE effects.effect_ledger SET reconciled_at = now() WHERE id = %s",
+                    (row["id"],),
+                )
+                flagged += 1
+        return flagged
 
     def run_once(self) -> bool:
         self.run_maintenance()

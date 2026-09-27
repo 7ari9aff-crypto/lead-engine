@@ -2090,6 +2090,19 @@ app.include_router(cron_router)
 # the first registration wins and silently shadows the other implementation.
 
 
+# ---- Lead Engine V6 (mounted single-origin; ADR docs/adr/) -------------
+# Registered BEFORE the SPA fallback so /api/v1/* V6 routes win; the bridge
+# maps the legacy session/JWT onto the V6 principal.
+try:
+    from api.bridge import mount_v6
+
+    mount_v6(app)
+except Exception as _v6_exc:  # pragma: no cover — legacy keeps booting without V6
+    import logging
+
+    logging.getLogger("lead_engine").error("V6 mount failed: %s", _v6_exc)
+
+
 # SPA fallback — any non-API path that didn't match above returns the SPA
 # index.html so the React Router (or any client router) can take over. This
 # makes the dashboard work at /chat, /keys, /leads, etc. without 404s.

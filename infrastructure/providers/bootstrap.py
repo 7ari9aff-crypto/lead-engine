@@ -1,4 +1,10 @@
-"""Composition helpers for entrypoints (apps.api / apps.worker)."""
+"""Composition helpers for entrypoints (apps.api / apps.worker).
+
+Provider selection (env LEAD_ENGINE_V6_PROVIDERS):
+  auto (default) — real adapters when their API keys exist, fakes otherwise
+  demo           — deterministic demo providers (offline dev/tests)
+  real           — real adapters only (fail loudly when keys are missing)
+"""
 from __future__ import annotations
 
 import os
@@ -30,23 +36,56 @@ DEMO_CONTACTS = {
 DEMO_VERIFY = {"info@alpha-dental.sa": "DELIVERABLE", "office@beta-clinic.sa": "CATCH_ALL"}
 
 
+def _key(name: str) -> str:
+    return (os.environ.get(name) or "").strip()
+
+
+def _ensure_env_loaded() -> None:
+    from infrastructure.config import ENV_FILE, _load_env_file
+
+    _load_env_file(ENV_FILE)
+
+
+def _mode() -> str:
+    mode = (os.environ.get("LEAD_ENGINE_V6_PROVIDERS") or "auto").strip().lower()
+    if mode == "auto":
+        has_real = bool(_key("TAVILY_API_KEY") or _key("EXA_API_KEY"))
+        return "real" if has_real else "demo"
+    return mode
+
+
 def build_gateway() -> ProviderGateway:
-    """Demo/offline gateways until real adapters are enabled; the contract
-    (capability + waterfall + ledger) is identical to the production one."""
+    _ensure_env_loaded()
     gateway = ProviderGateway()
-    if os.environ.get("LEAD_ENGINE_V6_DEMO") == "1":
-        gateway.register(FakeSearchProvider("demo-search", priority=10,
+    mode = _mode()
+    if mode in ("demo", "auto"):
+        gateway.register(FakeSearchProvider("demo-search", priority=90,
                                             results=DEMO_SEARCH_RESULTS))
-        gateway.register(FakeVerifyProvider("demo-verify", priority=10,
+        gateway.register(FakeVerifyProvider("demo-verify", priority=90,
                                             mapping=DEMO_VERIFY))
-        gateway.register(FakeContactProvider(contacts_by_domain=DEMO_CONTACTS))
-    else:
-        gateway.register(FakeSearchProvider("fake-search", priority=10, results=[]))
-        gateway.register(FakeVerifyProvider("fake-verify", priority=10))
+        gateway.register(FakeContactProvider(contacts_by_domain=DEMO_CONTACTS, priority=90))
+    if mode in ("real", "auto"):
+        from infrastructure.providers.real import (
+            ExaSearchAdapter,
+            SmtpVerifyAdapter,
+            TavilySearchAdapter,
+        )
+
+        if _key("TAVILY_API_KEY"):
+            gateway.register(TavilySearchAdapter())
+        if _key("EXA_API_KEY"):
+            gateway.register(ExaSearchAdapter())
+        gateway.register(SmtpVerifyAdapter())
     return gateway
 
 
 def build_model_gateway() -> ModelGateway:
+    _ensure_env_loaded()
     model_gateway = ModelGateway()
+    if _key("GEMINI_API_KEY"):
+        from infrastructure.providers.real import GeminiReasonModel
+
+        model_gateway.register("reasoning", GeminiReasonModel(), priority=10)
+    model_gateway.register("reasoning", FakeModel(), priority=99)
     model_gateway.register("planning", FakeModel())
     return model_gateway

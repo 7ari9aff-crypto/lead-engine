@@ -31,6 +31,7 @@ from contracts.events import (
 from contracts.providers import Capability
 from domain.acquisition.company import (
     domain_from_url,
+    extract_contacts,
     normalize_name,
     resolve_identity,
 )
@@ -220,6 +221,22 @@ class AcquisitionPipelineHandler:
         if entry.get("city"):
             tx.repos.claims.upsert_claim(company_id, "city", entry["city"], source_id,
                                          "icp_plan", 0.9)
+
+        # contacts visible in the snippet itself (legacy-proven signal)
+        found = extract_contacts(f"{title} {raw.get('snippet', '')}")
+        for email in found["emails"]:
+            contact_id = tx.repos.contacts.find_or_create_contact(
+                company_id, normalize_name(title) or title, "contact", source_id)
+            ref = tx.vault.store("email", email)
+            tx.repos.contacts.attach_email_ref(contact_id, ref)
+            tx.repos.claims.add_observation(
+                company_id, "contact_email_masked", tx.vault.masked("email", email),
+                source_id, "snippet", 0.7)
+        for phone in found["phones"]:
+            contact_id = tx.repos.contacts.find_or_create_contact(
+                company_id, normalize_name(title) or title, "contact", source_id)
+            ref = tx.vault.store("phone", phone)
+            tx.repos.contacts.attach_phone_ref(contact_id, ref)
         return company_id
 
     # ------------------------------------------------------------------
@@ -355,13 +372,28 @@ class AcquisitionPipelineHandler:
                     icp_city_match=bool(summary.get("city")),
                 )
                 scored = compute_score(inputs)
+                ai_note = None
+                if ops.model_gateway is not None:
+                    try:
+                        reply = ops.model_gateway.complete(
+                            "reasoning",
+                            "اقترح تفسيرًا قصيرًا بالعربية (سطر واحد) لدرجة تأهيل شركة "
+                            f"بها: موقع={inputs.has_website}، مصادر={inputs.distinct_source_count}، "
+                            f"ملاحظات={inputs.observation_count}، بريد={best.value if best else 'none'}، "
+                            f"الدرجة={scored.score}. اذكر لماذا تستحق المراجعة أو القبول. "
+                            "ممنوع ذكر أي بيانات شخصية.")
+                        ai_note = reply.text[:400]
+                    except Exception as exc:  # noqa: BLE001 — AI is advisory only
+                        ai_note = None
+                        del exc
                 tx.repos.intelligence.add_scoring_record(
                     company_id, scored.score, scored.version,
                     {"best_email_status": best.value if best else None,
                      "has_website": inputs.has_website,
                      "observations": inputs.observation_count,
-                     "sources": inputs.distinct_source_count},
-                    scored.explanations,
+                     "sources": inputs.distinct_source_count,
+                     "ai_note": ai_note},
+                    scored.explanations + ([f"ai: {ai_note}"] if ai_note else []),
                 )
             index += 1
             ck = {**ck, "score_index": index}

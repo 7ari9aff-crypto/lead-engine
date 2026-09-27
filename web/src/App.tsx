@@ -37,6 +37,7 @@ const ResearchPage = lazy(() => import("@/pages/Research").then((m) => ({ defaul
 const ReviewPage = lazy(() => import("@/pages/Review").then((m) => ({ default: m.ReviewPage })));
 const IcpPage = lazy(() => import("@/pages/Icp").then((m) => ({ default: m.IcpPage })));
 const DocsPage = lazy(() => import("@/pages/Docs").then((m) => ({ default: m.DocsPage })));
+const V6ConsolePage = lazy(() => import("@/pages/V6Console").then((m) => ({ default: m.V6ConsolePage })));
 
 function PageSkeleton() {
   return (
@@ -101,6 +102,7 @@ export default function App() {
                     <Route path="/review" component={ReviewPage} />
                     <Route path="/icp" component={IcpPage} />
                     <Route path="/docs" component={DocsPage} />
+                    <Route path="/v6" component={V6ConsolePage} />
                     <Route>
                       <NotFound />
                     </Route>

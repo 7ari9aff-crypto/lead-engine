@@ -1,14 +1,14 @@
 # Lead Engine V6 CI — architecture gates + tests
-# Runs on the v6-foundation branch and PRs targeting it.
-# The legacy CI (ci.yml) keeps guarding the legacy stack on main.
+# Runs the V6 suite on main and the v6-foundation branch against a service
+# Postgres (no cloud secrets needed; the suite owns its V6 schemas).
 
 name: v6
 
 on:
   push:
-    branches: [v6-foundation]
+    branches: [main, v6-foundation]
   pull_request:
-    branches: [v6-foundation]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -18,6 +18,22 @@ jobs:
   v6:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ledev
+          POSTGRES_PASSWORD: ledev
+          POSTGRES_DB: lead_engine_v6
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U ledev -d lead_engine_v6"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+
     steps:
       - uses: actions/checkout@v4
 
@@ -27,16 +43,12 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt pytest pytest-asyncio httpx
+        run: pip install -r requirements.txt pytest pytest-asyncio
 
       - name: Lint (ruff) — V6 layers
         run: python -m ruff check domain application infrastructure runtime api contracts apps tests/v6
 
       - name: Architecture gates + tests (unit / integration / failure / security / E2E)
         env:
-          # Supplied as repo secrets; the suite runs against the Supabase
-          # Postgres inside the dedicated V6 schemas only.
-          LEAD_ENGINE_V6_DATABASE_URL: ${{ secrets.V6_DATABASE_URL }}
-          LEAD_ENGINE_V6_SUPABASE_ACCESS_TOKEN: ${{ secrets.V6_SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_REF: ${{ secrets.V6_SUPABASE_PROJECT_REF }}
+          LEAD_ENGINE_V6_DATABASE_URL: postgresql://ledev:ledev@localhost:5433/lead_engine_v6
         run: python -m pytest tests/v6 -q

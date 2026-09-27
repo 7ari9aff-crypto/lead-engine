@@ -6,6 +6,7 @@ normalized name).
 """
 from __future__ import annotations
 
+import re
 from urllib.parse import urlparse
 
 SOCIAL_DOMAINS = ("facebook.com", "instagram.com", "linkedin.com", "twitter.com",
@@ -56,3 +57,30 @@ def resolve_identity(
     if known_by_domain or known_by_name:
         return "existing"
     return "new"
+
+
+_EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
+_PHONE_RE = re.compile(r"(?:(?:\+|00)966|0)[\s\-]?\d{2,3}(?:[\s\-]?\d{3,4}){2}|\+\d{1,3}[\s\-]?\d{2,4}(?:[\s\-]?\d{3,4}){1,2}")
+_WILD_EMAILS = ("example.com", "domain.com", "email.com", "yourdomain", "sentry.io",
+                "wixpress", "@2x", ".png", ".jpg", ".webp", ".svg")
+
+
+def extract_contacts(text: str) -> dict:
+    """Contact extraction from unstructured snippet/title text — the same
+    signal the legacy pipeline used, now a pure domain function.
+
+    Returns {"emails": [...], "phones": [...]} deduplicated and filtered
+    against obvious placeholder/junk patterns."""
+    emails: list[str] = []
+    for raw in _EMAIL_RE.findall(text or ""):
+        candidate = raw.lower().strip(".")
+        if any(bad in candidate for bad in _WILD_EMAILS):
+            continue
+        if candidate not in emails:
+            emails.append(candidate)
+    phones: list[str] = []
+    for raw in _PHONE_RE.findall(text or ""):
+        digits = re.sub(r"[^+0-9]", "", raw)
+        if len(re.sub(r"\D", "", digits)) >= 9 and digits not in phones:
+            phones.append(digits)
+    return {"emails": emails[:3], "phones": phones[:2]}
