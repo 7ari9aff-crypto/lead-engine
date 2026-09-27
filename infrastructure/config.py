@@ -62,8 +62,6 @@ def _sanitize_dsn(url: str) -> str:
     parsed = urllib.parse.urlsplit(url)
     query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
     kept = [(k, v) for k, v in query if k in _KEEP_PARAMS]
-    if not any(k == "sslmode" for k, _ in kept):
-        kept.append(("sslmode", "require"))
     return urllib.parse.urlunsplit(
         (parsed.scheme, parsed.netloc, parsed.path, urllib.parse.urlencode(kept), "")
     )
