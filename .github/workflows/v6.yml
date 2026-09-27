@@ -46,7 +46,7 @@ jobs:
         run: pip install -r requirements.txt pytest pytest-asyncio
 
       - name: Lint (ruff) — V6 layers
-        run: python -m ruff check domain application infrastructure runtime api contracts apps tests/v6
+        run: python -m ruff check domain application infrastructure runtime v6api contracts apps tests/v6
 
       - name: Architecture gates + tests (unit / integration / failure / security / E2E)
         env:

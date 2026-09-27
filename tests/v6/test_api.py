@@ -4,8 +4,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from api.app import create_app
-from api.dependencies import Container
+from v6api.app import create_app
+from v6api.dependencies import Container
 from application.handlers.pipeline import AcquisitionPipelineHandler
 from infrastructure.config import Settings
 from infrastructure.events.relay import OutboxRelay

@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from api.dependencies import (
+from v6api.dependencies import (
     Container,
     init_container,
     map_domain_errors,

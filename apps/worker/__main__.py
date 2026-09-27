@@ -18,7 +18,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--worker-id", default=None)
     args = parser.parse_args(argv)
 
-    from api.dependencies import Container
+    from v6api.dependencies import Container
     from application.handlers.pipeline import AcquisitionPipelineHandler
     from infrastructure.config import Settings
     from infrastructure.events.relay import OutboxRelay

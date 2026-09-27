@@ -14,12 +14,12 @@ import os
 
 from fastapi import HTTPException, Request
 
-from api.app import build_v6_router
+from v6api.app import build_v6_router
 from application.ports import Principal
 
 
 def _bridge_principal(request: Request) -> Principal:
-    from api.dependencies import get_container
+    from v6api.dependencies import get_container
 
     container = get_container()
     settings = container.settings
@@ -76,7 +76,7 @@ def mount_v6(legacy_app) -> None:
         return
     legacy_app.state.v6_mounted = True
 
-    from api.app import Container  # noqa: F401 — typing surface
+    from v6api.app import Container  # noqa: F401 — typing surface
     from application.handlers.pipeline import AcquisitionPipelineHandler
     from infrastructure.config import Settings
     from infrastructure.events.relay import OutboxRelay
@@ -103,7 +103,7 @@ def mount_v6(legacy_app) -> None:
     )
     init_done = getattr(legacy_app.state, "v6_container", None)
     if init_done is None:
-        from api.dependencies import init_container
+        from v6api.dependencies import init_container
 
         init_container(container)
         legacy_app.state.v6_container = container
@@ -121,12 +121,12 @@ def mount_v6(legacy_app) -> None:
 
 
 def require_principal_ref():
-    from api.dependencies import require_principal
+    from v6api.dependencies import require_principal
 
     return require_principal
 
 
 def require_manager_ref():
-    from api.dependencies import require_manager
+    from v6api.dependencies import require_manager
 
     return require_manager

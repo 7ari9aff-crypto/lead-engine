@@ -2094,7 +2094,7 @@ app.include_router(cron_router)
 # Registered BEFORE the SPA fallback so /api/v1/* V6 routes win; the bridge
 # maps the legacy session/JWT onto the V6 principal.
 try:
-    from api.bridge import mount_v6
+    from v6api.bridge import mount_v6
 
     mount_v6(app)
 except Exception as _v6_exc:  # pragma: no cover — legacy keeps booting without V6
