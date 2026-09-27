@@ -2099,8 +2099,16 @@ try:
     mount_v6(app)
 except Exception as _v6_exc:  # pragma: no cover — legacy keeps booting without V6
     import logging
+    import traceback
 
+    app.state.v6_error = "".join(traceback.format_exception(_v6_exc))[-1500:]
     logging.getLogger("lead_engine").error("V6 mount failed: %s", _v6_exc)
+
+
+@app.get("/v6/_debug")
+def _v6_mount_debug():  # pragma: no cover — diagnostics only
+    return {"mounted": getattr(app.state, "v6_mounted", False),
+            "error": getattr(app.state, "v6_error", None)}
 
 
 # SPA fallback — any non-API path that didn't match above returns the SPA
