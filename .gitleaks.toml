@@ -42,3 +42,14 @@ paths = [
   '''^\.env\.supabase\.bootstrap$''',
   '''^\.pnpm-store/''',
 ]
+[[allowlists]]
+description = "Historical dev-only master key default — removed from HEAD in b98561f"
+# The embedded base64 was a deterministic DEV-ONLY default (never used in
+# production; production requires LEAD_ENGINE_V6_MASTER_KEY in the env).
+# Removed from HEAD; the finding is in history only (commit c9f2e06).
+paths = [
+  '''^infrastructure/config\.py$''',
+]
+regexes = [
+  '''3q2\+7wIDh8aSb1mZnKpQvXyT5uJcR2eL4oP8gW0sA9E=''',
+]
