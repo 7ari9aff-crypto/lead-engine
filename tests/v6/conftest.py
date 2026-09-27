@@ -31,26 +31,34 @@ V6_SCHEMAS = [
 
 
 def _wipe_v6_schemas(settings: Settings) -> None:
-    """Drop ONLY the V6-owned schemas. Refuses anything else by construction."""
-    from infrastructure.postgres.supabase_api import SupabaseSqlClient
-    import os
+    """Drop ONLY the V6-owned schemas. Refuses anything else by construction.
 
-    client = None
-    token = os.environ.get("LEAD_ENGINE_V6_SUPABASE_ACCESS_TOKEN", "")
-    ref = os.environ.get("SUPABASE_PROJECT_REF", "")
-    admin = settings.admin_database_url or settings.database_url
-    if not (token and ref):
-        client = SupabaseSqlClient(token, ref)
-        for schema in V6_SCHEMAS:
-            client.query(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE;')
-        client.close()
-        return
-    # fallback: admin role with DDL rights
+    Order: direct DDL with the ADMIN DSN (CI service container, local dev)
+    first; the Supabase Management API only when the runtime role is
+    DDL-restricted (InsufficientPrivilege), as on the operator's Supabase.
+    """
+    import os
     import psycopg
 
-    with psycopg.connect(admin, autocommit=True) as conn:
-        for schema in V6_SCHEMAS:
-            conn.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+    admin = settings.admin_database_url or settings.database_url
+    try:
+        with psycopg.connect(admin, autocommit=True) as conn:
+            for schema in V6_SCHEMAS:
+                conn.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+        return
+    except psycopg.errors.InsufficientPrivilege:
+        pass
+
+    token = os.environ.get("LEAD_ENGINE_V6_SUPABASE_ACCESS_TOKEN", "").strip()
+    ref = os.environ.get("SUPABASE_PROJECT_REF", "").strip()
+    if not (token and ref):
+        raise RuntimeError("DDL denied and no Supabase API credentials for wipe")
+    from infrastructure.postgres.supabase_api import SupabaseSqlClient
+
+    client = SupabaseSqlClient(token, ref)
+    for schema in V6_SCHEMAS:
+        client.query(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE;')
+    client.close()
 
 
 @pytest.fixture(scope="session")
