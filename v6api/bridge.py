@@ -82,7 +82,10 @@ def mount_v6(legacy_app) -> None:
     from infrastructure.events.relay import OutboxRelay
     from infrastructure.pii.vault import PiiVault
     from infrastructure.postgres.pool import Database
+    from infrastructure.config import MIGRATIONS_DIR
+    from infrastructure.doctor.registry import build_doctor
     from infrastructure.providers.bootstrap import build_gateway, build_model_gateway
+    from infrastructure.repos.doctor_repo import DoctorRepo
 
     settings = Settings.load()
     try:
@@ -94,9 +97,14 @@ def mount_v6(legacy_app) -> None:
         pass
     db = Database(settings.database_url)
     vault = PiiVault(db, settings)
+    gateway = build_gateway()
+    model_gateway = build_model_gateway()
+    doctor = build_doctor(DoctorRepo(db, MIGRATIONS_DIR), vault=vault,
+                          gateway=gateway, model_gateway=model_gateway)
     container = Container(
         settings=settings, db=db, vault=vault,
-        gateway=build_gateway(), model_gateway=build_model_gateway(),
+        gateway=gateway, model_gateway=model_gateway,
+        doctor=doctor,
         handlers={"acquisition.run": AcquisitionPipelineHandler()},
         relay=OutboxRelay(db, consumer=lambda event: None,
                           batch_size=settings.relay_batch_size),

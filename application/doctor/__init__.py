@@ -1,0 +1,1 @@
+"""Doctor — the system sentinel."""

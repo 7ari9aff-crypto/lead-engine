@@ -1,7 +1,7 @@
 """V6 API entrypoint: python -m apps.api [--port 8002]
 
 Composition root: builds the container with real infrastructure (Supabase
-Postgres, PII vault, fake providers until real adapters are enabled).
+Postgres, PII vault, doctor sentinel, providers by bootstrap policy).
 """
 from __future__ import annotations
 
@@ -21,14 +21,24 @@ def main(argv: list[str] | None = None) -> int:
     from v6api.app import create_app
     from v6api.dependencies import Container
     from application.handlers.pipeline import AcquisitionPipelineHandler
-    from infrastructure.config import Settings
+    from infrastructure.config import MIGRATIONS_DIR, Settings
+    from infrastructure.doctor.registry import build_doctor
     from infrastructure.events.relay import OutboxRelay
     from infrastructure.pii.vault import PiiVault
     from infrastructure.postgres.pool import Database
+    from infrastructure.providers.bootstrap import (
+        build_gateway,
+        build_model_gateway,
+    )
+    from infrastructure.repos.doctor_repo import DoctorRepo
 
     settings = Settings.load()
     db = Database(settings.database_url)
     vault = PiiVault(db, settings)
+    gateway = build_gateway()
+    model_gateway = build_model_gateway()
+    doctor = build_doctor(DoctorRepo(db, MIGRATIONS_DIR), vault=vault,
+                          gateway=gateway, model_gateway=model_gateway)
 
     # Legacy credential hydration: the operator's real keys live in the
     # legacy encrypted credential store — reuse it instead of duplicating.
@@ -40,17 +50,9 @@ def main(argv: list[str] | None = None) -> int:
     except Exception:
         pass  # tests / V6-only environments have no legacy store
 
-    from infrastructure.providers.bootstrap import build_gateway
-
-    gateway = build_gateway()
-
-    from infrastructure.providers.bootstrap import build_model_gateway
-
-    model_gateway = build_model_gateway()
-
     container = Container(
         settings=settings, db=db, vault=vault, gateway=gateway,
-        model_gateway=model_gateway,
+        model_gateway=model_gateway, doctor=doctor,
         handlers={"acquisition.run": AcquisitionPipelineHandler()},
         relay=OutboxRelay(db, consumer=lambda event: None,
                           batch_size=settings.relay_batch_size),

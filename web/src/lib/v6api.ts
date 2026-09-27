@@ -67,6 +67,13 @@ export const v6Api = {
   lineage: (leadId: string) =>
     api.get<V6Lineage>(`${BASE}/api/v1/lineage/leads/${encodeURIComponent(leadId)}`),
 
+  doctorSummary: () =>
+    api.get<{ status: string; counts: { total: number; ok: number; warn: number; fail: number }; checks: { check_id: string; title: string; status: string; cause: string; evidence: Record<string, unknown> }[] }>(
+      `${BASE}/api/v1/doctor/summary`),
+
+  doctor: () => api.get<{ status: string; checks: { check_id: string; title: string; status: string; cause: string; evidence: Record<string, unknown> }[] }>(
+    `${BASE}/api/v1/doctor`),
+
   revealPii: (leadId: string, purpose: string, requestId?: string) =>
     api.post<{ contact_id: string; name?: string; role?: string; email?: string; phone?: string }>(
       `${BASE}/api/v1/leads/${encodeURIComponent(leadId)}/pii`,

@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 from contracts.errors import LeaseLostError
 from infrastructure.config import Settings
+from infrastructure.doctor.registry import write_alerts, write_heartbeat
 from application.ports import JobContext
 from runtime import leasing
 
@@ -71,7 +72,7 @@ class Worker:
 
     def __init__(self, db, settings: Settings, handlers: dict[str, Handler],
                  queues: list[str], worker_id: str, gateway=None, model_gateway=None,
-                 relay=None, uow_factory=None):
+                 relay=None, uow_factory=None, doctor=None):
         self._db = db
         self._settings = settings
         self._handlers = handlers
@@ -81,14 +82,24 @@ class Worker:
         self._model_gateway = model_gateway
         self._relay = relay
         self._uow_factory = uow_factory
+        self._doctor = doctor
 
     def run_maintenance(self) -> dict[str, int]:
-        """Reaper + relay tick + effect reconciliation — all idempotent."""
+        """Reaper + relay tick + effect reconciliation + sentinel — idempotent."""
         requeued = leasing.reclaim_expired(self._db)
         dispatched = self._relay.tick() if self._relay else 0
         flagged = self._reconcile_uncertain_effects()
+        self._tick_count = getattr(self, "_tick_count", 0) + 1
+        alert_stats = {"opened": 0, "resolved": 0}
+        if self._doctor is not None and self._tick_count % 10 == 0:
+            report = self._doctor.run(self._settings, org=None)
+            alert_stats = write_alerts(self._db, report)
+            for check in report.failing():
+                print(f"[doctor] FAIL {check.check_id}: {check.cause}")
+        if self._doctor is not None:
+            write_heartbeat(self._db, self._worker_id, ",".join(self._queues))
         return {"requeued": len(requeued), "dispatched": dispatched,
-                "reconciliation_flags": flagged}
+                "reconciliation_flags": flagged, **alert_stats}
 
     def _reconcile_uncertain_effects(self) -> int:
         """Effects stuck in 'uncertain' for over a day get a durable human

@@ -26,6 +26,7 @@ class Container:
     model_gateway: Any
     handlers: dict
     relay: Any = None
+    doctor: Any = None
 
 
 _container: Container | None = None

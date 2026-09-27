@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/Button";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useLiveData } from "@/hooks/useLiveData";
 import { v6Api, type V6Job, type V6Lead, type V6Lineage } from "@/lib/v6api";
+import { ShieldAlert } from "lucide-react";
 
-type Tab = "campaigns" | "review" | "leads";
+type Tab = "campaigns" | "review" | "leads" | "doctor";
 
 const STATE_COLORS: Record<string, string> = {
   READY_FOR_REVIEW: "text-[var(--warn)]",
@@ -43,6 +44,7 @@ export function V6ConsolePage() {
   const jobs = useLiveData(() => v6Api.jobs(), 6000);
   const pending = useLiveData(() => v6Api.pending(), 6000);
   const leads = useLiveData(() => v6Api.leads(), 8000);
+  const doctor = useLiveData(() => v6Api.doctorSummary(), 20000);
 
   const decide = useCallback(async (leadId: string, approve: boolean) => {
     setBusy(leadId);
@@ -97,6 +99,12 @@ export function V6ConsolePage() {
         </Button>}
       />
 
+      {doctor.data && doctor.data.status === "FAIL" && (
+        <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2.5 text-sm text-red-400">
+          ⚠ الحارس اكتشف {doctor.data.counts.fail} عطل — افتح تبويب فحص النظام للتفاصيل والسبب
+        </div>
+      )}
+
       {notice && (
         <div className="rounded-xl border border-[var(--accent)]/30 bg-[var(--accent)]/5 px-4 py-2.5 text-sm">
           {notice}
@@ -104,7 +112,7 @@ export function V6ConsolePage() {
       )}
 
       <div className="flex gap-2">
-        {([["review", "بانتظار المراجعة"], ["leads", "كل العملاء"], ["campaigns", "المهام"]] as [Tab, string][]).map(([key, label]) => (
+        {([["review", "بانتظار المراجعة"], ["leads", "كل العملاء"], ["campaigns", "المهام"], ["doctor", "فحص النظام"]] as [Tab, string][]).map(([key, label]) => (
           <Button key={key} variant={tab === key ? "primary" : "outline"} size="sm"
                   onClick={() => setTab(key)}>
             {label}
@@ -113,6 +121,8 @@ export function V6ConsolePage() {
       </div>
 
       {tab === "campaigns" && <JobsPanel jobs={jobs.data} loading={jobs.loading} error={jobs.error} />}
+      {tab === "doctor" && <DoctorPanel report={doctor.data} loading={doctor.loading}
+                                       error={doctor.error} onRetry={() => void doctor.refresh()} />}
       {tab === "review" && <ReviewPanel pending={pending.data} loading={pending.loading}
                                         error={pending.error} busy={busy}
                                         onDecide={decide} onLineage={showLineage}
@@ -326,3 +336,44 @@ function Spinner() {
 }
 
 export default V6ConsolePage;
+
+
+function DoctorPanel({ report, loading, error, onRetry }: {
+  report: { status: string; counts: { total: number; ok: number; warn: number; fail: number }; checks: { check_id: string; title: string; status: string; cause: string; evidence: Record<string, unknown> }[] } | null;
+  loading: boolean; error: Error | null; onRetry: () => void;
+}) {
+  if (loading && !report) return <Spinner />;
+  if (error && !report) return <ErrorState error={error} subject="فحص النظام" onRetry={onRetry} />;
+  const statusStyle = report?.status === "FAIL" ? "text-red-400" : report?.status === "WARN" ? "text-[var(--warn)]" : "text-emerald-400";
+  return (
+    <div className="space-y-3">
+      <Card>
+        <CardContent className="px-4 py-3 flex items-center justify-between">
+          <span className="text-sm text-[var(--fg-muted)]">
+            {report?.counts.total ?? 0} فحص · {report?.counts.ok ?? 0} سليم ·{" "}
+            <span className="text-[var(--warn)]">{report?.counts.warn ?? 0} تحذير</span> ·{" "}
+            <span className={statusStyle}>{report?.counts.fail ?? 0} عطل</span>
+          </span>
+          <Button variant="outline" size="sm" onClick={onRetry}>إعادة الفحص</Button>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardContent className="p-0 divide-y divide-[var(--border-soft)]">
+          {(report?.checks || []).map((c) => {
+            const mark = c.status === "OK" ? "✓" : c.status === "WARN" ? "⚠" : "✗";
+            const color = c.status === "FAIL" ? "text-red-400" : c.status === "WARN" ? "text-[var(--warn)]" : "text-emerald-400";
+            return (
+              <div key={c.check_id} className="px-4 py-2.5 text-sm flex items-start gap-3">
+                <span className={`font-bold w-5 shrink-0 ${color}`}>{mark}</span>
+                <div className="min-w-0">
+                  <div className="font-medium">{c.title}</div>
+                  {c.cause && <div className="text-xs text-[var(--fg-muted)] mt-0.5">{c.cause}</div>}
+                </div>
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

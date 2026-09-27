@@ -66,6 +66,11 @@ def build_v6_router(container: Container) -> APIRouter:
     uows = PgUowFactory(db, vault_engine=vault)
     jobs = JobRuntimePg(db)
 
+    def principal_org(request: Request) -> str | None:
+        from v6api.dependencies import resolve_principal
+
+        return resolve_principal(request).org_id
+
     @router.get("/healthz")
     def healthz() -> dict:
         return {"status": "ok", "system": "lead-engine-v6"}
@@ -149,6 +154,18 @@ def build_v6_router(container: Container) -> APIRouter:
         if not lineage:
             raise HTTPException(status_code=404, detail="lead not found")
         return lineage
+
+    @router.get("/api/v1/doctor/summary")
+    def doctor_summary(request: Request,
+                       principal: Principal = Depends(require_principal)) -> dict:
+        report = container.doctor.run(container.settings, org=principal.org_id)
+        return report.to_dict()
+
+    @router.get("/api/v1/doctor")
+    def doctor_full(request: Request,
+                    principal: Principal = Depends(require_manager)) -> dict:
+        report = container.doctor.run(container.settings, org=principal.org_id)
+        return report.to_dict()
 
     @router.post("/api/v1/leads/{lead_id}/pii")
     def read_lead_pii(lead_id: str, body: PiiBody, request: Request,
