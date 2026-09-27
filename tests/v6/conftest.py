@@ -68,8 +68,11 @@ def settings() -> Settings:
     # applies. Pop the blanks first (load_env never overwrites).
     import os
 
+    # Clear only BLANK overrides (legacy conftest sets "" to protect its
+    # fixtures); a real CI-provided DSN must survive.
     for key in ("SUPABASE_DB_URL", "DATABASE_URL", "LEAD_ENGINE_V6_DATABASE_URL"):
-        os.environ.pop(key, None)
+        if not (os.environ.get(key) or "").strip():
+            os.environ.pop(key, None)
     return Settings.load()
 
 

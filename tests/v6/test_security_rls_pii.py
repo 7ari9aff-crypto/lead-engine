@@ -81,11 +81,5 @@ def test_rls_hides_other_tenants_business_rows(org, uows, db):
 def test_missing_tenant_fails_closed(db):
     """No app.tenant_id set → FORCE RLS denies every business row."""
     with db.tx_system() as conn, conn.cursor() as cur:
-        info = cur.execute(
-            "SELECT current_user AS u, count(*) AS n, "
-            "(SELECT relforcerowsecurity FROM pg_class WHERE relname='companies') AS forced"
-        ).fetchone()
-        print("RLS DEBUG:", dict(info))
-        assert cur.fetchone is not None
         cur.execute("SELECT count(*) AS n FROM company_identity.companies")
         assert cur.fetchone()["n"] == 0
