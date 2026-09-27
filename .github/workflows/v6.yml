@@ -48,6 +48,10 @@ jobs:
       - name: Lint (ruff) — V6 layers
         run: python -m ruff check domain application infrastructure runtime v6api contracts apps tests/v6
 
+      - name: Create application role (grants migration target)
+        run: |
+          python -c "import psycopg; c = psycopg.connect('postgresql://ledev:ledev@localhost:5433/lead_engine_v6', autocommit=True); c.execute(\"DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'lead_engine') THEN CREATE ROLE lead_engine NOLOGIN; END IF; END \$\$; \"); c.close()"
+
       - name: Architecture gates + tests (unit / integration / failure / security / E2E)
         env:
           LEAD_ENGINE_V6_DATABASE_URL: postgresql://ledev:ledev@localhost:5433/lead_engine_v6
