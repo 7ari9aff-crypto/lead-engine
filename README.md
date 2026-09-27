@@ -181,24 +181,23 @@ curl -X POST https://<host>/mcp -H 'Content-Type: application/json' \
 (`n8n/lead_engine_benchmark_scheduler.ts`).
 ## النشر
 
-الـproduction على Vercel في حساب `lead-engine3` كـproject واحد اسمه `lead-engine`.
+الـproduction على Vercel في حساب `lead-engine3` كـproject واحد اسمه `lead-engine`، **مربوط
+بـ`7ari9aff-crypto/lead-engine` فرع `main`**، فالـpush على `main` بيبني وينشر لوحده.
 
-**النشر يدوي لحد دلوقتي:** الـproject **مش مربوط بـGitHub** (`gitSource: null`)، فالـpush
-على `main` **ما بينشرش لوحده** — النشر بيبقى من الـCLI:
+> **طريقة التحقق (والدرس):** حقل `gitSource` في `GET /v9/projects/lead-engine` بيقرا
+> `null` حتى مع الربط الشغال. الحكم الصح هو **السلوك**: `GET /v6/deployments/{uid}?meta=true`
+> بيوري `githubCommitSha` + `githubDeployment: "1"` + alias من نوع
+> `lead-engine-git-main-…`. ما تستنتجش من حقل واحد — ارفع دفعة وقيس.
 
-```bash
-vercel deploy --prod --yes    # من جذر الريبو، بعد ما السويت المحلية تبقى خضرا
-```
+وده بالظبط اللي وضّح سبب تعطّل الإنتاج من 18 لـ25 سبتمبر (سجل الفجوات، DEP-01): الربط كان
+شغال، لكن بلوك `crons` في `vercel.json` كان بيخلي **كل deployment بيجي من GitHub يفشل** على
+خطة Hobby. الإشارة كانت قدامي: فحص `Vercel` الفاشل على PR قديم، والرسالة `Deployment failed`.
 
-القياس اللي كشف ده: آخر deployment للإنتاج كان 2026-09-18 وبعده 7 أيام من الكميتات
-ما وصلتش أبدًا (والـCI كان أخضر طول الفترة دي — الـCI بيبني صورة Docker و`sync-frontend-static`
-فقط). ربط الـGit integration هو الإصلاح الدائم، وخطوة بتحتاج موافقة المالك.
+الـdashboard (الـstatic) بيتقدّم من `lead_engine/static`، و`sync-frontend-static` بيجدّده
+كل دفعة، فالإنتاج دايماً مبني من نفس الكوميت. يعني الفرونت **مش** بيتبني على Vercel، فمفيش
+`VITE_*` على Vercel (تعريفها الوحيد `web/.env.production` + repository variables للتبديل).
 
-الـdashboard (الـstatic) بيتقدّم من `lead_engine/static`، و`sync-frontend-static` هو اللي
-بيجدّده ويضمن إن الريبو دايمًا فيه بناء الفرونت بتاع آخر كميت. يعني الفرونت **مش** بيتبني على
-Vercel، فمفيش `VITE_*` على Vercel (تعريفها الوحيد `web/.env.production` + repository variables).
-
-- https://lead-engine3.vercel.app (الـalias الإنتاجي الحالي)
+- https://lead-engine3.vercel.app (الـalias الإنتاجي)
 - https://lead-engine-gamma-silk.vercel.app
 
 ```bash
