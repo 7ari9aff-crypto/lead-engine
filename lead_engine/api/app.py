@@ -222,7 +222,7 @@ import time  # noqa: E402
 
 app.add_middleware(_MetricsMiddleware)
 
-PROTECTED_PATHS = ("/api/", "/mcp", "/leads", "/jobs", "/providers", "/benchmark/",
+PROTECTED_PATHS = ("/api/", "/v6/", "/mcp", "/leads", "/jobs", "/providers", "/benchmark/",
                    "/sync-supabase", "/verify-email", "/report/", "/export/",
                    "/docs", "/redoc", "/openapi.json", "/metrics")
 
@@ -248,7 +248,7 @@ async def admin_session_guard(request: Request, call_next):
             resp.headers["Expires"] = "0"
             return resp
     public = path in {
-        "/health", "/ready", "/api/v1/ready",
+        "/health", "/ready", "/api/v1/ready", "/v6/healthz",
         "/api/auth/login", "/api/auth/session", "/api/auth/logout",
         # Stripe signs webhook deliveries with its own HMAC (verified inside
         # the handler) — JWT auth cannot apply to an outbound caller.
@@ -2103,12 +2103,6 @@ except Exception as _v6_exc:  # pragma: no cover — legacy keeps booting withou
 
     app.state.v6_error = "".join(traceback.format_exception(_v6_exc))[-1500:]
     logging.getLogger("lead_engine").error("V6 mount failed: %s", _v6_exc)
-
-
-@app.get("/v6/_debug")
-def _v6_mount_debug():  # pragma: no cover — diagnostics only
-    return {"mounted": getattr(app.state, "v6_mounted", False),
-            "error": getattr(app.state, "v6_error", None)}
 
 
 # SPA fallback — any non-API path that didn't match above returns the SPA
