@@ -38,16 +38,17 @@ def _wipe_v6_schemas(settings: Settings) -> None:
     client = None
     token = os.environ.get("LEAD_ENGINE_V6_SUPABASE_ACCESS_TOKEN", "")
     ref = os.environ.get("SUPABASE_PROJECT_REF", "")
-    if token and ref:
+    admin = settings.admin_database_url or settings.database_url
+    if not (token and ref):
         client = SupabaseSqlClient(token, ref)
         for schema in V6_SCHEMAS:
             client.query(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE;')
         client.close()
         return
-    # fallback: local role with DDL rights
+    # fallback: admin role with DDL rights
     import psycopg
 
-    with psycopg.connect(settings.database_url, autocommit=True) as conn:
+    with psycopg.connect(admin, autocommit=True) as conn:
         for schema in V6_SCHEMAS:
             conn.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
 
@@ -67,7 +68,12 @@ def settings() -> Settings:
 @pytest.fixture(scope="session")
 def migrated_db(settings: Settings) -> Database:
     _wipe_v6_schemas(settings)
-    apply_migrations(settings.database_url, MIGRATIONS_DIR)
+    # migrations run with the ADMIN DSN (DDL); the app Database uses the
+    # restricted app DSN — mirroring the production role split.
+    from infrastructure.postgres.migrations import _load_done  # noqa: F401
+
+    admin_dsn = settings.admin_database_url or settings.database_url
+    apply_migrations(admin_dsn, MIGRATIONS_DIR)
     db = Database(settings.database_url)
     yield db
     db.close()

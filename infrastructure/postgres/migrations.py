@@ -65,9 +65,10 @@ def _load_done(dsn: str) -> tuple[dict[str, str], SupabaseSqlClient | None]:
         return {r["version"]: r["checksum"] for r in rows}, client
 
 
-def apply_migrations(dsn: str, migrations_dir: Path) -> list[str]:
+def apply_migrations(dsn: str, migrations_dir: Path, admin_dsn: str | None = None) -> list[str]:
     files = sorted(p for p in migrations_dir.glob("*.sql") if p.is_file())
-    done, api_client = _load_done(dsn)
+    apply_dsn = admin_dsn or dsn
+    done, api_client = _load_done(apply_dsn)
     applied: list[str] = []
 
     for path in files:
@@ -85,7 +86,7 @@ def apply_migrations(dsn: str, migrations_dir: Path) -> list[str]:
         if api_client is not None:
             _apply_via_api(api_client, version, sql, checksum)
         else:
-            _apply_direct(dsn, version, sql, checksum)
+            _apply_direct(apply_dsn, version, sql, checksum)
         applied.append(version)
         print(f"  applied {version}")
 

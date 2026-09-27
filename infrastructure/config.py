@@ -70,6 +70,7 @@ def _sanitize_dsn(url: str) -> str:
 @dataclass(frozen=True)
 class Settings:
     database_url: str
+    admin_database_url: str = ""
     master_key: bytes
     service_token: str
     supabase_jwt_secret: str = ""
@@ -98,6 +99,8 @@ class Settings:
             raise RuntimeError("LEAD_ENGINE_V6_MASTER_KEY must decode to 32 bytes")
         return cls(
             database_url=_sanitize_dsn(dsn),
+            admin_database_url=_sanitize_dsn(
+                os.environ.get("LEAD_ENGINE_V6_ADMIN_DATABASE_URL") or dsn),
             master_key=master_key,
             service_token=os.environ.get("V6_SERVICE_TOKEN", DEV_SERVICE_TOKEN),
             supabase_jwt_secret=os.environ.get("SUPABASE_JWT_SECRET", ""),
