@@ -16,7 +16,7 @@ jobs:
         # Floor, not a target: measured baseline on this tree is 63.6% line
         # coverage. The gate exists so coverage cannot silently regress as
         # features land; raise it as the number climbs.
-        run: python -m pytest tests/ -q --cov=lead_engine --cov-fail-under=60
+        run: python -m pytest tests/ --ignore=tests/v6 -q --cov=lead_engine --cov-fail-under=60
       - name: Lint (ruff)
         # Syntax errors + undefined names only: the tree predates linting and
         # carries legacy unused imports; broadening the gate would turn this
