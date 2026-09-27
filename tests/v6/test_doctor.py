@@ -93,6 +93,10 @@ def test_outbox_stall_detected(db, org, settings, uows, vault, fake_gateway):
     stall = [c for c in report.checks if c.check_id == "events.outbox"]
     assert stall and stall[0].status == CheckStatus.FAIL
     assert "relay" in stall[0].cause
+    # cleanup: the stale event would otherwise leak into test_outbox_relay's
+    # tick counts (shared DB, one session)
+    with db.tx_system() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM events.outbox WHERE type = 'test.stale'")
 
 
 def test_plaintext_pii_scan(db, org, settings, uows, vault, fake_gateway):
