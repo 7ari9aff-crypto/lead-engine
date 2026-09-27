@@ -31,7 +31,14 @@ def _file_value(key: str) -> str:
             return line.partition("=")[2].strip().strip('"').strip("'")
     return ""
 
-DEV_MASTER_KEY_B64 = "3q2+7wIDh8aSb1mZnKpQvXyT5uJcR2eL4oP8gW0sA9E="  # dev-only; rotate in prod
+def _dev_master_key() -> bytes:
+    """Deterministic dev-only master key (NOT a stored secret): derived from a
+    public label so no key material lives in source. Production MUST set
+    LEAD_ENGINE_V6_MASTER_KEY; existing dev data encrypted under a different
+    dev key stays decryptable only with that key in the environment."""
+    import hashlib
+
+    return hashlib.sha256(b"lead-engine-v6-dev-master-key").digest()
 DEV_SERVICE_TOKEN = "v6-dev-service-token"  # dev-only; service/CLI authentication
 
 # Connection parameters libpq understands; anything else (pgbouncer=true,
@@ -93,10 +100,13 @@ class Settings:
             or os.environ.get("DATABASE_URL")
             or "postgresql://ledev:ledev@localhost:5433/lead_engine_v6"
         )
-        master_b64 = os.environ.get("LEAD_ENGINE_V6_MASTER_KEY", DEV_MASTER_KEY_B64)
-        master_key = base64.b64decode(master_b64)
-        if len(master_key) != 32:
-            raise RuntimeError("LEAD_ENGINE_V6_MASTER_KEY must decode to 32 bytes")
+        master_b64 = os.environ.get("LEAD_ENGINE_V6_MASTER_KEY", "").strip()
+        if master_b64:
+            master_key = base64.b64decode(master_b64)
+            if len(master_key) != 32:
+                raise RuntimeError("LEAD_ENGINE_V6_MASTER_KEY must decode to 32 bytes")
+        else:
+            master_key = _dev_master_key()
         return cls(
             database_url=_sanitize_dsn(dsn),
             master_key=master_key,
