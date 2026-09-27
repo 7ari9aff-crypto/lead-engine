@@ -57,6 +57,23 @@ jobs:
           c.close()
           PY
 
+      - name: Verify RLS posture (role + force flags)
+        run: |
+          python - <<'PY'
+          import psycopg
+          a = psycopg.connect('postgresql://ledev:ledev@localhost:5433/lead_engine_v6', autocommit=True)
+          print('admin user:', a.execute("select current_user, (select rolsuper from pg_roles where rolname = current_user)").fetchone())
+          a.execute("create table if not exists public._rls_probe(i int)")
+          a.execute("insert into public._rls_probe values (1)")
+          a.execute("alter table public._rls_probe enable row level security")
+          a.execute("alter table public._rls_probe force row level security")
+          app = psycopg.connect('postgresql://lead_engine:v6-ci-app@localhost:5433/lead_engine_v6', autocommit=True)
+          print('app user:', app.execute("select current_user, (select rolsuper from pg_roles where rolname = current_user), (select rolbypassrls from pg_roles where rolname = current_user)").fetchone())
+          print('probe rows seen by app:', app.execute("select count(*) from public._rls_probe").fetchone())
+          a.execute("drop table public._rls_probe")
+          a.close(); app.close()
+          PY
+
       - name: Architecture gates + tests (unit / integration / failure / security / E2E)
         env:
           LEAD_ENGINE_V6_DATABASE_URL: postgresql://lead_engine:v6-ci-app@localhost:5433/lead_engine_v6
