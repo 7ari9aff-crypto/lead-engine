@@ -2107,25 +2107,6 @@ except Exception as _v6_exc:  # pragma: no cover — legacy keeps booting withou
     logging.getLogger("lead_engine").error("V6 mount failed: %s", _v6_exc)
 
 
-# ---- TEMPORARY production diagnosis (remove after root-causing) ----------
-
-
-@app.middleware("http")
-async def _capture_500(request: Request, call_next):
-    try:
-        return await call_next(request)
-    except Exception:
-        import traceback as _tb
-
-        app.state._last_500 = _tb.format_exc()[-2000:]
-        raise
-
-
-@app.get("/api/_debug/lasterror", include_in_schema=False)
-async def _last_error_debug():
-    return {"error": getattr(app.state, "_last_500", None)}
-
-
 # SPA fallback — any non-API path that didn't match above returns the SPA
 # index.html so the React Router (or any client router) can take over. This
 # makes the dashboard work at /chat, /keys, /leads, etc. without 404s.
