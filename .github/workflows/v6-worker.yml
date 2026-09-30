@@ -1,0 +1,60 @@
+# V6 durable worker on GitHub Actions — the always-on execution plane.
+#
+# Every 10 minutes a runner boots the V6 worker for up to ~8 minutes:
+#   - claims and runs queued acquisition jobs (real providers, checkpointed)
+#   - lease reaper + outbox relay + doctor sentinel (alerts open/resolve)
+#   - worker heartbeat
+# Idempotent + checkpointed: a run that times out resumes from its last
+# checkpoint on the next invocation. Secrets: SUPABASE_DB_URL (pooler DSN),
+# LEAD_ENGINE_ORG_ID (credential hydration), LEAD_ENGINE_V6_MASTER_KEY,
+# LEAD_ENGINE_ENCRYPTION_KEY.
+
+name: v6-worker
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      cycles:
+        description: "Worker cycles this invocation (0 = run until timeout)"
+        required: false
+        default: "80"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/v6-worker.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v6-worker
+  cancel-in-progress: false
+
+jobs:
+  worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run the worker (drain queue + sentinel)
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          LEAD_ENGINE_ORG_ID: ${{ secrets.LEAD_ENGINE_ORG_ID }}
+          LEAD_ENGINE_V6_MASTER_KEY: ${{ secrets.LEAD_ENGINE_V6_MASTER_KEY }}
+          LEAD_ENGINE_ENCRYPTION_KEY: ${{ secrets.LEAD_ENGINE_ENCRYPTION_KEY }}
+          LEAD_ENGINE_V6_PROVIDERS: real
+        run: |
+          python -m apps.worker --queues default \
+            --worker-id "gh-worker-$(date +%s)" \
+            --cycles "${{ github.event.inputs.cycles || '80' }}"
