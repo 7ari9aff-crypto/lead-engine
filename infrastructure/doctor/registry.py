@@ -13,6 +13,7 @@ from application.doctor.checks import (
     check_failing_jobs,
     check_migrations,
     check_models,
+    check_orphaned_jobs,
     check_outbox_stall,
     check_pii_plaintext,
     check_provider_health,
@@ -21,6 +22,7 @@ from application.doctor.checks import (
     check_stale_alerts_open,
     check_stale_approvals,
     check_stuck_jobs,
+    check_verification_quality,
     check_uncertain_effects,
     check_vault_roundtrip,
     check_workers_alive,
@@ -36,6 +38,8 @@ def build_doctor(backend, vault=None, gateway=None, model_gateway=None) -> Docto
     doctor.register("db.app_role", check_app_role)
     doctor.register("queue.starved", check_queue_starved)
     doctor.register("queue.stuck", check_stuck_jobs)
+    doctor.register("queue.orphaned", check_orphaned_jobs)
+    doctor.register("verify.quality", lambda b, sc, org: check_verification_quality(b, sc, org))
     doctor.register("jobs.failing", check_failing_jobs)
     doctor.register("events.outbox", check_outbox_stall)
     doctor.register("events.dead_letters", check_dead_letters)

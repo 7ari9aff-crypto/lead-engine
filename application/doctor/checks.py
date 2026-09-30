@@ -272,3 +272,49 @@ def check_stale_alerts_open(backend, settings, org) -> DoctorCheck:
                            f"{row['n']} تنبيه سابق لسه مفتوح — راجع تاريخ التنبيهات",
                            {"count": row["n"]})
     return DoctorCheck("sentinel.open_alerts", "تنبيهات مفتوحة", CheckStatus.OK, "لا تنبيهات مفتوحة")
+
+
+def check_orphaned_jobs(backend, settings, org) -> DoctorCheck:
+    """QUEUED jobs whose tenant organization no longer exists — they can
+    never succeed and they starve the queue.starved signal."""
+    rows = backend.system_all(
+        """SELECT j.id::text FROM runtime.jobs j
+           WHERE j.state = 'QUEUED'
+             AND NOT EXISTS (SELECT 1 FROM platform.organizations o WHERE o.id = j.org_id)""")
+    if rows:
+        return DoctorCheck("queue.orphaned", "مهام يتيمة (مؤسستها محذوفة)", CheckStatus.FAIL,
+                           f"{len(rows)} مهمة منتظرة لمؤسسات محذوفة — لا يمكن أن تنجح أبدًا",
+                           {"job_ids": [r["id"] for r in rows[:10]]})
+    return DoctorCheck("queue.orphaned", "مهام يتيمة (مؤسستها محذوفة)", CheckStatus.OK, "لا مهام يتيمة")
+
+
+def check_verification_quality(backend, settings, org) -> DoctorCheck:
+    """UNKNOWN verification = the worker network couldn't reach SMTP (port 25
+    blocked on residential ISPs). Honest status — but a run full of UNKNOWNs
+    means scores are degraded and the operator should run the worker from a
+    network (or host) that allows outbound SMTP."""
+    if not org:
+        return DoctorCheck("verify.quality", "جودة التحقق (24س)", CheckStatus.WARN,
+                           "متاح داخل سياق مؤسسة فقط")
+    rows = backend.org_all(
+        org,
+        """SELECT status, count(*) AS n FROM intelligence.verification_records
+           WHERE org_id = current_setting('app.tenant_id', true)::uuid
+             AND verified_at > now() - interval '24 hours'
+           GROUP BY status""")
+    if not rows:
+        return DoctorCheck("verify.quality", "جودة التحقق (24س)", CheckStatus.OK,
+                           "لا تحققات في 24 ساعة")
+    total = sum(r["n"] for r in rows)
+    by = {r["status"]: r["n"] for r in rows}
+    unknown = by.get("UNKNOWN", 0)
+    if unknown == total:
+        return DoctorCheck("verify.quality", "جودة التحقق (24س)", CheckStatus.WARN,
+                           f"كل التحققات ({total}) UNKNOWN — شبكة الووركر مانعة SMTP الصادر (بورت 25)؛ شغّل الووركر من شبكة تسمح أو من الاستضافة",
+                           {"by_status": by})
+    if unknown:
+        return DoctorCheck("verify.quality", "جودة التحقق (24س)", CheckStatus.WARN,
+                           f"{unknown} من {total} تحقق UNKNOWN — جزئيًا بسبب شبكة الووركر",
+                           {"by_status": by})
+    return DoctorCheck("verify.quality", "جودة التحقق (24س)", CheckStatus.OK,
+                       "التحققات تمام", {"by_status": by})
