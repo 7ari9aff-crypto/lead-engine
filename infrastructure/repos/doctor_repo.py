@@ -25,6 +25,12 @@ class DoctorRepo:
             cur.execute(sql, params)
             return list(cur.fetchall())
 
+    def org_exists(self, org_id: str) -> bool:
+        # self-scoped: the org is visible to itself (FORCE RLS)
+        with self.db.tx(org_id) as conn, conn.cursor() as cur:
+            return cur.execute("SELECT 1 AS ok FROM platform.organizations WHERE id = %s",
+                               (org_id,)).fetchone() is not None
+
     # -- migrations drift -------------------------------------------------------
     def applied_migrations(self) -> dict[str, str]:
         try:

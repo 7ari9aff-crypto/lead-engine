@@ -276,15 +276,18 @@ def check_stale_alerts_open(backend, settings, org) -> DoctorCheck:
 
 def check_orphaned_jobs(backend, settings, org) -> DoctorCheck:
     """QUEUED jobs whose tenant organization no longer exists — they can
-    never succeed and they starve the queue.starved signal."""
+    never succeed and they starve the queue.starved signal.
+
+    Org existence is verified SELF-SCOPED per job (tenant set to the job's
+    own org): the doctor's system queries cannot read platform.organizations
+    through FORCE RLS, so a naive NOT EXISTS reports every job as orphaned."""
     rows = backend.system_all(
-        """SELECT j.id::text FROM runtime.jobs j
-           WHERE j.state = 'QUEUED'
-             AND NOT EXISTS (SELECT 1 FROM platform.organizations o WHERE o.id = j.org_id)""")
-    if rows:
+        "SELECT id::text, org_id::text AS org_id FROM runtime.jobs WHERE state = 'QUEUED'")
+    orphans = [r for r in rows if not backend.org_exists(r["org_id"])]
+    if orphans:
         return DoctorCheck("queue.orphaned", "مهام يتيمة (مؤسستها محذوفة)", CheckStatus.FAIL,
-                           f"{len(rows)} مهمة منتظرة لمؤسسات محذوفة — لا يمكن أن تنجح أبدًا",
-                           {"job_ids": [r["id"] for r in rows[:10]]})
+                           f"{len(orphans)} مهمة منتظرة لمؤسسات محذوفة — لا يمكن أن تنجح أبدًا",
+                           {"job_ids": [r["id"] for r in orphans[:10]]})
     return DoctorCheck("queue.orphaned", "مهام يتيمة (مؤسستها محذوفة)", CheckStatus.OK, "لا مهام يتيمة")
 
 
