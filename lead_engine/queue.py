@@ -52,15 +52,19 @@ def enqueue(db, job_id: str) -> None:
 def lease_next(db, worker_id: str, lease_seconds: int = 600) -> dict | None:
     """Atomically claim the next runnable job. SKIP LOCKED keeps concurrent
     workers from grabbing the same row (Postgres only; SQLite's single-writer
-    model needs no lock)."""
+    model needs no lock). The attempts cap keeps a job that repeatedly crashes
+    the worker (OOM/kill — it never reaches fail()) from being re-claimed
+    forever."""
+    attempts_cap = "AND COALESCE(attempts, 0) < COALESCE(max_attempts, 3)"
     if _is_pg(db):
         return db.one(
-            """
+            f"""
             WITH next_job AS (
               SELECT job_id FROM jobs
               WHERE state IN ('QUEUED', 'RESUMING')
                 AND (lease_expires_at IS NULL OR lease_expires_at < now())
                 AND (resume_at IS NULL OR resume_at <= now())
+                {attempts_cap}
               ORDER BY created_at
               FOR UPDATE SKIP LOCKED
               LIMIT 1
@@ -76,7 +80,7 @@ def lease_next(db, worker_id: str, lease_seconds: int = 600) -> dict | None:
             (worker_id, lease_seconds),
         )
     return db.one(
-        """
+        f"""
         UPDATE jobs
         SET state='RUNNING', worker_id=?,
             lease_expires_at=strftime('%Y-%m-%dT%H:%M:%SZ','now', '+' || ? || ' seconds'),
@@ -88,6 +92,7 @@ def lease_next(db, worker_id: str, lease_seconds: int = 600) -> dict | None:
                  lease_expires_at < strftime('%Y-%m-%dT%H:%M:%SZ','now'))
             AND (resume_at IS NULL OR
                  resume_at <= strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            {attempts_cap}
           ORDER BY created_at
           LIMIT 1
         )
@@ -113,11 +118,21 @@ def reclaim_expired(db) -> int:
         expired = ("(lease_expires_at < strftime('%Y-%m-%dT%H:%M:%SZ','now')"
                    " OR (lease_expires_at IS NULL AND updated_at <"
                    " strftime('%Y-%m-%dT%H:%M:%SZ','now','-1 day')))")
+    # Jobs that already burned their attempt budget are FAILED, not requeued:
+    # a crash loop never reaches fail(), so without this branch the same job
+    # would be re-claimed forever.
+    cur = db.execute(
+        "UPDATE jobs SET state='FAILED', worker_id=NULL, lease_expires_at=NULL,"
+        " pause_reason='lease expired after max attempts; not requeued',"
+        f" updated_at=? WHERE state='RUNNING' AND {expired}"
+        " AND COALESCE(attempts, 0) >= COALESCE(max_attempts, 3)",
+        (_now(),))
+    failed = getattr(cur, "rowcount", 0)
     cur = db.execute(
         "UPDATE jobs SET state='QUEUED', worker_id=NULL, lease_expires_at=NULL,"
         f" updated_at=? WHERE state='RUNNING' AND {expired}",
         (_now(),))
-    return getattr(cur, "rowcount", 0)
+    return failed + getattr(cur, "rowcount", 0)
 
 
 def complete(db, job_id: str) -> None:

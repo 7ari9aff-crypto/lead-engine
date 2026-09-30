@@ -10,6 +10,7 @@ Everything else 401s.
 """
 from __future__ import annotations
 
+import hmac
 import os
 
 from fastapi import HTTPException, Request
@@ -26,7 +27,7 @@ def _bridge_principal(request: Request) -> Principal:
 
     auth = request.headers.get("Authorization", "")
     token = auth.removeprefix("Bearer ").strip()
-    if token and token == settings.service_token:
+    if token and hmac.compare_digest(token.encode(), settings.service_token.encode()):
         org_id = request.headers.get("X-Org-Id", "") or None
         if not org_id:
             raise HTTPException(status_code=401, detail="service principal requires X-Org-Id")
@@ -44,9 +45,13 @@ def _bridge_principal(request: Request) -> Principal:
         if member is not None:
             role = str(member["role"])
             return Principal(org_id=str(member["org_id"]), user_ext_id=sub, role=role)
+        # Verified user with NO membership: the env bridge resolves a tenant for
+        # reads, but as a MEMBER. Owner privilege requires a real membership row
+        # (or the legacy cookie path below) — an open-supabase signup must never
+        # inherit admin of the deployment org by merely existing.
         org_bridge = (os.environ.get("LEAD_ENGINE_ORG_ID") or "").strip()
         if org_bridge:
-            return Principal(org_id=org_bridge, user_ext_id=sub, role="owner")
+            return Principal(org_id=org_bridge, user_ext_id=sub, role="member")
 
     # legacy cookie session (open / password modes)
     from lead_engine.api import auth as legacy_auth

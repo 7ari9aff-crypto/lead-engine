@@ -13,7 +13,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -62,15 +62,11 @@ def build_v6_router(container: Container) -> APIRouter:
     mount can override them with the bridge (cookies/legacy claims)."""
     router = APIRouter()
     db = container.db
-    vault = container.vault
-    uows = PgUowFactory(db, vault_engine=vault)
+    uows = PgUowFactory(db, vault_engine=container.vault)
     jobs = JobRuntimePg(db)
 
-    def principal_org(request: Request) -> str | None:
-        from v6api.dependencies import resolve_principal
-
-        return resolve_principal(request).org_id
-
+    # Every list endpoint caps its page size: limit is client input, and an
+    # uncapped query is a trivially cheap DoS against the pooled connection.
     @router.get("/healthz")
     def healthz() -> dict:
         return {"status": "ok", "system": "lead-engine-v6"}
@@ -94,7 +90,7 @@ def build_v6_router(container: Container) -> APIRouter:
             raise map_domain_errors(exc) from exc
 
     @router.get("/api/v1/jobs")
-    def list_jobs(request: Request, limit: int = 50,
+    def list_jobs(request: Request, limit: int = Query(default=50, ge=1, le=200),
                   principal: Principal = Depends(require_principal)) -> list[dict]:
         return JobQuery(jobs).list(principal.org_id or "", limit)
 
@@ -117,7 +113,8 @@ def build_v6_router(container: Container) -> APIRouter:
             raise map_domain_errors(exc) from exc
 
     @router.get("/api/v1/review/pending")
-    def pending_leads(request: Request, limit: int = 50,
+    def pending_leads(request: Request,
+                      limit: int = Query(default=50, ge=1, le=200),
                       principal: Principal = Depends(require_principal)) -> list[dict]:
         return ReviewUseCase(uows).pending(principal.org_id or "", limit)
 
@@ -132,7 +129,8 @@ def build_v6_router(container: Container) -> APIRouter:
             raise map_domain_errors(exc) from exc
 
     @router.get("/api/v1/leads")
-    def list_leads(request: Request, state: str | None = None, limit: int = 50,
+    def list_leads(request: Request, state: str | None = None,
+                   limit: int = Query(default=50, ge=1, le=200),
                    principal: Principal = Depends(require_principal)) -> list[dict]:
         with uows(principal.org_id or "") as tx:
             return tx.repos.projects.list_leads(state=state, limit=limit)
@@ -171,7 +169,7 @@ def build_v6_router(container: Container) -> APIRouter:
     def read_lead_pii(lead_id: str, body: PiiBody, request: Request,
                       principal: Principal = Depends(require_manager)) -> dict:
         try:
-            reader = ContactPiiReader(uows, vault)
+            reader = ContactPiiReader(uows)
             return reader.read(principal.org_id or "", lead_id, body.purpose,
                                principal.user_ext_id, body.request_id)
         except Exception as exc:

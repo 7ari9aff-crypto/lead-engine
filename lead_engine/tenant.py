@@ -38,12 +38,13 @@ def db_handle(request: Request = None):
 def org_clause(db, column: str = "organization_id") -> tuple[str, list]:
     """SQL predicate limiting reads to the caller's tenant — the ONLY way
     chat tools / MCP / dashboards may read tenant tables.
-    SQLite has no RLS: with no tenant context the clause is empty (legacy
-    single-org dev data is not tenant data). Postgres has FORCED RLS on
-    engine.*: the explicit clause is defense in depth whenever a tenant
-    context exists, and the policy alone limits org-less connections to
-    platform (NULL-org) rows."""
+    SQLite has no RLS: with NO tenant context the clause is empty (legacy
+    single-org dev data is not tenant data), but the '__no_org__' sentinel —
+    a verified user with no membership and no bridge — is fail-closed DENY:
+    it must never broaden into an unfiltered read."""
     org = getattr(db, "org_id", None)
-    if not org or str(org).startswith("__"):
+    if not org:
         return "", []
+    if str(org).startswith("__"):
+        return " AND 1 = 0", []
     return f" AND {column} = ?", [org]

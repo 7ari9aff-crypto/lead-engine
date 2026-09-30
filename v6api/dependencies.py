@@ -7,6 +7,8 @@ principal (X-Org-Id), which is the documented operator bridge.
 """
 from __future__ import annotations
 
+import hmac
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -15,6 +17,8 @@ from fastapi import HTTPException, Request
 
 from application.ports import Principal
 from infrastructure.config import Settings
+
+log = logging.getLogger("v6api.auth")
 
 
 @dataclass
@@ -51,7 +55,7 @@ def resolve_principal(request: Request) -> Principal:
     if not token:
         raise HTTPException(status_code=401, detail="authentication required")
 
-    if token == settings.service_token:
+    if hmac.compare_digest(token.encode(), settings.service_token.encode()):
         org_id = request.headers.get("X-Org-Id", "") or None
         return Principal(org_id=org_id, user_ext_id="service", role="service", is_service=True)
 
@@ -62,7 +66,10 @@ def resolve_principal(request: Request) -> Principal:
                 algorithms=["HS256"], audience="authenticated",
             )
         except pyjwt.PyJWTError as exc:
-            raise HTTPException(status_code=401, detail=f"invalid token: {exc}") from exc
+            # Validation internals (issuer/audience/expiry shape) stay server-side;
+            # the client only learns the token was rejected.
+            log.warning("rejected supabase token: %s", type(exc).__name__)
+            raise HTTPException(status_code=401, detail="invalid token") from exc
         sub = str(claims.get("sub", ""))
         with container.db.tx_system() as conn, conn.cursor() as cur:
             member = cur.execute(

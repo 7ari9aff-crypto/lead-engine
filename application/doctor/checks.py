@@ -321,3 +321,56 @@ def check_verification_quality(backend, settings, org) -> DoctorCheck:
                            {"by_status": by})
     return DoctorCheck("verify.quality", "جودة التحقق (24س)", CheckStatus.OK,
                        "التحققات تمام", {"by_status": by})
+
+
+def check_http_surface(backend, settings, org) -> DoctorCheck:
+    """Black-box probe of the DEPLOYED app's critical HTTP surface.
+
+    Internal checks (DB, queue, vault) can all be green while the deployed
+    site 500s — today's outage class. This check hits the public origin
+    exactly like a browser/client would and FAILS with the endpoint +
+    status + error on any deviation."""
+    import httpx
+
+    base = (settings.public_base_url or "").rstrip("/")
+    if not base:
+        return DoctorCheck("http.surface", "فحص سطح HTTP المنشور", CheckStatus.WARN,
+                           "لا يوجد LEAD_ENGINE_PUBLIC_BASE_URL — الفحص الأسود متوقف")
+    token = (settings.service_token or "").strip()
+    auth = {"Authorization": f"Bearer {token}"} if token else {}
+    probes = [
+        ("GET", "/health", None),
+        ("GET", "/v6/healthz", None),
+        ("GET", "/api/status", None),
+        ("GET", "/api/v1/review/pending", auth),
+        ("GET", "/api/v1/icps", auth),
+        ("GET", "/api/analytics", auth),
+    ]
+    failures = []
+    latencies = []
+    try:
+        with httpx.Client(timeout=httpx.Timeout(20.0)) as client:
+            for method, path, headers in probes:
+                t0 = time.monotonic()
+                try:
+                    resp = client.request(method, base + path, headers=headers or {})
+                    ms = round((time.monotonic() - t0) * 1000, 1)
+                    latencies.append({"path": path, "status": resp.status_code, "ms": ms})
+                    if resp.status_code >= 500:
+                        failures.append(f"{method} {path} -> {resp.status_code}")
+                except Exception as exc:  # noqa: BLE001 — the failure IS the finding
+                    failures.append(f"{method} {path} -> {type(exc).__name__}: {exc}")
+    except Exception as exc:  # noqa: BLE001
+        return DoctorCheck("http.surface", "فحص سطح HTTP المنشور", CheckStatus.FAIL,
+                           f"تعذر الوصول للنشر أصلًا: {exc}", {"base": base})
+    if failures:
+        return DoctorCheck("http.surface", "فحص سطح HTTP المنشور", CheckStatus.FAIL,
+                           "؛ ".join(failures), {"latencies": latencies})
+    slow = [probe for probe in latencies if probe["ms"] > 5000]
+    if slow:
+        return DoctorCheck("http.surface", "فحص سطح HTTP المنشور", CheckStatus.WARN,
+                           f"endpoints بطيئة: {[(s['path'], s['ms']) for s in slow]}",
+                           {"latencies": latencies})
+    return DoctorCheck("http.surface", "فحص سطح HTTP المنشور", CheckStatus.OK,
+                       f"{len(latencies)} endpoint كلهم 200",
+                       {"latencies": latencies})

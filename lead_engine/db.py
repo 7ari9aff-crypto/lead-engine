@@ -7,9 +7,18 @@ used for dev and tests. Both implement the same Database interface.
 import json
 import os
 import sqlite3
+import threading
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from .config import DB_PATH  # single source of truth for the SQLite path
+
+
+# Schema creation + column migrations run ONCE per database file per process.
+# open_db() is a per-request dependency: re-running executescript plus seven
+# PRAGMA scans on every HTTP request was pure overhead on the hot path.
+_SCHEMA_INIT_LOCK = threading.Lock()
+_SCHEMA_INITIALIZED: set[str] = set()
 
 
 def utcnow() -> str:
@@ -209,14 +218,26 @@ CREATE TABLE IF NOT EXISTS tools (
     created_at TEXT
 );
 CREATE TABLE IF NOT EXISTS connections (
-    connection_id TEXT PRIMARY KEY,
-    provider TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    base_url TEXT,
-    status TEXT NOT NULL DEFAULT 'unknown',
-    last_checked_at TEXT,
-    metadata_json TEXT,
-    created_at TEXT
+  connection_id TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  base_url TEXT,
+  status TEXT NOT NULL DEFAULT 'unknown',
+  last_checked_at TEXT,
+  metadata_json TEXT,
+  created_at TEXT
+);
+CREATE TABLE IF NOT EXISTS organization_provider_credentials (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  organization_id TEXT,
+  provider_name TEXT,
+  env_key TEXT NOT NULL,
+  encrypted_value TEXT NOT NULL,
+  key_version INTEGER NOT NULL DEFAULT 1,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT,
+  updated_at TEXT,
+  UNIQUE (organization_id, env_key)
 );
 CREATE TABLE IF NOT EXISTS approvals (
     approval_id TEXT PRIMARY KEY,
@@ -375,15 +396,18 @@ class Database:
         # WAL + busy_timeout keep concurrent readers/writers from clashing
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA busy_timeout=5000")
-        self.conn.executescript(SCHEMA)
-        self._migrate_provider_columns()
-        self._migrate_usage_columns()
-        self._migrate_agent_version_columns()
-        self._migrate_lead_disposition_columns()
-        self._migrate_research_context_columns()
-        self._migrate_job_lease_columns()
-        self._migrate_org_columns()
-        self.conn.commit()
+        with _SCHEMA_INIT_LOCK:
+            if self.path not in _SCHEMA_INITIALIZED:
+                self.conn.executescript(SCHEMA)
+                self._migrate_provider_columns()
+                self._migrate_usage_columns()
+                self._migrate_agent_version_columns()
+                self._migrate_lead_disposition_columns()
+                self._migrate_research_context_columns()
+                self._migrate_job_lease_columns()
+                self._migrate_org_columns()
+                self.conn.commit()
+                _SCHEMA_INITIALIZED.add(self.path)
 
     def _migrate_provider_columns(self):
         existing = {row["name"] for row in self.conn.execute("PRAGMA table_info(providers)")}
@@ -506,9 +530,12 @@ class Database:
         # Identity is tenant-global, NOT per-job: the same real-world company
         # keeps one row across campaigns (later runs refresh it via upsert).
         # org prefix keeps tenants isolated; job_id must never be part of it.
+        # A row with NEITHER domain nor name has no stable identity — fall back
+        # to a random id instead of collapsing every such row into one.
         scope = getattr(self, "org_id", None) or "shared"
+        identity = lead.get("domain") or lead.get("name")
         lead["lead_id"] = lead.get("lead_id") or (
-            f"{scope}:{lead.get('domain') or lead.get('name')}")
+            f"{scope}:{identity}" if identity else f"{scope}:anon:{uuid4().hex[:12]}")
         now = utcnow()
         lead.setdefault("created_at", now)
         lead["updated_at"] = now

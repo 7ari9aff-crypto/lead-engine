@@ -99,14 +99,18 @@ def resolve_membership(claims: dict, db) -> dict | None:
 
 def is_admin(claims: dict, db) -> bool:
     """Owner or admin for the token's active organization.
-    Ephemeral single-org deployments (SQLite, no membership table): a
-    verified Supabase user rides the env-bridge org and is trusted as
-    admin — matching the deployment's invite-only Supabase trust model."""
+    Ephemeral single-org deployments (SQLite, no membership table) used to
+    trust any verified Supabase user as bridge-org admin — an open signup
+    then inherited admin. Default is now fail-closed; single-operator
+    deployments can restore the old posture with LEAD_ENGINE_BRIDGE_ADMIN=1."""
     m = resolve_membership(claims, db) or {}
     if m:
         return m.get("role") in ("owner", "admin")
-    bridge = os.environ.get("LEAD_ENGINE_ORG_ID", "")
-    return bool(bridge) and getattr(db, "org_id", None) == bridge
+    opt_in = (os.environ.get("LEAD_ENGINE_BRIDGE_ADMIN") or "").strip().lower()
+    if opt_in in ("1", "true", "yes"):
+        bridge = os.environ.get("LEAD_ENGINE_ORG_ID", "")
+        return bool(bridge) and getattr(db, "org_id", None) == bridge
+    return False
 
 
 def auth_mode() -> str:

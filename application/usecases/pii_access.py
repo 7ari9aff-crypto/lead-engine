@@ -1,25 +1,25 @@
 """PII access use case: the ONLY way any surface may read plaintext PII.
 
 Purpose-bound, audited (ADR-0006). Outreach plaintext requires the approved
-lead state — the human approval boundary is enforced here too.
+lead state — the human approval boundary is enforced here too. Decryption
+runs on the UnitOfWork's transaction so the access-audit row commits with
+the read (or not at all).
 """
 from __future__ import annotations
 
 from application.ports import UowFactory
 from contracts.errors import DomainError, NotFoundError
-from infrastructure.pii.vault import PiiVault, TenantVault
+from infrastructure.pii.vault import ALLOWED_PURPOSES
 
 
 class ContactPiiReader:
-    def __init__(self, uows: UowFactory, vault: PiiVault):
+    def __init__(self, uows: UowFactory):
         self._uows = uows
-        self._vault = vault
 
     def read(self, org_id: str, lead_id: str, purpose: str, actor: str,
              request_id: str | None = None) -> dict:
-        if purpose not in ("verification", "outreach", "human_review", "legal_request"):
+        if purpose not in ALLOWED_PURPOSES:
             raise DomainError(f"unknown pii purpose {purpose!r}")
-        tenant_vault = TenantVault(self._vault, org_id)
         if purpose == "outreach":
             with self._uows(org_id) as tx:
                 lead = tx.repos.projects.get_lead(lead_id)
@@ -41,10 +41,10 @@ class ContactPiiReader:
                 out: dict = {"contact_id": str(c["id"]), "name": c.get("name"),
                              "role": c.get("role")}
                 if c.get("email_ref"):
-                    out["email"] = tenant_vault.decrypt(str(c["email_ref"]), purpose,
-                                                        actor, request_id)
+                    out["email"] = tx.vault.decrypt(str(c["email_ref"]), purpose,
+                                                    actor, request_id)
                 if c.get("phone_ref"):
-                    out["phone"] = tenant_vault.decrypt(str(c["phone_ref"]), purpose,
-                                                        actor, request_id)
+                    out["phone"] = tx.vault.decrypt(str(c["phone_ref"]), purpose,
+                                                    actor, request_id)
                 return out
         raise NotFoundError("contact not found for lead")

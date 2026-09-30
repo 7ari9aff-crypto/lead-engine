@@ -8,7 +8,17 @@ At-rest format: hex(iv || ciphertext). Key: LEAD_ENGINE_ENCRYPTION_KEY
 import base64
 import os
 
+from .db import utcnow
+
 _SECRET_TABLE = "organization_provider_credentials"
+
+
+def _qualified_table(db) -> str:
+    """The credentials table lives in the public schema on Postgres. SQLite has
+    no schema-qualified names — `public.x` is a hard error there — so local
+    dev (which creates the same table in the SQLite SCHEMA) uses the bare name."""
+    return _SECRET_TABLE if getattr(db, "dialect", "sqlite") == "sqlite" \
+        else f"public.{_SECRET_TABLE}"
 
 
 class SecretsUnavailable(RuntimeError):
@@ -45,23 +55,24 @@ def save_provider_credential(db, org_id: str, env_key: str, value: str) -> None:
     """Upsert one credential. Empty value deletes the row."""
     if not org_id or not os.environ.get("LEAD_ENGINE_ENCRYPTION_KEY"):
         raise SecretsUnavailable("org context or encryption key missing")
+    table = _qualified_table(db)
     if not value:
         db.execute(
-            f"DELETE FROM public.{_SECRET_TABLE} WHERE organization_id = ? AND env_key = ?",
+            f"DELETE FROM {table} WHERE organization_id = ? AND env_key = ?",
             (org_id, env_key))
         return
     existing = db.one(
-        f"SELECT id FROM public.{_SECRET_TABLE} WHERE organization_id = ? AND env_key = ?",
+        f"SELECT id FROM {table} WHERE organization_id = ? AND env_key = ?",
         (org_id, env_key))
     encrypted = encrypt_secret(value)
     if existing:
         db.execute(
-            f"UPDATE public.{_SECRET_TABLE} SET encrypted_value = ?, updated_at = now()"
-            f" WHERE id = ?", (encrypted, existing["id"]))
+            f"UPDATE {table} SET encrypted_value = ?, updated_at = ?"
+            f" WHERE id = ?", (encrypted, utcnow(), existing["id"]))
     else:
         # env_key mirrors the provider's canonical env name
         db.execute(
-            f"INSERT INTO public.{_SECRET_TABLE} (organization_id, provider_name, env_key,"
+            f"INSERT INTO {table} (organization_id, provider_name, env_key,"
             f" encrypted_value) VALUES (?,?,?,?)",
             (org_id, env_key.replace("_API_KEY", "").replace("_KEY", "").lower(),
              env_key, encrypted))
@@ -71,8 +82,9 @@ def load_provider_credentials(db, org_id: str) -> dict[str, str]:
     """Decrypt all credentials for the org: {env_key: value}."""
     if not org_id or not os.environ.get("LEAD_ENGINE_ENCRYPTION_KEY"):
         return {}
+    table = _qualified_table(db)
     rows = db.query(
-        f"SELECT env_key, encrypted_value FROM public.{_SECRET_TABLE}"
+        f"SELECT env_key, encrypted_value FROM {table}"
         f" WHERE organization_id = ? AND status = 'active'", (org_id,))
     out = {}
     for row in rows:

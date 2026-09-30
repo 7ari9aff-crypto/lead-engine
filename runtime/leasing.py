@@ -56,6 +56,7 @@ def claim_next(db, queues: list[str], worker_id: str, lease_seconds: int) -> dic
                WHERE id = (
                  SELECT id FROM runtime.jobs
                  WHERE queue = ANY(%s) AND state = 'QUEUED'
+                   AND attempts < max_attempts
                  ORDER BY priority, created_at
                  LIMIT 1
                  FOR UPDATE SKIP LOCKED
@@ -178,21 +179,45 @@ def fail(db, job_id: str, lease_token: str, lease_version: int, error: str) -> s
 
 def reclaim_expired(db, batch: int = 50) -> list[str]:
     """Reaper: requeue jobs whose lease lapsed. Fencing makes this safe — if
-    the old worker is alive and writes, it loses (0 rows) and stops."""
+    the old worker is alive and writes, it loses (0 rows) and stops.
+    Jobs that already burned their attempt budget are FAILED, not requeued:
+    a crash loop (OOM, timeout kill) never reaches fail(), so without this
+    check the same job would be re-claimed forever, every worker tick."""
+    failed: list[str] = []
+    requeued: list[str] = []
     with db.tx_system() as conn, conn.cursor() as cur:
-        rows = cur.execute(
+        cur.execute(
             """UPDATE runtime.jobs
-               SET state = 'QUEUED', lease_token = NULL, lease_expires_at = NULL,
-                   last_error = 'lease expired; requeued', updated_at = now()
+               SET state = 'FAILED', finished_at = now(),
+                   lease_token = NULL, lease_expires_at = NULL,
+                   last_error = 'lease expired after max attempts; not requeued',
+                   updated_at = now()
                WHERE id IN (
                  SELECT id FROM runtime.jobs
                  WHERE state = ANY(%s) AND lease_expires_at < now()
+                   AND attempts >= max_attempts
                  LIMIT %s
                )
                RETURNING id""",
                 (list(ACTIVE_STATES), batch),
-        ).fetchall()
-        return [str(r["id"]) for r in rows]
+        )
+        failed = [str(r["id"]) for r in cur.fetchall()]
+        remaining = batch - len(failed)
+        if remaining > 0:
+            cur.execute(
+                """UPDATE runtime.jobs
+                   SET state = 'QUEUED', lease_token = NULL, lease_expires_at = NULL,
+                       last_error = 'lease expired; requeued', updated_at = now()
+                   WHERE id IN (
+                     SELECT id FROM runtime.jobs
+                     WHERE state = ANY(%s) AND lease_expires_at < now()
+                     LIMIT %s
+                   )
+                   RETURNING id""",
+                    (list(ACTIVE_STATES), remaining),
+            )
+            requeued = [str(r["id"]) for r in cur.fetchall()]
+    return requeued + failed
 
 
 def apply_cancellation(db, job_id: str, lease_token: str, lease_version: int) -> bool:

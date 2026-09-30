@@ -11,6 +11,7 @@ from application.doctor.checks import (
     check_db_latency,
     check_dead_letters,
     check_failing_jobs,
+    check_http_surface,
     check_migrations,
     check_models,
     check_orphaned_jobs,
@@ -45,6 +46,7 @@ def build_doctor(backend, vault=None, gateway=None, model_gateway=None) -> Docto
     doctor.register("events.dead_letters", check_dead_letters)
     doctor.register("effects.uncertain", check_uncertain_effects)
     doctor.register("honesty.zero_candidates", check_zero_candidate_runs)
+    doctor.register("http.surface", lambda b, sc, org: check_http_surface(b, sc, org))
     doctor.register("pii.plaintext", check_pii_plaintext)
     doctor.register("workers.alive", check_workers_alive)
     doctor.register("agent.approvals_stale", check_stale_approvals)

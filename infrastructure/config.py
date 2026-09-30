@@ -41,6 +41,15 @@ def _dev_master_key() -> bytes:
     return hashlib.sha256(b"lead-engine-v6-dev-master-key").digest()
 DEV_SERVICE_TOKEN = "v6-dev-service-token"  # dev-only; service/CLI authentication
 
+
+def _is_production() -> bool:
+    # LEAD_ENGINE_ENV is the explicit flag; VERCEL_ENV is set by Vercel itself
+    # on every production deployment, so the guard holds even when the
+    # operator never configured a flag.
+    if (os.environ.get("LEAD_ENGINE_ENV") or "").strip().lower() == "production":
+        return True
+    return (os.environ.get("VERCEL_ENV") or "").strip().lower() == "production"
+
 # Connection parameters libpq understands; anything else (pgbouncer=true,
 # supa flags, ...) is dropped so psycopg never chokes on a Supabase DSN.
 _KEEP_PARAMS = {"sslmode", "connect_timeout", "application_name", "target_session_attrs"}
@@ -80,6 +89,7 @@ class Settings:
     master_key: bytes
     service_token: str
     admin_database_url: str = ""
+    public_base_url: str = ""
     supabase_jwt_secret: str = ""
     redis_url: str = ""
     relay_batch_size: int = 100
@@ -105,14 +115,42 @@ class Settings:
             master_key = base64.b64decode(master_b64)
             if len(master_key) != 32:
                 raise RuntimeError("LEAD_ENGINE_V6_MASTER_KEY must decode to 32 bytes")
+        elif _is_production():
+            # The dev key is derived from a public constant: silently using it
+            # in production makes every PII vault value plaintext-equivalent.
+            raise RuntimeError(
+                "LEAD_ENGINE_V6_MASTER_KEY must be set in production "
+                "(base64 of 32 bytes)")
         else:
             master_key = _dev_master_key()
+        service_token = os.environ.get("V6_SERVICE_TOKEN", "").strip()
+        if not service_token:
+            if _is_production():
+                # Fail-CLOSED without failing the boot: an unknown-to-everyone
+                # token means service authentication is simply disabled this
+                # boot. The old default (a public dev token) was an open door;
+                # a boot crash would take the whole dashboard down instead.
+                import secrets as _secrets
+                import sys
+
+                service_token = _secrets.token_urlsafe(32)
+                print(
+                    "[v6-config] WARNING: V6_SERVICE_TOKEN unset in production —"
+                    " service authentication is DISABLED this boot (ephemeral"
+                    " random token). Set V6_SERVICE_TOKEN to enable CLI/n8n"
+                    " service access.",
+                    file=sys.stderr)
+            else:
+                service_token = DEV_SERVICE_TOKEN
         return cls(
             database_url=_sanitize_dsn(dsn),
             master_key=master_key,
             admin_database_url=_sanitize_dsn(
                 os.environ.get("LEAD_ENGINE_V6_ADMIN_DATABASE_URL") or dsn),
-            service_token=os.environ.get("V6_SERVICE_TOKEN", DEV_SERVICE_TOKEN),
+            # Empty means "unknown" — the doctor's http.surface check WARNs and
+            # skips instead of probing a hardcoded deployment from dev/tests.
+            public_base_url=(os.environ.get("LEAD_ENGINE_PUBLIC_BASE_URL") or "").strip(),
+            service_token=service_token,
             supabase_jwt_secret=os.environ.get("SUPABASE_JWT_SECRET", ""),
             redis_url=os.environ.get("LEAD_ENGINE_V6_REDIS_URL", ""),
         )

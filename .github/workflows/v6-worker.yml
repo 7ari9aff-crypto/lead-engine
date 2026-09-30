@@ -54,7 +54,26 @@ jobs:
           LEAD_ENGINE_V6_MASTER_KEY: ${{ secrets.LEAD_ENGINE_V6_MASTER_KEY }}
           LEAD_ENGINE_ENCRYPTION_KEY: ${{ secrets.LEAD_ENGINE_ENCRYPTION_KEY }}
           LEAD_ENGINE_V6_PROVIDERS: real
+          # Black-box probe of the deployed app in the doctor's http.surface check
+          LEAD_ENGINE_PUBLIC_BASE_URL: ${{ vars.LEAD_ENGINE_PUBLIC_BASE_URL }}
         run: |
           python -m apps.worker --queues default \
             --worker-id "gh-worker-$(date +%s)" \
             --cycles "${{ github.event.inputs.cycles || '80' }}"
+
+      - name: Alert on failure
+        if: failure()
+        env:
+          ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+        # Slack-compatible webhook payload ({"text": ...}); Discord's /slack
+        # endpoint accepts the same shape. Unset secret = alerting not
+        # configured, step is a no-op.
+        run: |
+          if [ -z "$ALERT_WEBHOOK_URL" ]; then
+            echo "ALERT_WEBHOOK_URL not configured — skipping alert"
+            exit 0
+          fi
+          curl -sfX POST "$ALERT_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            -d "{\"text\":\"v6-worker FAILED on $GITHUB_REPOSITORY — $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}" \
+            || echo "alert webhook POST failed"

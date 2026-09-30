@@ -108,19 +108,9 @@ def valid_session(value: str | None) -> bool:
         message = f"{expires}:{nonce}"
         expected = hmac.new(_secret(), message.encode(), hashlib.sha256).hexdigest()
         return hmac.compare_digest(signature, expected)
-    if len(parts) == 2:
-        expires, signature = parts
-        if not expires.isdigit() or int(expires) < int(time.time()):
-            return False
-        # Check current key derivation
-        expected = hmac.new(_secret(), expires.encode(), hashlib.sha256).hexdigest()
-        if hmac.compare_digest(signature, expected):
-            return True
-        # Also check raw-password secret for pre-existing legacy cookies
-        legacy_raw = (os.environ.get("LEAD_ENGINE_AUTH_SECRET") or
-                      os.environ.get("LEAD_ENGINE_ADMIN_PASSWORD", "dev-only-secret")).encode()
-        legacy_expected = hmac.new(legacy_raw, expires.encode(), hashlib.sha256).hexdigest()
-        return hmac.compare_digest(signature, legacy_expected)
+    # Two-part cookies (pre-nonce format) were signed with the RAW admin
+    # password; accepting them meant rotating LEAD_ENGINE_AUTH_SECRET never
+    # revoked old sessions. They are no longer honored — holders just re-login.
     return False
 
 

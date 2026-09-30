@@ -52,6 +52,11 @@ class CreateCampaign:
 
 
 class JobQuery:
+    # Internal runtime columns that must never cross the API boundary: the
+    # lease token is fencing material (a holder could reason about attempt
+    # races); checkpoint payloads are handler-internal state.
+    _INTERNAL_FIELDS = ("lease_token", "checkpoint")
+
     def __init__(self, jobs: JobRuntime):
         self._jobs = jobs
 
@@ -59,6 +64,7 @@ class JobQuery:
         job = self._jobs.get(org_id, job_id)
         if job is None:
             raise NotFoundError("job not found")
+        job = {k: v for k, v in job.items() if k not in self._INTERNAL_FIELDS}
         return {"job": job, "events": self._jobs.events(job_id)}
 
     def list(self, org_id: str, limit: int = 50) -> list[dict[str, Any]]:

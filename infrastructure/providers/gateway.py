@@ -90,6 +90,18 @@ class ProviderGateway:
     def adapters(self, capability: Capability) -> list:
         return list(self._registry.get(capability, []))
 
+    def _spent_cents(self, cur, org_id: str, job_id: str | None) -> int:
+        """Cumulative provider cost already booked for this job — the budget
+        check is per-JOB remaining budget, not per-call price."""
+        if job_id is None:
+            return 0
+        row = cur.execute(
+            """SELECT COALESCE(SUM(cost_cents), 0) AS spent FROM effects.effect_ledger
+               WHERE org_id = %s AND job_id = %s""",
+            (org_id, job_id),
+        ).fetchone()
+        return int(row["spent"] or 0) if row else 0
+
     def execute(self, cur, org_id: str, capability: Capability, operation: str,
                 params: dict[str, Any], job_id: str | None = None,
                 step_id: str | None = None,
@@ -97,15 +109,22 @@ class ProviderGateway:
         """Run the waterfall. Reserve the effect BEFORE calling; complete it
         after. An already-succeeded identical effect is NOT re-executed."""
         ledger = _Ledger(cur)
+        spent = None  # computed lazily, once, on the first paid call
         for adapter in self.adapters(capability):
             effect_id, already = ledger.reserve(org_id, job_id, step_id,
                                                 adapter.spec, operation, params)
             if already:
                 return ProviderResult(ok=True, data={"cached_effect": effect_id})
 
-            if budget_cents is not None and adapter.spec.cost_cents_per_call > budget_cents:
-                return ProviderResult(ok=False, failure=FailureClass.CAPACITY,
-                                      error="budget exhausted before provider call")
+            if budget_cents is not None and adapter.spec.cost_cents_per_call > 0:
+                if spent is None:
+                    spent = self._spent_cents(cur, org_id, job_id)
+                remaining = budget_cents - spent
+                if adapter.spec.cost_cents_per_call > remaining:
+                    ledger.complete(effect_id, False, 0, None,
+                                    failure_class=FailureClass.CAPACITY.value)
+                    return ProviderResult(ok=False, failure=FailureClass.CAPACITY,
+                                          error="job budget exhausted before provider call")
 
             try:
                 result = adapter.call(operation, params)

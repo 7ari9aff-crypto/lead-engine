@@ -21,7 +21,7 @@ def main(argv: list[str] | None = None) -> int:
     from v6api.dependencies import Container
     from application.handlers.pipeline import AcquisitionPipelineHandler
     from infrastructure.config import MIGRATIONS_DIR, Settings
-    from infrastructure.doctor.registry import build_doctor, write_heartbeat
+    from infrastructure.doctor.registry import build_doctor
     from infrastructure.events.relay import OutboxRelay
     from infrastructure.pii.vault import PiiVault
     from infrastructure.postgres.pool import Database
@@ -71,7 +71,9 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         pass
     finally:
-        write_heartbeat(db, worker_id, ",".join(worker._queues))
+        # No heartbeat here on purpose: run_maintenance writes one every tick
+        # while the worker is ALIVE. Writing one in finally would report a
+        # crashed worker as healthy.
         db.close()
     return 0
 

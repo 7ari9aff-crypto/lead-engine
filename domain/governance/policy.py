@@ -50,8 +50,11 @@ def evaluate(rules: dict[str, Any], inp: PolicyInput) -> tuple[GovernanceDecisio
     if rules.get("require_country_allowlist"):
         allow = {c.upper() for c in (rules.get("country_allowlist") or [])}
         target = (inp.country or context.get("target_country") or "").upper()
-        if target and target not in allow:
-            return GovernanceDecision.BLOCKED, "region-allowlist", f"country {target or 'unknown'} not allowlisted"
+        # Fail-closed: an UNKNOWN country is not allowlisted either. A hard
+        # gate that opens when the input is missing is not a gate.
+        if target not in allow:
+            return (GovernanceDecision.BLOCKED, "region-allowlist",
+                    f"country {target or 'unknown'} not allowlisted")
 
     return GovernanceDecision.ALLOWED, "general-basis", "allowed by default policy"
 

@@ -81,7 +81,9 @@ class PgUnitOfWork:
         from infrastructure.pii.vault import TenantVault
 
         assert self._vault_engine is not None, "no vault configured"
-        return TenantVault(self._vault_engine, self._tenant)
+        # Bound to THIS transaction: ciphertext + business rows + the access
+        # audit row commit together (ADR-0005 atomicity includes PII writes).
+        return TenantVault(self._vault_engine, self._tenant, conn=self._conn)
 
     def emit(self, event: EventEnvelope) -> None:
         """Write an event into the outbox on the CURRENT transaction."""

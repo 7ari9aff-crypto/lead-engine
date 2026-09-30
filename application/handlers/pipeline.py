@@ -228,7 +228,8 @@ class AcquisitionPipelineHandler:
             contact_id = tx.repos.contacts.find_or_create_contact(
                 company_id, normalize_name(title) or title, "contact", source_id)
             ref = tx.vault.store("email", email)
-            tx.repos.contacts.attach_email_ref(contact_id, ref)
+            tx.repos.contacts.attach_email_ref(contact_id, ref,
+                                               tx.vault.masked("email", email))
             tx.repos.claims.add_observation(
                 company_id, "contact_email_masked", tx.vault.masked("email", email),
                 source_id, "snippet", 0.7)
@@ -236,7 +237,8 @@ class AcquisitionPipelineHandler:
             contact_id = tx.repos.contacts.find_or_create_contact(
                 company_id, normalize_name(title) or title, "contact", source_id)
             ref = tx.vault.store("phone", phone)
-            tx.repos.contacts.attach_phone_ref(contact_id, ref)
+            tx.repos.contacts.attach_phone_ref(contact_id, ref,
+                                               tx.vault.masked("phone", phone))
         return company_id
 
     # ------------------------------------------------------------------
@@ -281,14 +283,16 @@ class AcquisitionPipelineHandler:
             email = person.get("email")
             if email:
                 ref = tx.vault.store("email", email)
-                tx.repos.contacts.attach_email_ref(contact_id, ref)
+                tx.repos.contacts.attach_email_ref(contact_id, ref,
+                                                   tx.vault.masked("email", email))
                 tx.repos.claims.add_observation(
                     company_id, "contact_email_masked", tx.vault.masked("email", email),
                     None, "enrichment", 0.7)
             phone = person.get("phone")
             if phone:
                 ref = tx.vault.store("phone", phone)
-                tx.repos.contacts.attach_phone_ref(contact_id, ref)
+                tx.repos.contacts.attach_phone_ref(contact_id, ref,
+                                                   tx.vault.masked("phone", phone))
             if person.get("social"):
                 tx.repos.contacts.attach_social(contact_id, str(person["social"]))
 
@@ -411,25 +415,39 @@ class AcquisitionPipelineHandler:
                 company = tx.repos.intelligence.company_context(company_id)
                 summary = tx.repos.claims.claims_summary(company_id)
                 contacts = tx.repos.contacts.list_company_contacts(company_id)
+                recorded = tx.repos.intelligence.company_verification_statuses(company_id)
 
+                # Projections are built from RECORDED verification history and
+                # stored masked identities — the qualification phase never needs
+                # plaintext PII (the decrypt below is a legacy-data fallback).
                 email_status: VerificationStatus | None = None
-                email_plain: str | None = None
-                phone_plain: str | None = None
+                email_masked: str | None = None
+                phone_masked: str | None = None
                 for contact in contacts:
-                    if contact.get("email_ref") and email_plain is None:
-                        email_plain = tx.vault.decrypt(str(contact["email_ref"]),
-                                                       "human_review",
-                                                       actor=ctx.worker_id or "worker",
-                                                       request_id=ctx.job_id)
-                        cached = tx.repos.intelligence.get_cached_verification(_sha(email_plain))
+                    if phone_masked is None and contact.get("phone_masked"):
+                        phone_masked = contact["phone_masked"]
+                    if not contact.get("email_ref"):
+                        continue
+                    status_str = recorded.get(str(contact["id"]))
+                    if status_str:
+                        email_status = _best_status(email_status,
+                                                    VerificationStatus(status_str))
+                    masked = contact.get("email_masked")
+                    if masked is None and email_masked is None:
+                        # Rows written before masked identities existed: last
+                        # resort decrypt, strictly to derive status + mask.
+                        email_plain = tx.vault.decrypt(
+                            str(contact["email_ref"]), "verification",
+                            actor=ctx.worker_id or "worker",
+                            request_id=ctx.job_id)
+                        cached = tx.repos.intelligence.get_cached_verification(
+                            _sha(email_plain))
                         if cached:
-                            email_status = _best_status(email_status,
-                                                        VerificationStatus(cached["status"]))
-                    if contact.get("phone_ref") and phone_plain is None:
-                        phone_plain = tx.vault.decrypt(str(contact["phone_ref"]),
-                                                       "human_review",
-                                                       actor=ctx.worker_id or "worker",
-                                                       request_id=ctx.job_id)
+                            email_status = _best_status(
+                                email_status, VerificationStatus(cached["status"]))
+                        masked = tx.vault.masked("email", email_plain)
+                    if masked and email_masked is None:
+                        email_masked = masked
 
                 rules = rules or tx.repos.governance.get_policy_rules() or default_rules()
                 domain = company.get("domain")
@@ -457,8 +475,8 @@ class AcquisitionPipelineHandler:
                     display={"name": company["canonical_name"], "domain": domain,
                              "city": summary.get("city"),
                              "industry": company.get("industry")},
-                    masked_email=tx.vault.masked("email", email_plain) if email_plain else None,
-                    masked_phone=tx.vault.masked("phone", phone_plain) if phone_plain else None,
+                    masked_email=email_masked,
+                    masked_phone=phone_masked,
                     email_status=email_status.value if email_status else None,
                     score=score, score_version="v1", decision=decision.value,
                 )

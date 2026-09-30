@@ -90,13 +90,15 @@ class AcquisitionRepo:
     def get_campaign(self, campaign_id: str) -> dict[str, Any] | None:
         return _one(
             self.cur,
-            "SELECT * FROM acquisition.campaigns WHERE id = %s",
+            """SELECT * FROM acquisition.campaigns
+               WHERE org_id = current_setting('app.tenant_id', true)::uuid AND id = %s""",
             (campaign_id,),
         )
 
     def set_campaign_state(self, campaign_id: str, state: str) -> None:
         self.cur.execute(
-            "UPDATE acquisition.campaigns SET state = %s, updated_at = now() WHERE id = %s",
+            """UPDATE acquisition.campaigns SET state = %s, updated_at = now()
+               WHERE org_id = current_setting('app.tenant_id', true)::uuid AND id = %s""",
             (state, campaign_id),
         )
 
@@ -313,9 +315,10 @@ class ContactsRepo:
             self.cur,
             """SELECT id FROM contacts.company_contacts
                WHERE org_id = current_setting('app.tenant_id', true)::uuid
-                 AND company_id = %s AND lower(name) = lower(%s)
+                 AND company_id = %s
+                 AND ((name IS NULL AND %s IS NULL) OR lower(name) = lower(%s))
                  AND role IS NOT DISTINCT FROM %s LIMIT 1""",
-            (company_id, name or "", role),
+            (company_id, name, name, role),
         )
         if row:
             return str(row["id"])
@@ -331,6 +334,9 @@ class ContactsRepo:
 
     def _attach(self, contact_id: str, kind: str, public_value: str | None,
                 pii_ref_id: str | None) -> None:
+        # public_value carries the MASKED form for email/phone: identities stay
+        # deduplicatable (the unique key includes it) and projections can render
+        # without touching the vault.
         self.cur.execute(
             """INSERT INTO contacts.contact_identities
                  (org_id, contact_id, kind, public_value, pii_ref_id)
@@ -339,11 +345,13 @@ class ContactsRepo:
             (contact_id, kind, public_value, pii_ref_id),
         )
 
-    def attach_email_ref(self, contact_id: str, pii_ref_id: str) -> None:
-        self._attach(contact_id, "email", None, pii_ref_id)
+    def attach_email_ref(self, contact_id: str, pii_ref_id: str,
+                         masked: str | None = None) -> None:
+        self._attach(contact_id, "email", masked, pii_ref_id)
 
-    def attach_phone_ref(self, contact_id: str, pii_ref_id: str) -> None:
-        self._attach(contact_id, "phone", None, pii_ref_id)
+    def attach_phone_ref(self, contact_id: str, pii_ref_id: str,
+                         masked: str | None = None) -> None:
+        self._attach(contact_id, "phone", masked, pii_ref_id)
 
     def attach_social(self, contact_id: str, value: str) -> None:
         self._attach(contact_id, "social", value, None)
@@ -353,7 +361,9 @@ class ContactsRepo:
             self.cur,
             """SELECT c.id, c.name, c.role,
                       MAX(CASE WHEN i.kind = 'email' THEN i.pii_ref_id::text END) AS email_ref,
-                      MAX(CASE WHEN i.kind = 'phone' THEN i.pii_ref_id::text END) AS phone_ref
+                      MAX(CASE WHEN i.kind = 'phone' THEN i.pii_ref_id::text END) AS phone_ref,
+                      MAX(CASE WHEN i.kind = 'email' THEN i.public_value END) AS email_masked,
+                      MAX(CASE WHEN i.kind = 'phone' THEN i.public_value END) AS phone_masked
                FROM contacts.company_contacts c
                LEFT JOIN contacts.contact_identities i ON i.contact_id = c.id
                WHERE c.org_id = current_setting('app.tenant_id', true)::uuid
@@ -434,6 +444,22 @@ class IntelligenceRepo:
             (contact_id, kind, pii_ref_id, status, provider_id,
              psycopg.types.json.Json(evidence)),
         )
+
+    def company_verification_statuses(self, company_id: str) -> dict[str, str]:
+        """Latest recorded email verification status per contact id — lets the
+        qualification phase build projections from history WITHOUT decrypting
+        PII a second time."""
+        rows = _q(
+            self.cur,
+            """SELECT DISTINCT ON (v.contact_id) v.contact_id::text AS contact_id, v.status
+               FROM intelligence.verification_records v
+               JOIN contacts.company_contacts c ON c.id = v.contact_id
+               WHERE v.org_id = current_setting('app.tenant_id', true)::uuid
+                 AND c.company_id = %s AND v.kind = 'email'
+               ORDER BY v.contact_id, v.verified_at DESC""",
+            (company_id,),
+        )
+        return {r["contact_id"]: r["status"] for r in rows}
 
     def add_scoring_record(self, company_id: str, score: float, score_version: str,
                            input_snapshot: dict[str, Any], explanations: list[str]) -> None:
