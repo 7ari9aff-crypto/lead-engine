@@ -16,9 +16,12 @@ def apply_context(db, request: Request | None) -> None:
     """Pin db.org_id for this request. Call right after open_db()."""
     claims = getattr(request.state, "claims", None) if request is not None else None
     if claims:
-        from . import auth_jwt
+        from .api import auth_jwt
         resolved = auth_jwt.resolve_org_id(claims, db)
-        db.org_id = resolved or "__no_org__"
+        # Fallback: ephemeral-SQLite deployments keep no membership table, so
+        # a verified Supabase user rides the env-bridge org (the deployment's
+        # trust model: Supabase accounts are operator-invited).
+        db.org_id = resolved or os.environ.get("LEAD_ENGINE_ORG_ID") or "__no_org__"
         return
     if not getattr(db, "org_id", None):
         db.org_id = os.environ.get("LEAD_ENGINE_ORG_ID")
