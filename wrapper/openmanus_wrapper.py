@@ -121,9 +121,17 @@ def _load(task_id: str) -> Optional[dict]:
 
 
 def _save(task: dict) -> None:
-    _task_path(task["task_id"]).write_text(
-        json.dumps(task, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    # Atomic write: a concurrent poller reading mid-write would see a truncated
+    # file (JSONDecodeError -> None -> 404 "task not found"). tmp + os.replace
+    # makes readers see either the old or the new complete file, never neither.
+    path = _task_path(task["task_id"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    try:
+        tmp.write_text(json.dumps(task, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 # --------------------------------------------------------- Contact Extraction & Normalization
