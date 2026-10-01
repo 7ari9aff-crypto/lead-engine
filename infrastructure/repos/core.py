@@ -316,7 +316,7 @@ class ContactsRepo:
             """SELECT id FROM contacts.company_contacts
                WHERE org_id = current_setting('app.tenant_id', true)::uuid
                  AND company_id = %s
-                 AND ((name IS NULL AND %s IS NULL) OR lower(name) = lower(%s))
+                 AND ((name IS NULL AND %s::text IS NULL) OR lower(name) = lower(%s))
                  AND role IS NOT DISTINCT FROM %s LIMIT 1""",
             (company_id, name, name, role),
         )
