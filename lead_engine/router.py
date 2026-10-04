@@ -92,6 +92,17 @@ class Router:
             if hit is not None:
                 return hit, {"provider": "cache", "cached": True, "latency_ms": 0}
 
+        # Plan entitlement: max_provider_calls_per_day. Enforced here (the only
+        # choke point every provider call flows through) — until now the limit
+        # existed in the plans/usage UI but nothing ever read it. Raised as
+        # NoProviderAvailable so the job PAUSES (a resource state), not fails.
+        org_id = getattr(self.db, "org_id", None)
+        if org_id and not str(org_id).startswith("__"):
+            from .entitlements import check_provider_call
+
+            if not check_provider_call(self.db, org_id):
+                raise NoProviderAvailable(task, ["entitlement:daily_provider_calls"])
+
         cfg = self.settings.get("router", {})
         cooldown_default = cfg.get("cooldown_default_seconds", 300)
         unavailable_cooldown = cfg.get("unavailable_cooldown_seconds", 60)
@@ -102,7 +113,14 @@ class Router:
                       for name, a in self.adapters.items()}
         rows = self.registry.providers_for_task(task, key_counts=key_counts)
         if prefer_provider:
-            rows = [r for r in rows if r["name"] == prefer_provider]
+            # A pinned provider is a PREFERENCE, not an exclusion: it leads the
+            # waterfall, and if it is unusable (cooldown / missing key) the
+            # remaining providers still get their turn. Pinning used to filter
+            # the rows to the pinned name alone, which is why a gemini-pinned
+            # agent sat out every Groq/OpenRouter fallback during 503 storms.
+            pinned = [r for r in rows if r["name"] == prefer_provider]
+            rest = [r for r in rows if r["name"] != prefer_provider]
+            rows = pinned + rest
             if not rows:
                 raise NoProviderAvailable(task, [f"{prefer_provider}:not_registered"])
         for row in rows:

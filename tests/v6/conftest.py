@@ -1,9 +1,10 @@
 """V6 test suite fixtures.
 
-The suite runs against the Supabase Postgres directly (operator decision —
-no local Docker). Session start wipes ONLY the dedicated V6 schemas and
-re-applies migrations; legacy schemas (public/engine/activity) are never
-touched.
+The suite runs against a LOCAL Postgres (CI service container on :5433, or a
+local docker instance). It DROPS and re-creates the dedicated V6 schemas on
+every session — a remote/hostile DSN is refused by _refuse_remote_database
+unless LEAD_ENGINE_ALLOW_REMOTE_TEST_DB=1. Legacy schemas (public/engine/
+activity) are never touched.
 """
 from __future__ import annotations
 
@@ -61,6 +62,27 @@ def _wipe_v6_schemas(settings: Settings) -> None:
     client.close()
 
 
+def _refuse_remote_database(cfg: Settings) -> None:
+    """The suite DROPS and re-creates every V6 schema on whatever database the
+    settings resolve to. That is how test rows and a 'boom' dead letter reached
+    the live Supabase once already. A non-local host is refused unless the
+    operator sets LEAD_ENGINE_ALLOW_REMOTE_TEST_DB=1 explicitly."""
+    import os as _os
+    from urllib.parse import urlsplit
+
+    host = (urlsplit(cfg.admin_database_url or cfg.database_url).hostname or "").lower()
+    if host in ("localhost", "127.0.0.1", "::1", ""):
+        return
+    if (_os.environ.get("LEAD_ENGINE_ALLOW_REMOTE_TEST_DB") or "").strip().lower() \
+            in ("1", "true", "yes"):
+        return
+    raise RuntimeError(
+        f"tests/v6 drops and re-creates its schemas — refusing remote host {host!r}. "
+        "Point LEAD_ENGINE_V6_DATABASE_URL at a local database (CI uses a "
+        "service container), or set LEAD_ENGINE_ALLOW_REMOTE_TEST_DB=1 only "
+        "if you fully understand the target will be WIPED.")
+
+
 @pytest.fixture(scope="session")
 def settings() -> Settings:
     # The legacy tests/conftest.py blanks SUPABASE_DB_URL in os.environ to
@@ -73,7 +95,9 @@ def settings() -> Settings:
     for key in ("SUPABASE_DB_URL", "DATABASE_URL", "LEAD_ENGINE_V6_DATABASE_URL"):
         if not (os.environ.get(key) or "").strip():
             os.environ.pop(key, None)
-    return Settings.load()
+    cfg = Settings.load()
+    _refuse_remote_database(cfg)
+    return cfg
 
 
 @pytest.fixture(scope="session")

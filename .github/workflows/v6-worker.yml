@@ -58,7 +58,7 @@ jobs:
           LEAD_ENGINE_PUBLIC_BASE_URL: ${{ vars.LEAD_ENGINE_PUBLIC_BASE_URL }}
         run: |
           python -m apps.worker --queues default \
-            --worker-id "gh-worker-$(date +%s)" \
+            --worker-id "gh-worker-scheduled" \
             --cycles "${{ github.event.inputs.cycles || '80' }}"
 
       - name: Alert on failure

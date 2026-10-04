@@ -67,8 +67,11 @@ def build_adhoc_icp(cities: list, industry: str = "b2b",
         "v0_limits": {
             "search_results_per_query": max_results,
             "max_search_queries": max_queries,
-            "enrichment_budget_credits": 0,
-            "enrichment_max_people": 0,
+            # Mirrors config/icp/v0.yaml: enrichment is what fills contacts and
+            # decision makers. Zero here was why ad-hoc runs produced leads
+            # with no phone/email at all even with Apollo/Hunter keys set.
+            "enrichment_budget_credits": 50,
+            "enrichment_max_people": 30,
         },
     }
 

@@ -297,8 +297,8 @@ def execute_tool(name: str, args: dict, router, db) -> dict:
                              "notes": args.get("notes") or ""},
                 "v0_limits": {"max_search_queries": 6,
                               "search_results_per_query": 8,
-                              "enrichment_budget_credits": 0,
-                              "enrichment_max_people": 0},
+                              "enrichment_budget_credits": 50,
+                              "enrichment_max_people": 30},
             }
             icps = ICPStore(db)
             row = icps.create_version("agentic", definition, source="chat_intent")

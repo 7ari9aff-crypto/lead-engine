@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import time
+from datetime import datetime, timezone
 
 from contracts.doctor import CheckStatus, DoctorCheck
 
@@ -166,11 +167,42 @@ def check_zero_candidate_runs(backend, settings, org) -> DoctorCheck:
     return DoctorCheck("honesty.zero_candidates", "تشغيلات بلا مرشحين", CheckStatus.OK, "لا تشغيلات فاضية")
 
 
+def check_schedule_stalled(backend, settings, org) -> DoctorCheck:
+    """No new job created anywhere in 26h = the daily schedule is broken.
+    An n8n failure once ran silent for 17 days because nothing watched the
+    scheduler itself — replacing a broken cron with another broken cron helps
+    nobody unless THIS check exists."""
+    rows = backend.system_all(
+        """SELECT max(ts) AS latest FROM (
+             SELECT created_at AS ts FROM engine.jobs
+             UNION ALL
+             SELECT created_at AS ts FROM runtime.jobs
+           ) all_jobs""")
+    latest = rows[0]["latest"] if rows else None
+    if latest is None:
+        return DoctorCheck("schedule.stalled", "جدولة التشغيل اليومي", CheckStatus.WARN,
+                           "مفيش ولا job اتعمل — الجدولة مش شغالة أو مش متظبطة")
+    if latest.tzinfo is None:
+        latest = latest.replace(tzinfo=timezone.utc)
+    hours = round((datetime.now(timezone.utc) - latest).total_seconds() / 3600, 1)
+    if hours > 26:
+        return DoctorCheck("schedule.stalled", "جدولة التشغيل اليومي", CheckStatus.WARN,
+                           f"آخر job اتعمل قبل {hours} ساعة — الجدولة اليومية واقفة",
+                           {"hours_since_last_job": hours})
+    return DoctorCheck("schedule.stalled", "جدولة التشغيل اليومي", CheckStatus.OK,
+                       f"آخر job قبل {hours} ساعة")
+
+
 def check_pii_plaintext(backend, settings, org) -> DoctorCheck:
     """Anti-silent-leak: plaintext email/phone must NEVER appear in the
     projection display blob. One hit = FAIL with the offending lead id."""
+    if not org:
+        # Without a tenant context FORCE RLS denies every row: probing the
+        # NULLS-uuid tenant "passes" vacuously — a false green. Say so instead.
+        return DoctorCheck("pii.plaintext", "تسريب PII في العروض", CheckStatus.WARN,
+                           "متاح داخل سياق مؤسسة فقط — شغّل الفحص من سياق org")
     rows = backend.org_all(
-        org or "00000000-0000-0000-0000-000000000000",
+        org,
         """SELECT id::text, display::text AS blob FROM projects.lead_projections
            WHERE org_id = current_setting('app.tenant_id', true)::uuid
              AND built_at > now() - interval '7 days'""")

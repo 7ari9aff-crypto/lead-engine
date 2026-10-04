@@ -16,6 +16,18 @@ SOCIAL_DOMAINS = {
     "google.com", "goo.gl", "maps.app.goo.gl", "reddit.com", "quora.com",
 }
 
+# Aggregator / directory sites: they LIST businesses, they are not one.
+# A result hosted on one of these became a bogus company row named after the
+# directory page (the same directory appearing once per listed clinic).
+DIRECTORY_DOMAINS = {
+    "whatclinic.com", "healthgrades.com", "zocdoc.com", "vitals.com",
+    "ratemds.com", "bookimed.com", "doctors.com", "dentistry.com",
+    "dentalcare.com", "yellowpages.com", "yell.com", "yelp.com",
+    "houzz.com", "tripadvisor.com", "expedia.com", "booking.com",
+    "b2bmap.com", "kompass.com", "tradekey.com", "dnb.com",
+    "waze.com", "yellowpages.com.eg", "dalilmasr.com",
+}
+
 
 def normalize_text(s: str) -> str:
     if not s:
@@ -40,6 +52,12 @@ def is_social(domain: str) -> bool:
     if not domain:
         return False
     return any(domain == d or domain.endswith("." + d) for d in SOCIAL_DOMAINS)
+
+
+def is_directory(domain: str) -> bool:
+    if not domain:
+        return False
+    return any(domain == d or domain.endswith("." + d) for d in DIRECTORY_DOMAINS)
 
 
 def clean_title(title: str) -> str:

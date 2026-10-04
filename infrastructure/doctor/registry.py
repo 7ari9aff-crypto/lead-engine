@@ -20,6 +20,7 @@ from application.doctor.checks import (
     check_provider_health,
     check_queue_starved,
     check_rls_enforced,
+    check_schedule_stalled,
     check_stale_alerts_open,
     check_stale_approvals,
     check_stuck_jobs,
@@ -46,6 +47,7 @@ def build_doctor(backend, vault=None, gateway=None, model_gateway=None) -> Docto
     doctor.register("events.dead_letters", check_dead_letters)
     doctor.register("effects.uncertain", check_uncertain_effects)
     doctor.register("honesty.zero_candidates", check_zero_candidate_runs)
+    doctor.register("schedule.stalled", check_schedule_stalled)
     doctor.register("http.surface", lambda b, sc, org: check_http_surface(b, sc, org))
     doctor.register("pii.plaintext", check_pii_plaintext)
     doctor.register("workers.alive", check_workers_alive)

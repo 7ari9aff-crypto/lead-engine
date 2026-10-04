@@ -89,6 +89,7 @@ class Worker:
         requeued = leasing.reclaim_expired(self._db)
         dispatched = self._relay.tick() if self._relay else 0
         flagged = self._reconcile_uncertain_effects()
+        pruned = self._prune_heartbeats()
         self._tick_count = getattr(self, "_tick_count", 0) + 1
         alert_stats = {"opened": 0, "resolved": 0}
         if self._doctor is not None and self._tick_count % 10 == 0:
@@ -99,7 +100,18 @@ class Worker:
         if self._doctor is not None:
             write_heartbeat(self._db, self._worker_id, ",".join(self._queues))
         return {"requeued": len(requeued), "dispatched": dispatched,
-                "reconciliation_flags": flagged, **alert_stats}
+                "reconciliation_flags": flagged, "heartbeats_pruned": pruned,
+                **alert_stats}
+
+    def _prune_heartbeats(self) -> int:
+        """Every scheduled run writes its own worker_id row and never came back
+        to delete it — the table accumulated 289 stale gh-worker rows. Anything
+        that has not beaten in 7 days is dead history."""
+        with self._db.tx_system() as conn, conn.cursor() as cur:
+            cur.execute(
+                """DELETE FROM runtime.worker_heartbeats
+                   WHERE last_beat < now() - interval '7 days'""")
+            return cur.rowcount
 
     def _reconcile_uncertain_effects(self) -> int:
         """Effects stuck in 'uncertain' for over a day get a durable human

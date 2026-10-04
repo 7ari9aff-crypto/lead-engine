@@ -1,6 +1,8 @@
 """Discovery: ICP queries -> search pool -> raw candidates."""
 from .icp import build_plan as build_plan  # re-export for convenience
-from .normalize import clean_title, domain_from_url, extract_contacts, is_social
+from .normalize import (
+    clean_title, domain_from_url, extract_contacts, is_directory, is_social,
+)
 
 
 class Discovery:
@@ -19,6 +21,11 @@ class Discovery:
                 cache_data_type="search_results",
             )
             for r in result.get("results", []):
+                # Directory/aggregator pages list many businesses under one
+                # domain; letting them through produced one bogus company row
+                # per listed clinic, all named after the directory page.
+                if is_directory(domain_from_url(r.get("url", ""))):
+                    continue
                 candidates.append(self.to_candidate(r, entry, icp, meta.get("provider")))
         return candidates
 

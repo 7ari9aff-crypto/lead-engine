@@ -6,6 +6,7 @@ used for dev and tests. Both implement the same Database interface.
 """
 import json
 import os
+import re
 import sqlite3
 import threading
 from datetime import datetime, timezone
@@ -530,10 +531,14 @@ class Database:
         # Identity is tenant-global, NOT per-job: the same real-world company
         # keeps one row across campaigns (later runs refresh it via upsert).
         # org prefix keeps tenants isolated; job_id must never be part of it.
-        # A row with NEITHER domain nor name has no stable identity — fall back
-        # to a random id instead of collapsing every such row into one.
+        # Without a domain the name becomes the identity — normalized, so page
+        # title variants of the same clinic collapse instead of duplicating.
         scope = getattr(self, "org_id", None) or "shared"
-        identity = lead.get("domain") or lead.get("name")
+        identity = lead.get("domain")
+        if not identity:
+            name_norm = re.sub(r"\s+", " ", re.sub(
+                r"[^\w\u0600-\u06FF]+", " ", str(lead.get("name") or "").lower())).strip()
+            identity = name_norm or None
         lead["lead_id"] = lead.get("lead_id") or (
             f"{scope}:{identity}" if identity else f"{scope}:anon:{uuid4().hex[:12]}")
         now = utcnow()

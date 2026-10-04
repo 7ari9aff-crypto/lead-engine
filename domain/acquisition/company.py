@@ -13,6 +13,21 @@ SOCIAL_DOMAINS = ("facebook.com", "instagram.com", "linkedin.com", "twitter.com"
                   "x.com", "tiktok.com", "youtube.com", "wa.me", "whatsapp.com")
 EDITORIAL_HINTS = ("blog", "article", "news", "magazine", "/blog/", "best-", "top-10")
 
+# Aggregator / directory sites: they LIST businesses, they are not one. A
+# result on one of these used to become a bogus company row named after the
+# directory page — one per listed clinic, same domain across "companies".
+DIRECTORY_DOMAINS = ("whatclinic.com", "healthgrades.com", "zocdoc.com",
+                     "vitals.com", "ratemds.com", "bookimed.com", "doctors.com",
+                     "dentistry.com", "yellowpages.com", "yell.com", "yelp.com",
+                     "houzz.com", "tripadvisor.com", "booking.com", "b2bmap.com",
+                     "kompass.com", "dnb.com")
+
+
+def is_directory(domain: str | None) -> bool:
+    if not domain:
+        return False
+    return any(domain == d or domain.endswith("." + d) for d in DIRECTORY_DOMAINS)
+
 
 def domain_from_url(url: str) -> str | None:
     try:
@@ -52,6 +67,8 @@ def resolve_identity(
     domain = domain_from_url(candidate_url)
     if is_social(domain):
         return "social"
+    if is_directory(domain):
+        return "editorial"
     if looks_editorial(candidate_name, candidate_url):
         return "editorial"
     if known_by_domain or known_by_name:

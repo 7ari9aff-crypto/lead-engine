@@ -7,6 +7,10 @@ class HardFilter:
     def __init__(self, icp: dict):
         self.city_terms = city_terms(icp)
         self.industry_terms = industry_terms(icp)
+        # criteria.min_branches is a real ICP criterion; it was defined in the
+        # ICP config but never read here. Enforced only when the branch count
+        # is KNOWN — an unknown value passes (we cannot filter on missing data).
+        self.min_branches = int((icp.get("criteria") or {}).get("min_branches") or 0)
 
     def apply(self, lead: dict):
         blob = normalize_text(" ".join(str(lead.get(k) or "") for k in
@@ -15,6 +19,9 @@ class HardFilter:
             return False, "industry_mismatch"
         if not any(t in blob for t in self.city_terms):
             return False, "city_mismatch"
+        branches = lead.get("branches")
+        if self.min_branches and branches is not None and int(branches) < self.min_branches:
+            return False, "branches_below_minimum"
         return True, "ok"
 
 

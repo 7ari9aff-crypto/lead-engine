@@ -1614,31 +1614,44 @@ def api_jobs_start(req: RunRequest, background: BackgroundTasks,
         load_icp(req.icp)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"ICP غير موجود: {req.icp}")
-    with RUN_LOCK:  # one engine run at a time (sqlite + provider sanity)
-        job_id = JobManager(db).create_job(req.icp)
-    from ..queue import enqueue, platform_mode
     from ..entitlements import check_job_start
 
+    # Entitlement BEFORE the job row exists: checking after creation left an
+    # orphaned QUEUED job behind every 429 — and a worker would happily pick
+    # that orphan up later, running past the plan limit anyway.
     org_id = getattr(db, "org_id", None)
     allowed, reason = check_job_start(db, org_id)
     if not allowed:
         raise HTTPException(status_code=429, detail=reason)
+    with RUN_LOCK:  # one engine run at a time (sqlite + provider sanity)
+        job_id = JobManager(db).create_job(req.icp)
+    from ..queue import enqueue, platform_mode
+
     if platform_mode():
         enqueue(db, job_id)  # the worker fleet executes it
     else:
-        background.add_task(_run_background_job, req.icp, job_id, req.seed_csv)
+        # The requesting tenant rides along: the background task opens its own
+        # DB handle, so without this every lead/usage row it wrote landed under
+        # the env-bridge org (or NULL on Postgres) instead of the caller's org.
+        background.add_task(_run_background_job, req.icp, job_id, req.seed_csv, org_id)
     return {"job_id": job_id, "state": "QUEUED", "mode": "queue" if platform_mode() else "inline"}
 
 
-def _run_background_job(icp_name: str, job_id: str, seed_csv: str | None):
+def _run_background_job(icp_name: str, job_id: str, seed_csv: str | None,
+                        org_id: str | None = None):
     from ..benchmark.run import run_benchmark
 
     try:
+        db = open_db(org_id)
         run_benchmark(icp_name, job_id=job_id, seed_csv=seed_csv)
     except Exception:  # config/startup errors: mark FAILED, never hang
-        db = open_db()
+        db = open_db(org_id)
         JobManager(db).mark_failed(job_id, "background job failed")
-        db.conn.close()
+    finally:
+        try:
+            db.conn.close()
+        except Exception:
+            pass
 
 
 @app.post("/api/cache/purge")
@@ -1652,11 +1665,27 @@ def api_cache_purge(request: Request, db: Database = Depends(get_db)):
 
 
 @app.get("/api/export/leads.csv", include_in_schema=False)
-def api_export_csv():
-    path = OUTPUTS_DIR / "leads.csv"
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="no leads.csv yet — run a benchmark first")
-    return FileResponse(path, media_type="text/csv", filename="leads.csv")
+def api_export_csv(db: Database = Depends(get_db)):
+    """Leads export generated FROM THE DB, scoped to the caller's org. The old
+    version served the shared outputs/leads.csv file — one global file mixing
+    every run and every org, downloadable by any authenticated user."""
+    import csv as _csv
+    import io
+
+    org_clause, org_params = _org_clause(db)
+    rows = db.query(
+        f"SELECT {', '.join(LEAD_LIST_COLUMNS)} FROM leads WHERE 1=1{org_clause}"
+        " ORDER BY score DESC LIMIT 10000", org_params)
+    buf = io.StringIO()
+    writer = _csv.DictWriter(buf, fieldnames=list(LEAD_LIST_COLUMNS), extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({k: row.get(k) for k in LEAD_LIST_COLUMNS})
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="leads.csv"'},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1698,14 +1727,21 @@ def _mask(value: str, plain: bool) -> str:
     return f"{value[:6]}…{value[-3:]}"
 
 
-@app.get("/api/keys")
-def api_keys_list():
+def _keys_snapshot() -> list[dict]:
     out = []
     for field in KEY_FIELDS:
         value = os.environ.get(field["name"], "")
         out.append({**field, "configured": bool(value),
                     "masked": _mask(value, field.get("plain", False))})
-    return {"env_path": str(ENV_PATH), "groups": KEY_GROUPS, "keys": out}
+    return out
+
+
+@app.get("/api/keys")
+def api_keys_list(request: Request, db: Database = Depends(get_db)):
+    # Which provider keys are configured is OPERATOR information, not member
+    # information — and the response also leaks the server's .env path.
+    require_admin(request, db)
+    return {"env_path": str(ENV_PATH), "groups": KEY_GROUPS, "keys": _keys_snapshot()}
 
 
 @app.post("/api/keys")
@@ -1735,7 +1771,15 @@ def api_keys_save(req: dict, request: Request, db: Database = Depends(get_db)):
 
     # Platform path: org-scoped AES-GCM credentials in the DB (source of
     # truth in production). .env remains the local bootstrap fallback.
-    org_id = os.environ.get("LEAD_ENGINE_ORG_ID")
+    # Org = the CALLER's resolved membership, not blindly the env bridge —
+    # an admin of any org saving credentials must write them to THEIR org.
+    claims = getattr(request.state, "claims", None)
+    org_id = None
+    if claims:
+        from . import auth_jwt
+
+        org_id = auth_jwt.resolve_org_id(claims, db)
+    org_id = org_id or os.environ.get("LEAD_ENGINE_ORG_ID")
     platform_mode = bool(org_id and os.environ.get("LEAD_ENGINE_ENCRYPTION_KEY"))
     if platform_mode:
         from ..secrets import SecretsUnavailable, save_provider_credential
@@ -1788,7 +1832,7 @@ def api_keys_save(req: dict, request: Request, db: Database = Depends(get_db)):
     # new keys. The `seed_if_empty()` that used to sit here seeded provider rows
     # - a write on this path that the startup/`init` bootstrap already owns.
     return {"ok": True, "saved": sorted(updates.keys()),
-            "keys": api_keys_list()["keys"]}
+            "keys": _keys_snapshot()}
 
 
 # ---------------------------------------------------------------------------

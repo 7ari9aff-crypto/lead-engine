@@ -13,7 +13,8 @@ class Enrichment:
         limits = (icp.get("v0_limits", {}) or {})
         budget = float(limits.get("enrichment_budget_credits", 50))
         max_people = int(limits.get("enrichment_max_people", 30))
-        stats = {"attempted": 0, "enriched": 0, "credits_used": 0.0, "skipped_budget": 0}
+        stats = {"attempted": 0, "enriched": 0, "credits_used": 0.0,
+                 "skipped_budget": 0, "skipped_no_provider": 0}
 
         for lead in leads:
             if stats["credits_used"] >= budget or stats["attempted"] >= max_people:
@@ -32,6 +33,10 @@ class Enrichment:
                     cache_data_type="apollo_people_search",
                 )
             except NoProviderAvailable:
+                # Counted as attempted but NO provider was ever called — the
+                # old silent skip made "attempted: 28, enriched: 0" look like
+                # enrichment ran and failed, when in fact nothing was reached.
+                stats["skipped_no_provider"] += 1
                 continue
             people = result.get("people") or []
             if not people:
@@ -53,6 +58,7 @@ class Enrichment:
                         cache_data_type="apollo_enrichment",
                     )
                 except NoProviderAvailable:
+                    stats["skipped_no_provider"] += 1
                     continue
                 units = float(eres.get("units", 0))
                 stats["credits_used"] += units
