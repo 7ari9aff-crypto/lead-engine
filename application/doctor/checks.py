@@ -172,13 +172,16 @@ def check_schedule_stalled(backend, settings, org) -> DoctorCheck:
     An n8n failure once ran silent for 17 days because nothing watched the
     scheduler itself — replacing a broken cron with another broken cron helps
     nobody unless THIS check exists."""
-    rows = backend.system_all(
-        """SELECT max(ts) AS latest FROM (
-             SELECT created_at AS ts FROM engine.jobs
-             UNION ALL
-             SELECT created_at AS ts FROM runtime.jobs
-           ) all_jobs""")
-    latest = rows[0]["latest"] if rows else None
+    latest = None
+    try:
+        rows = backend.system_all("SELECT max(created_at) AS latest FROM engine.jobs")
+        latest = rows[0]["latest"] if rows else None
+    except Exception:  # noqa: BLE001 — v6-only deployments have no engine schema
+        pass
+    rows = backend.system_all("SELECT max(created_at) AS latest FROM runtime.jobs")
+    runtime_latest = rows[0]["latest"] if rows else None
+    candidates = [x for x in (latest, runtime_latest) if x is not None]
+    latest = max(candidates) if candidates else None
     if latest is None:
         return DoctorCheck("schedule.stalled", "جدولة التشغيل اليومي", CheckStatus.WARN,
                            "مفيش ولا job اتعمل — الجدولة مش شغالة أو مش متظبطة")
