@@ -133,12 +133,24 @@ def uows(db: Database, vault: PiiVault) -> PgUowFactory:
 def org(uows: PgUowFactory) -> str:
     """A fresh organization (pro plan) per test."""
     from application.usecases.onboard import OnboardOrg
+    from domain.governance.policy import default_rules
     from infrastructure.repos.system import BootstrapPg
 
     db = uows._db
     slug = f"org-{uuid.uuid4().hex[:10]}"
     result = OnboardOrg(BootstrapPg(db)).execute(slug, "Test Org", "pro",
                                                  f"owner-{uuid.uuid4().hex[:8]}")
+    # The governance gate is fail-closed: operations under test need an
+    # ADOPTED policy version. The code defaults become that baseline data.
+    from psycopg.types.json import Json
+
+    with db.tx(result["org_id"]) as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO governance.legal_policy_versions
+                 (org_id, name, version, rules)
+               VALUES (%s, 'baseline', 'baseline-v1', %s)
+               ON CONFLICT (org_id, name, version) DO NOTHING""",
+            (result["org_id"], Json(default_rules())))
     return result["org_id"]
 
 

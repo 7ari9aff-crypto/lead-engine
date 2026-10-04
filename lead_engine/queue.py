@@ -135,6 +135,28 @@ def reclaim_expired(db) -> int:
     return failed + getattr(cur, "rowcount", 0)
 
 
+def expire_stale_paused(db, stale_after_hours: int = 48) -> int:
+    """PAUSED with NO resume_at can never resume — nothing ever schedules it
+    back (the README's auto-resume promise does not cover this state; two
+    production jobs sat in it for 19+ days). Terminal with an audited reason,
+    NEVER deleted: the row stays as evidence of the legacy state."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=stale_after_hours)
+              ).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = db.query(
+        "UPDATE jobs SET state='CANCELLED', pause_reason=?, worker_id=NULL,"
+        " lease_expires_at=NULL, updated_at=?"
+        " WHERE state='PAUSED' AND resume_at IS NULL AND updated_at < ?"
+        " RETURNING job_id",
+        ("LEGACY_PAUSED_NO_RESUME_AT: expired by reaper", _now(), cutoff))
+    for row in rows:
+        db.execute(
+            "INSERT INTO job_events (ts, job_id, from_state, to_state, reason)"
+            " VALUES (?,?,?,?,?)",
+            (_now(), row["job_id"], "PAUSED", "CANCELLED",
+             "LEGACY_PAUSED_NO_RESUME_AT"))
+    return len(rows)
+
+
 def complete(db, job_id: str) -> None:
     db.execute(
         "UPDATE jobs SET state='COMPLETED', worker_id=NULL, lease_expires_at=NULL,"

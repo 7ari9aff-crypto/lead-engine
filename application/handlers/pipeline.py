@@ -36,8 +36,8 @@ from domain.acquisition.company import (
     resolve_identity,
 )
 from domain.acquisition.icp import build_query_plan, is_empty_plan
-from domain.governance.policy import VERSION as POLICY_VERSION
-from domain.governance.policy import GovernanceDecision, PolicyInput, default_rules, evaluate
+from domain.governance.policy import FAIL_CLOSED_VERSION
+from domain.governance.policy import GovernanceDecision, PolicyInput, evaluate, fail_closed
 from domain.intelligence.scoring import (
     QualificationInputs,
     ScoreInputs,
@@ -104,6 +104,7 @@ class AcquisitionPipelineHandler:
 
     def _plan(self, ctx: JobContext, ops: JobOps) -> dict[str, Any]:
         ops.set_phase("PLANNING")
+        refusal = None
         with ops.uow() as tx:
             campaign = tx.repos.acquisition.get_campaign(ctx.campaign_id or "")
             if campaign is None:
@@ -112,21 +113,47 @@ class AcquisitionPipelineHandler:
             if icp is None:
                 raise DomainError("icp version not found")
 
-            rules = tx.repos.governance.get_policy_rules() or default_rules()
-            decision, basis, reason = evaluate(
-                rules, PolicyInput(operation="discovery.search", country=icp.get("country")),
-            )
-            tx.repos.governance.record_decision(
-                "campaign", ctx.campaign_id or "", "discovery.search",
-                decision.value, POLICY_VERSION, basis, reason, ctx.worker_id or "worker",
-            )
-            tx.emit(EventEnvelope(
-                type=POLICY_DECISION_RECORDED, aggregate_type="campaign",
-                aggregate_id=ctx.campaign_id or "", org_id=ctx.org_id,
-                payload={"operation": "discovery.search", "decision": decision.value},
-            ))
-            if decision is GovernanceDecision.BLOCKED:
-                raise DomainError(f"policy blocked discovery: {reason}")
+            policy = tx.repos.governance.get_active_policy()
+            if policy is None:
+                # FAIL CLOSED: no adopted policy = no gate = no run. The
+                # refusal is recorded and COMMITTED (the raise happens after
+                # this unit of work exits cleanly — raising inside would roll
+                # the audit row back and the refusal would vanish).
+                decision, basis, reason = fail_closed(
+                    PolicyInput(operation="discovery.search", country=icp.get("country")))
+                tx.repos.governance.record_decision(
+                    "campaign", ctx.campaign_id or "", "discovery.search",
+                    decision.value, FAIL_CLOSED_VERSION, basis, reason,
+                    ctx.worker_id or "worker",
+                )
+                tx.emit(EventEnvelope(
+                    type=POLICY_DECISION_RECORDED, aggregate_type="campaign",
+                    aggregate_id=ctx.campaign_id or "", org_id=ctx.org_id,
+                    payload={"operation": "discovery.search",
+                             "decision": decision.value,
+                             "policy_version": FAIL_CLOSED_VERSION},
+                ))
+                refusal = f"policy fail-closed: {reason}"
+            else:
+                rules = policy["rules"]
+                decision, basis, reason = evaluate(
+                    rules, PolicyInput(operation="discovery.search", country=icp.get("country")),
+                )
+                tx.repos.governance.record_decision(
+                    "campaign", ctx.campaign_id or "", "discovery.search",
+                    decision.value, policy["version"], basis, reason,
+                    ctx.worker_id or "worker",
+                )
+                tx.emit(EventEnvelope(
+                    type=POLICY_DECISION_RECORDED, aggregate_type="campaign",
+                    aggregate_id=ctx.campaign_id or "", org_id=ctx.org_id,
+                    payload={"operation": "discovery.search", "decision": decision.value,
+                             "policy_version": policy["version"]},
+                ))
+                if decision is GovernanceDecision.BLOCKED:
+                    refusal = f"policy blocked discovery: {reason}"
+        if refusal:
+            raise DomainError(refusal)
 
         plan = build_query_plan(icp)
         if is_empty_plan(plan):
@@ -409,7 +436,8 @@ class AcquisitionPipelineHandler:
     # ------------------------------------------------------------------
     def _qualify(self, ctx: JobContext, ops: JobOps, ck: dict[str, Any]) -> dict[str, Any]:
         company_ids = list(ck.get("company_ids", []))
-        rules = None
+        policy_version = None
+        refusal = None
         for company_id in company_ids:
             with ops.uow() as tx:
                 company = tx.repos.intelligence.company_context(company_id)
@@ -449,7 +477,23 @@ class AcquisitionPipelineHandler:
                     if masked and email_masked is None:
                         email_masked = masked
 
-                rules = rules or tx.repos.governance.get_policy_rules() or default_rules()
+                policy = tx.repos.governance.get_active_policy()
+                if policy is None:
+                    # Record the refusal inside this tx, then stop the whole
+                    # phase AFTER it commits (raise below) — otherwise the
+                    # rollback would erase the evidence of the refusal.
+                    decision, basis, reason = fail_closed(
+                        PolicyInput(operation="lead.qualification",
+                                    country=ck.get("icp_country")))
+                    tx.repos.governance.record_decision(
+                        "company", company_id, "lead.qualification",
+                        decision.value, FAIL_CLOSED_VERSION, basis, reason,
+                        ctx.worker_id or "worker",
+                    )
+                    refusal = f"policy fail-closed: {reason}"
+                    break
+                rules = policy["rules"]
+                policy_version = policy["version"]
                 domain = company.get("domain")
                 suppressed = tx.repos.governance.is_suppressed("domain", domain or "")
                 policy_decision, _, _ = evaluate(
@@ -464,7 +508,7 @@ class AcquisitionPipelineHandler:
                 ))
                 tx.repos.intelligence.add_qualification_record(
                     company_id, ctx.campaign_id, decision.value, reasons,
-                    ck.get("icp_version_id"), POLICY_VERSION,
+                    ck.get("icp_version_id"), policy_version,
                 )
                 if decision is QualificationDecision.REJECTED:
                     continue
@@ -486,4 +530,6 @@ class AcquisitionPipelineHandler:
                     payload={"company_id": company_id, "decision": decision.value,
                              "score": score},
                 ))
+        if refusal:
+            raise DomainError(refusal)
         return {**ck, "phase": "DONE"}

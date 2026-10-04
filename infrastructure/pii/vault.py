@@ -7,11 +7,17 @@ Envelope encryption, done strictly:
   ``pii.vault.iv``.
 - ``decrypt`` requires a purpose from the allowed set and writes an audit row
   for every access. Plaintext exists only inside this boundary.
+- each value also carries a keyed HMAC-SHA256 fingerprint (HMAC master key,
+  kind:plaintext). It is not invertible without the master key — it only
+  answers "is this exact secret already stored for this org?", which is what
+  makes store() idempotent and the right-to-erasure bookkeeping tractable.
 
 Business tables store vault ref ids and masked display values only.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import os
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -31,6 +37,11 @@ def _unwrap_dek(master: AESGCM, blob: bytes) -> bytes:
     return master.decrypt(nonce, ct, None)
 
 
+def _fingerprint(master_key: bytes, kind: str, value: str) -> str:
+    return hmac.new(master_key, f"{kind}:{value}".encode("utf-8"),
+                    hashlib.sha256).hexdigest()
+
+
 class PiiVault:
     """Tenant-agnostic engine; use TenantVault for the port surface.
 
@@ -43,8 +54,21 @@ class PiiVault:
     def __init__(self, db, settings):
         self._db = db
         self._master = AESGCM(settings.master_key)
+        self._master_key = settings.master_key
 
     def _store(self, cur, tenant_id: str, kind: str, value: str) -> str:
+        fingerprint = _fingerprint(self._master_key, kind, value)
+        existing = cur.execute(
+            """SELECT id FROM pii.vault
+               WHERE org_id = %s AND kind = %s AND secret_fingerprint = %s
+               LIMIT 1""",
+            (tenant_id, kind, fingerprint),
+        ).fetchone()
+        if existing:
+            # Same secret already vaulted for this tenant: one row per unique
+            # value keeps erasure bookkeeping tractable (175 rows for 11
+            # contacts was the symptom; the unique index is the backstop).
+            return str(existing["id"])
         row = cur.execute(
             "SELECT id, wrapped_dek FROM pii.deks WHERE org_id = %s ORDER BY created_at LIMIT 1",
             (tenant_id,),
@@ -61,9 +85,10 @@ class PiiVault:
         nonce = os.urandom(12)
         ciphertext = AESGCM(dek).encrypt(nonce, value.encode("utf-8"), None)
         ref = cur.execute(
-            """INSERT INTO pii.vault (org_id, kind, ciphertext, iv, dek_id)
-               VALUES (%s, %s, %s, %s, %s) RETURNING id""",
-            (tenant_id, kind, ciphertext, nonce, dek_id),
+            """INSERT INTO pii.vault (org_id, kind, ciphertext, iv, dek_id,
+                                      secret_fingerprint)
+               VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",
+            (tenant_id, kind, ciphertext, nonce, dek_id, fingerprint),
         ).fetchone()
         return str(ref["id"])
 

@@ -21,6 +21,19 @@ class GovernanceRepo:
         )
         return row["rules"] if row else {}
 
+    def get_active_policy(self) -> dict[str, Any] | None:
+        """The org's adopted policy WITH its version — callers record this
+        version in every decision so the audit trail answers 'which policy
+        text produced this verdict?'. None = no adopted policy: callers MUST
+        fail closed, never fall back to code defaults."""
+        row = _one(
+            self.cur,
+            """SELECT version, rules FROM governance.legal_policy_versions
+               WHERE org_id = current_setting('app.tenant_id', true)::uuid
+               ORDER BY published_at DESC LIMIT 1""",
+        )
+        return {"version": row["version"], "rules": row["rules"]} if row else None
+
     def record_decision(self, subject_type: str, subject_id: str, operation: str,
                         decision: str, policy_version: str, legal_basis: str,
                         decision_reason: str, decided_by: str) -> str:

@@ -9,7 +9,7 @@ uvicorn~=0.34.0
 # [pool] adds psycopg_pool, required for connection pooling in db_pg.py;
 # without it the app still runs but pays a per-request connect handshake.
 psycopg[binary,pool]~=3.2.4
-pyjwt~=2.13
+pyjwt~=2.15
 cryptography~=50.0
 loguru~=0.7.3
 email-validator~=2.2.0

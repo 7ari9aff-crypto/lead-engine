@@ -20,9 +20,11 @@ def run_worker_tick(db, worker_id: str, settings: dict | None = None,
     """Run exactly one scheduling step. Returns what happened, never raises:
     the cron endpoint reports this dict over HTTP instead of a stack trace."""
     result = {"worker_id": worker_id, "reclaimed": 0, "stale_runs_reaped": 0,
-              "retention_erased": 0, "leased": False, "job_id": None,
+              "paused_expired": 0, "retention_erased": 0,
+              "leased": False, "job_id": None,
               "state": None, "error": None}
     result["reclaimed"] = queue.reclaim_expired(db)
+    result["paused_expired"] = queue.expire_stale_paused(db)
     try:
         from .agent_registry import reclaim_stale_runs
 

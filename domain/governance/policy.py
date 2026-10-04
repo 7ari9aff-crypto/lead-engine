@@ -20,6 +20,18 @@ class PolicyInput:
 
 VERSION = "default-v1"
 
+# Governance without an adopted policy is a gate that only pretends to exist.
+FAIL_CLOSED_VERSION = "fail-closed"
+FAIL_CLOSED_BASIS = "no-policy-fail-closed"
+
+
+def fail_closed(inp: PolicyInput) -> tuple[GovernanceDecision, str, str]:
+    """The decision taken when NO adopted policy version exists for the org.
+    The caller must RECORD this (with FAIL_CLOSED_VERSION) before refusing —
+    the audit trail then shows exactly which decisions ran without a policy."""
+    return (GovernanceDecision.BLOCKED, FAIL_CLOSED_BASIS,
+            f"no adopted policy version for this organization — refusing {inp.operation}")
+
 
 def evaluate(rules: dict[str, Any], inp: PolicyInput) -> tuple[GovernanceDecision, str, str]:
     """Return (decision, legal_basis, reason). Deterministic; first match wins.
