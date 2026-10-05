@@ -1,0 +1,68 @@
+name: daily-benchmark
+
+# Replaces the retired n8n scheduler (removed 2026-10-04). Enqueues ONE
+# benchmark job per day directly into engine.jobs — enqueue, never an inline
+# HTTP run (the inline path inside a serverless request is what produced the
+# zombie RUNNING jobs). worker-tick (every 5 min) leases and runs it.
+#
+# Anti-pileup: skips when a v0 job was already created in the last 20 hours —
+# a stalled queue must accumulate days, not duplicates.
+# 04:00 UTC = 06:00 Cairo standard time.
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-benchmark
+  cancel-in-progress: false
+
+jobs:
+  enqueue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - run: pip install psycopg[binary]
+
+      - name: Enqueue the daily benchmark job
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          LEAD_ENGINE_ORG_ID: ${{ secrets.LEAD_ENGINE_ORG_ID }}
+        run: |
+          python - <<'PY'
+          import os, uuid, datetime
+
+          import psycopg
+
+          dsn = os.environ["SUPABASE_DB_URL"]
+          org_id = os.environ["LEAD_ENGINE_ORG_ID"]
+          with psycopg.connect(dsn, autocommit=True) as conn, conn.cursor() as cur:
+              cur.execute(
+                  """SELECT job_id FROM engine.jobs
+                     WHERE icp_id = 'v0' AND created_at > now() - interval '20 hours'
+                     LIMIT 1""")
+              recent = cur.fetchone()
+              if recent:
+                  print(f"skip: a v0 job already ran within 20h ({recent[0]})")
+              else:
+                  job_id = f"job-{uuid.uuid4().hex[:10]}"
+                  now = datetime.datetime.now(datetime.timezone.utc).strftime(
+                      "%Y-%m-%dT%H:%M:%SZ")
+                  cur.execute(
+                      """INSERT INTO engine.jobs
+                           (job_id, organization_id, icp_id, state, attempts,
+                            max_attempts, created_at, updated_at)
+                         VALUES (%s, %s, 'v0', 'QUEUED', 0, 3, %s, %s)""",
+                      (job_id, org_id, now, now))
+                  print(f"enqueued {job_id} for org {org_id}")
+          PY
