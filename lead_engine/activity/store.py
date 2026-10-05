@@ -198,7 +198,7 @@ class AuditTrailStore:
       * real org            -> ONLY rows with organization_id = that org.
       * '__no_org__'-style  -> NOTHING (fail closed, zero statements): a user
         whose membership could not resolve has no business reading provenance.
-      * no org (worker/n8n/ -> ONLY rows NOT attributable to any tenant:
+      * no org (worker/CLI/ -> ONLY rows NOT attributable to any tenant:
         machine contexts      organization_id NULL or '' or the '__no_org__'
         sentinel — platform operators are the only audience for a fail-closed
         user's actions; no tenant ever sees them.

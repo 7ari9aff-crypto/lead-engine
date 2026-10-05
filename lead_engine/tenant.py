@@ -5,7 +5,7 @@ events_api, data_api, activity used to drift):
 1. Verified JWT claims  -> membership org; a user with no membership gets
    the fail-closed '__no_org__' sentinel — the env bridge must never act
    as their tenant.
-2. No claims (worker, n8n, MCP token, local dev) -> LEAD_ENGINE_ORG_ID
+2. No claims (worker, MCP token, CLI, local dev) -> LEAD_ENGINE_ORG_ID
    bridge when set.
 """
 import os

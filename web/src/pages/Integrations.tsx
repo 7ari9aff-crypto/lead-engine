@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   Activity, Check, CheckCircle2, Clipboard, Code2, Database, ExternalLink,
-  Globe2, Link2, Plug, RefreshCw, Webhook, Workflow, XCircle, Copy, Boxes,
+  Globe2, Link2, Plug, RefreshCw, Webhook, XCircle, Copy, Boxes,
   ShieldBan, Plus, Trash2,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
@@ -139,7 +139,7 @@ export function IntegrationsPage() {
                 </Badge>
               </div>
               <p className="text-xs text-[var(--fg-muted)] mt-1">
-                Model Context Protocol — وصّل Claude أو Cursor أو n8n أو أي عميل MCP على أدوات المحرك مباشرة.
+                Model Context Protocol — وصّل Claude أو Cursor أو أي عميل MCP على أدوات المحرك مباشرة.
               </p>
             </div>
           </div>
@@ -329,15 +329,6 @@ export function IntegrationsPage() {
           stateLabel={supabaseReady ? "متصل" : "يحتاج مفاتيح"}
           actionLabel="ضبط من صفحة المفاتيح"
           onAction={() => (window.location.href = "/keys")}
-        />
-        <IntegrationCard
-          icon={Workflow}
-          title="n8n"
-          description="جدولة يومية 06:00 عبر workflow جاهز: تشغيل، فحص الحالة، والتقرير."
-          state={mcpOnline === false ? "needs-setup" : "ready"}
-          stateLabel="workflow جاهز"
-          actionLabel="نسخ رابط MCP للـClient"
-          onAction={() => copy(MCP_URL, "رابط MCP")}
         />
         <IntegrationCard
           icon={Code2}

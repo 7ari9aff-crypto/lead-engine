@@ -137,7 +137,7 @@ class Settings:
                 print(
                     "[v6-config] WARNING: V6_SERVICE_TOKEN unset in production —"
                     " service authentication is DISABLED this boot (ephemeral"
-                    " random token). Set V6_SERVICE_TOKEN to enable CLI/n8n"
+                    " random token). Set V6_SERVICE_TOKEN to enable CLI/service"
                     " service access.",
                     file=sys.stderr)
             else:

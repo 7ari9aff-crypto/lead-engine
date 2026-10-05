@@ -1,7 +1,7 @@
 """Minimal stateless MCP (Model Context Protocol) server over streamable HTTP.
 
 Exposes the engine's tools at POST /mcp as JSON-RPC 2.0 — the same toolset
-the chat uses. Any MCP client can connect (n8n MCP Client node, Claude,
+the chat uses. Any MCP client can connect (Claude,
 ZCode, Cursor...). Stateless: no session bookkeeping, every request is
 self-contained, which is what serverless deployments can support.
 """

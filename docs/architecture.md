@@ -85,7 +85,7 @@
 | Engine schema | `engine` منفصل | service-role فقط، REVOKE من anon/authenticated |
 | التشفير | pgcrypto AES-GCM كمرحلة 1، KMS/envelope لاحقًا | المفاتيح لا تُخزن نصًا أبدًا |
 | Frontend | React 19 + Vite (الحالي) | Next.js مُؤجل بشرط: صفحات SEO عامة مدموجة، أو جلسات SSR، أو فريق كبر |
-| API | FastAPI + /api/v1 للجديد | aliases القديمة محفوظة لـn8n |
+| API | FastAPI + /api/v1 للجديد | aliases القديمة محفوظة للتوافق الخلفي |
 | i18n | البنية جاهزة (logical properties) | الترجمة الفعلية عند دخول سوق جديد |
 
 ## 5) قرارات مؤجلة (باسم واضح — ليست مرفوضة)

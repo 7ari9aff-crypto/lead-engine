@@ -17,7 +17,6 @@ interface WebhookExportModalProps {
 const PRESETS = [
   { name: "Zapier", icon: "⚡", placeholder: "https://hooks.zapier.com/hooks/catch/..." },
   { name: "Make / Integromat", icon: "🟣", placeholder: "https://hook.eu1.make.com/..." },
-  { name: "n8n", icon: "🔀", placeholder: "https://your-n8n.app/webhook/..." },
   { name: "Custom CRM", icon: "🌐", placeholder: "https://your-api.com/api/v1/leads" },
 ];
 
@@ -132,7 +131,7 @@ export function WebhookExportModal({ open, onClose, leads, selectedCount = 0 }: 
             </span>
             <div>
               <h3 className="text-sm font-bold text-[var(--fg)]">ترحيل مباشر إلى Webhook / CRM</h3>
-              <p className="text-[11px] text-[var(--fg-muted)]">Zapier, Make, n8n, Slack, HubSpot أو أي API مخصص</p>
+              <p className="text-[11px] text-[var(--fg-muted)]">Zapier, Make, Slack, HubSpot أو أي API مخصص</p>
             </div>
           </div>
           <button onClick={onClose} className="p-1 rounded-lg text-[var(--fg-muted)] hover:text-[var(--fg)] hover:bg-[var(--bg-soft)]">

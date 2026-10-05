@@ -2,7 +2,7 @@
 
 محرّك توليد leads واعي بالـquotas، مبني على تقسيم ثلاثي:
 
-- **n8n** = الـorchestration والجدولة (يستدعي الـengine يوميًا)
+- **GitHub Actions** = الـجدولة والتنفيذ الدوري (v6-worker كل 10 دقائق)
 - **FastAPI** = الـengine نفسه (الـrouter، الـproviders، الـpipeline)
 - **Supabase** = قاعدة بيانات الـleads (companies / contacts / claims / leads)
 
@@ -11,8 +11,8 @@
 المهمة تتوقف `PAUSED` بسببه و`resume_at`، مش `FAILED`.
 
 ```
-n8n (Schedule 06:00)
-   │  POST /benchmark/run
+GitHub Actions (v6-worker، cron كل 10 دقائق)
+   │  يدير الطابور + الـsentinel
    ▼
 FastAPI — Lead Engine
    │
@@ -126,16 +126,12 @@ python3 -m lead_engine benchmark --seed my_seed_list.csv
 المزامنة بتحصل تلقائيًا بعد كل تشغيل ناجح، وزر المزامنة اليدوي في لوحة
 المهام بيرجّع نفس النتيجة بدون تكرار بيانات.
 
-## n8n
+## الجدولة
 
-الـworkflow: `n8n/lead_engine_benchmark_scheduler.ts` (ومنشور فعلًا على
-الإنستنس: workflow `eqW6MZWrnZ9K2H84`) — يوميًا 06:00:
-Run benchmark → IF COMPLETED → Get Report (المزامنة بتتم تلقائيًا من الـengine نفسه).
-
-خطوات التفعيل:
-1. انشر الـFastAPI على URL عام (مثلًا Railway) — n8n السحابي مش بشوف `localhost`.
-2. عدّل `engineBaseUrl` في node "Config".
-3. فعّل الـworkflow.
+الجدولة والتنفيذ الدوري على **GitHub Actions** (`v6-worker.yml`): كل 10 دقائق
+يدير الطابور + الـlease reaper + الـoutbox relay + الـdoctor sentinel، وكل
+تشغيل مُثبَّت بـconcurrency guard. فحص `schedule.stalled` في الدكتور بينبّه
+لو مفيش job جديدة في 26 ساعة. n8n اتشال من النظام في 2026-10-04.
 
 ## Tests
 
@@ -162,10 +158,10 @@ cd web && pnpm run typecheck && pnpm run test && pnpm run build   # 78 tests, 13
 ## MCP والتكاملات
 
 المحرك نفسه **خادم MCP** (Model Context Protocol) على `POST /mcp` — نفس أدوات الشات
-متاحة لأي عميل MCP (n8n MCP Client، Claude، ZCode، Cursor...):
+متاحة لأي عميل MCP (Claude، ZCode، Cursor...):
 
 ```jsonc
-// n8n / أي MCP client (streamable HTTP, stateless JSON-RPC 2.0)
+// أي MCP client (streamable HTTP, stateless JSON-RPC 2.0)
 { "url": "https://lead-engine-gamma-silk.vercel.app/mcp" }
 ```
 
@@ -177,8 +173,7 @@ curl -X POST https://<host>/mcp -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
-نقاط دخول أخرى للتكامل: REST API كامل (شوف `/docs`)، وn8n scheduler workflow
-(`n8n/lead_engine_benchmark_scheduler.ts`).
+نقاط دخول أخرى للتكامل: REST API كامل (شوف `/docs`)، وMCP زي ما فوق.
 ## النشر
 
 الـproduction على Vercel في حساب `lead-engine3` كـproject واحد اسمه `lead-engine`، **مربوط
@@ -233,5 +228,6 @@ app نفسه (`lead_engine/api/cron_api.py`) — مش function ملف على Ver
 ## أمان
 
 - أي مفتاح بيتحمّل من `.env` فقط — `.env` مستثنى من git.
-- التوكنات اللي اتبعتت في الشات تعتبر معرّضة: بدّلها (GitHub PAT، n8n MCP bearer،
-  Supabase sbp_ token) بعد الانتهاء، واستخدم fine-grained tokens بأقل صلاحية.
+- التوكنات اللي اتبعتت في الشات تعتبر معرّضة: بدّلها (GitHub PAT، Supabase sbp_ token،
+  Vercel token) بعد الانتهاء، واستخدم fine-grained tokens بأقل صلاحية. متغيرات n8n
+  اتشالت من Vercel مع إزالة n8n.

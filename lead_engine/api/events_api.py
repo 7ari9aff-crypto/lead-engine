@@ -134,7 +134,7 @@ def usage_reconciliation(request: Request, db=Depends(get_db)):
 def dispatch_outbox(request: Request, db=Depends(get_db)):
     """Flush pending outbox events (webhooks + notifications).
 
-    Safe to call from cron triggers, n8n schedulers, or Vercel serverless
+    Safe to call from cron triggers, CI schedulers, or Vercel serverless
     functions that cannot run a persistent event-worker process.
     Idempotent: already-dispatched events are skipped automatically.
     """

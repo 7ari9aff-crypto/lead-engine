@@ -1,6 +1,6 @@
 """FastAPI layer — the engine as an HTTP service.
 
-This is the piece n8n talks to:
+This is the piece external clients talk to:
   POST /benchmark/run      run the live pipeline
   GET  /jobs/{job_id}      job state + stage summary (COMPLETED / PAUSED / ...)
   POST /jobs/{id}/resume   resume a PAUSED job
@@ -268,7 +268,7 @@ async def admin_session_guard(request: Request, call_next):
         mode = auth_jwt.auth_mode()
         if mode == "closed":
             return JSONResponse({"detail": "authentication required"}, status_code=401)
-        # Machine clients (n8n scheduler, workers, MCP) authenticate with the
+        # Machine clients (schedulers, workers, MCP) authenticate with the
         # dedicated static token LEAD_ENGINE_MCP_TOKEN on ANY protected path —
         # opt-in via env, fail-closed when unset. This keeps the n8n scheduler
         # working (it has no Supabase session and no cookie).

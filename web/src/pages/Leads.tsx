@@ -294,7 +294,7 @@ export function LeadsPage() {
               onClick={() => setWebhookModalOpen(true)}
               disabled={filtered.length === 0}
               className="border-[var(--accent)]/40 text-[var(--accent)] hover:bg-[var(--accent)]/10"
-              title="ترحيل فوري إلى Zapier أو Make أو n8n أو CRM"
+              title="ترحيل فوري إلى Zapier أو Make أو CRM"
             >
               <Send className="h-4 w-4" />
               إرسال لـ Webhook / CRM
