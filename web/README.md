@@ -1,87 +1,62 @@
-# Lead Engine — Modern RTL Dashboard
+# Base44 Project
 
-Modern control panel for the **Lead Engine** quota-aware multi-provider lead generation backend.
+Use this repository to run and edit the app locally, then publish changes back through Base44.
 
-## Tech stack
-- **React 19** + **Vite 6** + **TypeScript**
-- **Tailwind CSS v4** (dark/light mode, glass morphism, RTL native)
-- **Radix UI** primitives + **Lucide** icons
-- **TanStack Query** for server state
-- **Zustand** for UI/chat persistence
-- **Wouter** for routing
-- **Sonner** for toasts
-- **React Markdown** + **remark-gfm** for chat
+Any change pushed to the repo will also be reflected in the Base44 Builder.
 
-## Pages
-| Page | Path | Description |
-|---|---|---|
-| Overview | `/` | Live metrics, provider health, recent jobs, cache, system info |
-| Chat | `/chat` | AI assistant with tool calling, multi-session, markdown |
-| Keys | `/keys` | API key management (multi-key, grouped by provider) |
-| Providers | `/providers` | Live status, enable/disable, reset quota, filter/search |
-| Jobs | `/jobs` | Run pipeline, resume paused, sync Supabase, view reports |
-| Leads | `/leads` | Filterable table with stage/job filters, CSV export |
-| Verify | `/verify` | 5-state email check (DELIVERABLE/RISKY/CATCH_ALL/INVALID/UNKNOWN) |
-| Config | `/config` | YAML editor with syntax check, backup, revert |
+## Prerequisites
 
-## Local development
+1. Clone the repository using the project's Git URL.
+2. Navigate to the project directory.
+3. Install dependencies: `npm install`.
+4. Install the Base44 CLI: `npm install -g base44@latest`.
+5. Install [Deno](https://docs.deno.com/runtime/getting_started/installation/) — the local Base44 backend runs on it.
+
+Run `base44 --help` (or see the [CLI reference](https://docs.base44.com/developers/references/cli/commands/introduction)) for the full command surface.
+
+## Run Locally
+
+Three commands, from the project root:
 
 ```bash
-cd web
-pnpm install
-pnpm dev          # starts on http://localhost:5173
+base44 login   # one-time per machine
+base44 link    # one-time per clone
+base44 dev     # local backend + frontend together
 ```
 
-The Vite dev server proxies all `/api/*`, `/providers`, `/jobs`, etc. to the FastAPI backend
-on `http://127.0.0.1:8000` by default. Override with the `VITE_BACKEND_URL` env var:
+Open the frontend URL that `base44 dev` prints (typically `http://localhost:5173`).
+
+Notes:
+
+- **Every fresh clone needs `base44 link`.** It writes `base44/.app.jsonc` (the app-id pointer), which is deliberately gitignored. Your app id is in the Builder URL (`app.base44.com/apps/<id>/...`); `base44 link --help` shows the non-interactive flags.
+- **`base44 dev` runs the frontend for you** (via `site.serveCommand` in this repo's `base44/config.jsonc`) — never run `npm run dev` yourself: alone it serves a UI with no backend behind it (`[base44] Proxy not enabled`, every `/api` call fails), and alongside `base44 dev` the second Vite silently takes the next port and you end up looking at the wrong one.
+- **The app must be published at least once for the UI to load under `base44 dev`.** The frontend boots by fetching app settings from the hosted app; before the first publish that fails and every page redirects to login. The local API works regardless.
+- Entities, functions, and auth run locally — entity data is **in-memory only**, wiped when `base44 dev` restarts. Everything else (Core integrations, OAuth login) is forwarded to your deployed app. Full breakdown: [Local development overview](https://docs.base44.com/developers/backend/overview/local-dev/local-development-overview).
+
+## Frontend Only, Hosted Backend
+
+To work on just the frontend against your app's live hosted backend:
 
 ```bash
-VITE_BACKEND_URL="https://lead-engine-gamma-silk.vercel.app" pnpm dev
+base44 dev --remote
 ```
 
-## Production build
+⚠️ In this mode writes go to your app's **production data** — plain `base44 dev` keeps everything local.
+
+## Publish Your Changes
+
+After pushing your changes to git, open the Base44 dashboard and publish the app:
 
 ```bash
-pnpm build
+base44 dashboard open
 ```
 
-Output goes to `dist/`. The build is a static SPA — deploy to any static host (Vercel, Netlify, etc.).
+This repo syncs to Base44 through git, so publish from the dashboard rather than `base44 deploy` — a CLI deploy ships your local tree directly, bypassing the sync, and the deployed state silently diverges from the repo.
 
-## Deploying to Vercel
+## Docs & Support
 
-The `web/` directory has its own `vercel.json` so it can be deployed as a standalone Vercel project:
+GitHub integration: [https://docs.base44.com/developers/app-code/local-development/github](https://docs.base44.com/developers/app-code/local-development/github)
 
-1. Push to GitHub (already done)
-2. In Vercel, click "New Project" → import `7ari9aff-crypto/lead-engine`
-3. Set **Root Directory** to `web`
-4. Vercel auto-detects Vite framework
-5. Set environment variable `VITE_BACKEND_URL` to your FastAPI deployment URL
-6. Deploy
+Local development: [https://docs.base44.com/developers/backend/overview/local-dev/local-development-overview](https://docs.base44.com/developers/backend/overview/local-dev/local-development-overview)
 
-The dashboard will talk to the FastAPI backend via that URL with CORS handled.
-
-## File structure
-
-```
-web/
-├── public/              # Static assets
-├── src/
-│   ├── components/
-│   │   ├── layout/      # Sidebar, Topbar
-│   │   └── ui/          # Button, Card, Input, Switch, Dialog, Badge, EmptyState
-│   ├── hooks/           # useTheme (Zustand), useLiveData
-│   ├── lib/             # api (typed client), utils (formatters)
-│   ├── pages/           # 8 main pages
-│   ├── styles/
-│   │   └── globals.css  # Tailwind v4 + theme tokens
-│   ├── App.tsx          # Router + layout
-│   └── main.tsx         # Entry + providers
-├── index.html
-├── vite.config.ts
-└── package.json
-```
-
-## Theme
-
-Dark mode is the default. Toggle in the topbar. Theme preference is persisted to `localStorage`
-under `lead-engine-ui` key.
+Support: [https://app.base44.com/support](https://app.base44.com/support)
