@@ -71,3 +71,15 @@ jobs:
                       (job_id, org_id, now, now))
                   print(f"enqueued {job_id} for org {org_id}")
           PY
+
+      - name: Kick the worker tick (lease + run the enqueued job)
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        # GitHub's */5 schedule for worker-tick can lag hours on a low-activity
+        # repo — don't let the fresh job wait on it.
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET unset — skip kick"; exit 0; fi
+          for i in 1 2 3; do
+            curl -fsS --max-time 90 -H "Authorization: Bearer $CRON_SECRET" \
+              "https://lead-engine3.vercel.app/api/cron/worker" && echo || true
+          done
