@@ -46,10 +46,12 @@ jobs:
 
           dsn = os.environ["SUPABASE_DB_URL"]
           org_id = os.environ["LEAD_ENGINE_ORG_ID"]
+          # autocommit + set_config(is_local=true) does NOT work here: each
+          # statement is its own transaction, so a transaction-local GUC dies
+          # before the INSERT. Session-scoped on this single-purpose
+          # connection is the correct binding.
           with psycopg.connect(dsn, autocommit=True) as conn, conn.cursor() as cur:
-              # engine.jobs is FORCE-RLS'd on app.current_org — an org-less
-              # connection is denied the INSERT even as the table owner.
-              cur.execute("SELECT set_config('app.current_org', %s, true)", (org_id,))
+              cur.execute("SELECT set_config('app.current_org', %s, false)", (org_id,))
               cur.execute(
                   """SELECT job_id FROM engine.jobs
                      WHERE icp_id = 'v0' AND created_at > now() - interval '20 hours'
