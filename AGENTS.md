@@ -1,8 +1,8 @@
 # AGENTS.md — Lead Engine
 
 ## Architecture
-- **Backend**: Python FastAPI app (`lead_engine/api/app.py`), SQLite persistence (`lead_engine/db.py`), runs on port 8000.
-- **Frontend**: React 19 + Vite 6 SPA (`web/`), runs on port 5173 (mapped to host 3000).
+- **Backend**: Python FastAPI app (`lead_engine/api/app.py`), SQLite persistence (`lead_engine/db.py`), runs on port 8000. Production DB is Supabase Postgres (`SUPABASE_DB_URL`).
+- **Frontend (v12 dark)**: React 18 + Vite + shadcn/ui SPA (`web/`), runs on port 5173. Real data layer lives in `web/src/lib/leadEngine/api.js` + `store.jsx` (the useLeadEngine adapter); auth in `web/src/lib/AuthContext.jsx` + `supabase.js` (Supabase session, cookie password-mode fallback).
 - **Wiring**: Single-origin — the Vite dev server proxies all API paths (`/api`, `/providers`, `/leads`, `/jobs`, `/benchmark`, `/health`, etc.) to the backend. The browser only talks to port 3000. Cookie-based auth works because everything is same-origin through the proxy.
 - **`BACKEND_URL` env var** (not `VITE_` prefixed) tells the Vite proxy where the backend is. In Docker it's `http://backend:8000`. The client uses relative URLs so the proxy stays in the path.
 

@@ -95,3 +95,42 @@ export async function signOut() {
   const c = getClient();
   if (c) await c.auth.signOut();
 }
+
+// ---- MFA (TOTP) — enrollment lives in Settings; enforcement is app-level ----
+export async function mfaListFactors() {
+  const c = getClient();
+  if (!c) return { totp: [] };
+  const { data } = await c.auth.mfa.listFactors();
+  return data || { totp: [] };
+}
+
+export async function mfaAal() {
+  const c = getClient();
+  if (!c) return { currentLevel: null, nextLevel: null };
+  const { data } = await c.auth.mfa.getAuthenticatorAssuranceLevel();
+  return data || {};
+}
+
+export async function mfaEnrollTotp(friendlyName) {
+  const c = getClient();
+  const { data, error } = await c.auth.mfa.enroll({
+    factorType: "totp", friendlyName,
+  });
+  if (error) throw error;
+  return data; // { id, totp: { qr_code (svg), secret } }
+}
+
+export async function mfaChallengeAndVerify(factorId, code) {
+  const c = getClient();
+  const { data: ch } = await c.auth.mfa.challenge({ factorId });
+  const { error } = await c.auth.mfa.verify({
+    factorId, challengeId: ch.id, code,
+  });
+  if (error) throw error;
+}
+
+export async function mfaUnenroll(factorId) {
+  const c = getClient();
+  const { error } = await c.auth.mfa.unenroll({ factorId });
+  if (error) throw error;
+}

@@ -1,0 +1,15 @@
+INFO:     Started server process [21968]
+INFO:     Waiting for application startup.
+{"timestamp": "2026-10-06T01:43:35.720284+00:00", "level": "INFO", "logger": "lead_engine.bootstrap", "message": "activity schema skipped at startup: InsufficientPrivilege: permission denied for schema engine\nLINE 1: CREATE TABLE IF NOT EXISTS activity_events (\n                                   ^"}
+INFO:     Application startup complete.
+ERROR:    [Errno 13] error while attempting to bind on address ('127.0.0.1', 8010): [winerror 10013] an attempt was made to access a socket in a way forbidden by its access permissions
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+{"timestamp": "2026-10-06T01:44:08.098012+00:00", "level": "WARNING", "logger": "psycopg.pool", "message": "couldn't stop thread 'lead-engine-1673472817803727904-worker-0' within 5.0 seconds"}
+{"timestamp": "2026-10-06T01:44:08.099123+00:00", "level": "WARNING", "logger": "psycopg.pool", "message": "hint: you can try to call 'close()' explicitly or to use the pool as context manager"}
+{"timestamp": "2026-10-06T01:44:13.109718+00:00", "level": "WARNING", "logger": "psycopg.pool", "message": "couldn't stop thread 'lead-engine-1673472817803727904-worker-1' within 5.0 seconds"}
+{"timestamp": "2026-10-06T01:44:13.109945+00:00", "level": "WARNING", "logger": "psycopg.pool", "message": "hint: you can try to call 'close()' explicitly or to use the pool as context manager"}
+{"timestamp": "2026-10-06T01:44:18.122526+00:00", "level": "WARNING", "logger": "psycopg.pool", "message": "couldn't stop thread 'lead-engine-1673472817803727904-worker-2' within 5.0 seconds"}
+{"timestamp": "2026-10-06T01:44:18.122722+00:00", "level": "WARNING", "logger": "psycopg.pool", "message": "hint: you can try to call 'close()' explicitly or to use the pool as context manager"}
+{"timestamp": "2026-10-06T01:44:23.130147+00:00", "level": "WARNING", "logger": "psycopg.pool", "message": "couldn't stop thread 'lead-engine-1673472817803727904-scheduler' within 5.0 seconds"}
+{"timestamp": "2026-10-06T01:44:23.130554+00:00", "level": "WARNING", "logger": "psycopg.pool", "message": "hint: you can try to call 'close()' explicitly or to use the pool as context manager"}

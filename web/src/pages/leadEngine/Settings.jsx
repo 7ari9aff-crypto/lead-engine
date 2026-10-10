@@ -1,8 +1,12 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useLeadEngine } from "@/lib/leadEngine/store";
 import { PageHeader } from "@/components/leadEngine/PageHeader";
 import { Pill } from "@/components/leadEngine/primitives";
-import { Building2, Globe, ShieldCheck, Users } from "lucide-react";
+import { Building2, Globe, ShieldCheck, Users, Loader2 } from "lucide-react";
+import {
+  mfaListFactors, mfaEnrollTotp, mfaChallengeAndVerify, mfaUnenroll,
+  supabaseConfigured,
+} from "@/lib/supabase";
 
 export default function Settings() {
   const { t, lang, toggleLang, currentUser, providers, credentials } = useLeadEngine();
@@ -60,8 +64,100 @@ export default function Settings() {
             <RoleRow role={ar ? "عضو" : "Member"} perms={ar ? "تشغيل البحث، تصفح العملاء والوظائف، ومراجعة العملاء" : "Run research, browse leads and jobs, review leads"} />
           </div>
         </section>
+
+        {supabaseConfigured && <MfaSection ar={ar} />}
       </div>
     </>
+  );
+}
+
+function MfaSection({ ar }) {
+  const [factors, setFactors] = useState(null);
+  const [phase, setPhase] = useState("idle"); // idle | enrolling | verifying
+  const [qrSvg, setQrSvg] = useState("");
+  const [secret, setSecret] = useState("");
+  const [factorId, setFactorId] = useState("");
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    try {
+      const f = await mfaListFactors();
+      setFactors(f.totp || []);
+    } catch { setFactors([]); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const startEnroll = async () => {
+    setError(""); setBusy(true);
+    try {
+      const d = await mfaEnrollTotp("lead-engine");
+      setQrSvg(d.totp?.qr_code || "");
+      setSecret(d.totp?.secret || "");
+      setFactorId(d.id);
+      setPhase("verifying");
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
+  };
+
+  const verify = async () => {
+    setError(""); setBusy(true);
+    try {
+      await mfaChallengeAndVerify(factorId, code.trim());
+      setPhase("idle"); setCode(""); setQrSvg(""); setSecret("");
+      await load();
+    } catch (e) { setError(e.message || "invalid code"); } finally { setBusy(false); }
+  };
+
+  const unenroll = async (id) => {
+    setError(""); setBusy(true);
+    try { await mfaUnenroll(id); await load(); } catch (e) { setError(e.message); } finally { setBusy(false); }
+  };
+
+  return (
+    <section className="card-surface p-5">
+      <h3 className="text-sm font-semibold mb-4 flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-muted-foreground" /> {ar ? "المصادقة الثنائية (TOTP)" : "Two-factor authentication (TOTP)"}</h3>
+      {error && <div className="mb-3 p-2 rounded-lg bg-destructive/10 text-destructive text-xs">{error}</div>}
+      {factors === null ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" />…</div>
+      ) : factors.length > 0 && phase !== "verifying" ? (
+        <div className="space-y-2 text-sm">
+          {factors.map((f) => (
+            <div key={f.id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2.5">
+              <span>{f.friendly_name || f.id.slice(0, 8)}</span>
+              <button onClick={() => unenroll(f.id)} disabled={busy}
+                className="text-xs text-destructive hover:underline">{ar ? "إزالة" : "Remove"}</button>
+            </div>
+          ))}
+          <button onClick={startEnroll} disabled={busy}
+            className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted transition">
+            {ar ? "أضف عاملًا آخر" : "Add another factor"}
+          </button>
+        </div>
+      ) : phase !== "verifying" ? (
+        <div className="space-y-3 text-sm">
+          <p className="text-muted-foreground text-xs">{ar ? "فعّل التحقق عبر تطبيق المصادقة لتأمين حسابك." : "Secure your account with an authenticator app."}</p>
+          <button onClick={startEnroll} disabled={busy}
+            className="rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-medium hover:opacity-90 transition">
+            {busy ? "…" : ar ? "تفعيل التحقق الثنائي" : "Enable 2FA"}
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-3 text-sm">
+          <div className="rounded-lg border border-border p-3 bg-white inline-block" dangerouslySetInnerHTML={{ __html: qrSvg }} />
+          {secret && <p className="text-xs text-muted-foreground" dir="ltr">secret: <code className="font-mono">{secret}</code></p>}
+          <div className="flex gap-2">
+            <input value={code} onChange={(e) => setCode(e.target.value)} maxLength={6}
+              inputMode="numeric" placeholder="123456" dir="ltr"
+              className="rounded-lg border border-border px-3 py-2 font-mono tracking-widest w-32 bg-transparent" />
+            <button onClick={verify} disabled={busy || code.length < 6}
+              className="rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-medium disabled:opacity-50">
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : ar ? "تحقق" : "Verify"}
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
