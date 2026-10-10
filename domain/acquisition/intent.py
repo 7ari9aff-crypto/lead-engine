@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 
-from .normalize import normalize_text
+from .company import normalize_name
 
 # (kind, bilingual markers). kind is the stored signal kind.
 INTENT_MARKERS: list[tuple[str, tuple[str, ...]]] = [
@@ -32,7 +32,7 @@ _MARKERS_RE = [(kind, re.compile(
 
 def detect_intent(text: str) -> list[tuple[str, str]]:
     """Return [(kind, matched_marker)] for each distinct intent kind found."""
-    blob = normalize_text(text or "")
+    blob = normalize_name(text or "")
     if not blob:
         return []
     hits: list[tuple[str, str]] = []
