@@ -22,7 +22,8 @@ def _envelope(event_type: str = "lead.approved", org: str = "11111111-1111-1111-
 
 
 def test_signature_is_deterministic_hmac():
-    import hashlib, hmac as hmac_mod
+    import hashlib
+    import hmac as hmac_mod
     body = build_payload(_envelope(), "1700000000")
     expected = hmac_mod.new(KEY, b"1700000000." + body.encode(),
                             hashlib.sha256).hexdigest()
@@ -40,7 +41,6 @@ def test_payload_shape():
 
 
 def test_non_deliverable_types_are_skipped():
-    delivered = []
     consumer = WebhookDispatchConsumer(db=None, secret_key=KEY)
 
     class _NoQuery:
@@ -59,14 +59,11 @@ def test_non_deliverable_types_are_skipped():
 
 
 def test_ssrf_guard_rejects_private_targets():
-    from urllib.parse import urlparse
-    import socket
     for url in ("http://127.0.0.1:9000/hook", "http://192.168.1.5/hook",
                 "http://10.0.0.1/hook", "file:///etc/passwd"):
         with pytest.raises(UnsafeTarget):
-            consumer = WebhookDispatchConsumer(db=None, secret_key=KEY)
-            # the guard lives inside _deliver via _assert_public_host — call it directly
             from infrastructure.events.webhook_consumer import _assert_public_host
+
             _assert_public_host(url)
 
 

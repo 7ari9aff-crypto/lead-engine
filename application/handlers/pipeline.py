@@ -240,15 +240,15 @@ class AcquisitionPipelineHandler:
         if domain:
             tx.repos.companies.add_identifier(company_id, "domain", domain)
 
+        source_id = tx.repos.claims.get_or_create_source(
+            "search_result", url, str(raw.get("provider", "search")), _sha(url + title),
+        )
+
         # purchase-intent signals (ZoomInfo-lite): hiring/expansion/funding/
         # active-marketing markers found in the discovery text itself
         for intent_kind, marker in detect_intent(f"{title} {raw.get('snippet', '')}"):
             tx.repos.intelligence.add_intent_signal(
                 company_id, intent_kind, marker, source_id)
-
-        source_id = tx.repos.claims.get_or_create_source(
-            "search_result", url, str(raw.get("provider", "search")), _sha(url + title),
-        )
         tx.repos.claims.add_observation(company_id, "website", url, source_id, "snippet", 0.6)
         tx.repos.claims.add_observation(company_id, "name", title, source_id, "snippet", 0.6)
         tx.repos.claims.upsert_claim(company_id, "website", url, source_id, "snippet", 0.6)
