@@ -1,12 +1,16 @@
 name: daily-benchmark
 
-# Replaces the retired n8n scheduler (removed 2026-10-04). Enqueues ONE
-# benchmark job per day directly into engine.jobs — enqueue, never an inline
-# HTTP run (the inline path inside a serverless request is what produced the
-# zombie RUNNING jobs). worker-tick (every 5 min) leases and runs it.
+# The daily production run — fully on the DURABLE plane (no inline HTTP runs,
+# no 60s serverless wall):
+#   1. enqueue a durable acquisition.run job on runtime.jobs (direct SQL under
+#      the tenant GUC — the job row is what the governance flow needs);
+#   2. the v6-worker (GitHub Actions, every 10 min, checkpointed) claims and
+#      runs it across invocations — a crash resumes from its last checkpoint;
+#   3. leads land in the review queue; schedule.stalled watches the loop.
 #
-# Anti-pileup: skips when a v0 job was already created in the last 20 hours —
-# a stalled queue must accumulate days, not duplicates.
+# Idempotent per day: skips when today's campaign already exists.
+# Replaces the retired n8n scheduler AND the legacy engine.jobs enqueue (the
+# v5 cron tick cannot run a full pipeline inside the serverless time limit).
 # 04:00 UTC = 06:00 Cairo standard time.
 
 on:
@@ -34,52 +38,103 @@ jobs:
 
       - run: pip install psycopg[binary]
 
-      - name: Enqueue the daily benchmark job
+      - name: Enqueue the daily durable acquisition run
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-          LEAD_ENGINE_ORG_ID: ${{ secrets.LEAD_ENGINE_ORG_ID }}
+          DAILY_ORG_ID: ${{ vars.DAILY_ORG_ID }}
         run: |
           python - <<'PY'
-          import os, uuid, datetime
+          import datetime, os, uuid
 
           import psycopg
+          from psycopg.rows import dict_row
 
           dsn = os.environ["SUPABASE_DB_URL"]
-          org_id = os.environ["LEAD_ENGINE_ORG_ID"]
-          # autocommit + set_config(is_local=true) does NOT work here: each
-          # statement is its own transaction, so a transaction-local GUC dies
-          # before the INSERT. Session-scoped on this single-purpose
-          # connection is the correct binding.
-          with psycopg.connect(dsn, autocommit=True) as conn, conn.cursor() as cur:
-              cur.execute("SELECT set_config('app.current_org', %s, false)", (org_id,))
-              cur.execute(
-                  """SELECT job_id FROM engine.jobs
-                     WHERE icp_id = 'v0' AND created_at > now() - interval '20 hours'
-                     LIMIT 1""")
-              recent = cur.fetchone()
-              if recent:
-                  print(f"skip: a v0 job already ran within 20h ({recent[0]})")
-              else:
-                  job_id = f"job-{uuid.uuid4().hex[:10]}"
-                  now = datetime.datetime.now(datetime.timezone.utc).strftime(
-                      "%Y-%m-%dT%H:%M:%SZ")
-                  cur.execute(
-                      """INSERT INTO engine.jobs
-                           (job_id, organization_id, icp_id, state, attempts,
-                            max_attempts, created_at, updated_at)
-                         VALUES (%s, %s, 'v0', 'QUEUED', 0, 3, %s, %s)""",
-                      (job_id, org_id, now, now))
-                  print(f"enqueued {job_id} for org {org_id}")
-          PY
+          org = os.environ["DAILY_ORG_ID"]
+          today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
 
-      - name: Kick the worker tick (lease + run the enqueued job)
-        env:
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-        # GitHub's */5 schedule for worker-tick can lag hours on a low-activity
-        # repo — don't let the fresh job wait on it.
-        run: |
-          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET unset — skip kick"; exit 0; fi
-          for i in 1 2 3; do
-            curl -fsS --max-time 90 -H "Authorization: Bearer $CRON_SECRET" \
-              "https://lead-engine3.vercel.app/api/cron/worker" && echo || true
-          done
+          icp = {
+              "name": "Saudi Dental Clinics",
+              "country": "SA",
+              "cities": [{"name": "Jeddah", "ar": "جدة"},
+                          {"name": "Riyadh", "ar": "الرياض"}],
+              "industry": "dental",
+              "keywords_en": ["dental clinic", "dentist"],
+              "keywords_ar": ["عيادة أسنان", "طبيب أسنان", "عيادات أسنان"],
+              "criteria": {"min_branches": 3,
+                            "decision_maker_roles": ["owner", "practice owner",
+                                                     "clinic manager", "مالك",
+                                                     "مدير"]},
+              "v0_limits": {"search_results_per_query": 8,
+                             "max_search_queries": 8,
+                             "enrichment_budget_credits": 50,
+                             "enrichment_max_people": 30},
+          }
+
+          with psycopg.connect(dsn, autocommit=True, row_factory=dict_row) as c, \
+                  c.cursor() as cur:
+              # runtime/acquisition are FORCE-RLS'd on app.tenant_id — an
+              # org-less connection is denied even as the table owner. This
+              # single-purpose connection binds the org session-scoped.
+              cur.execute("SELECT set_config('app.tenant_id', %s, false)", (org,))
+
+              cur.execute("SELECT count(*) AS n FROM runtime.jobs WHERE created_at::date = %s",
+                          (today,))
+              if cur.fetchone()["n"]:
+                  print(f"skip: today ({today}) already has a job")
+                  raise SystemExit(0)
+
+              # ICP profile + version 1: created once, reused every day (the
+              # definition is immutable by design).
+              cur.execute("""INSERT INTO acquisition.icp_profiles (org_id, name)
+                             VALUES (%s, 'daily-dental')
+                             ON CONFLICT DO NOTHING RETURNING id""", (org,))
+              row = cur.fetchone()
+              if row is None:
+                  cur.execute("""SELECT id FROM acquisition.icp_profiles
+                                 WHERE org_id = %s AND name = 'daily-dental'""", (org,))
+                  row = cur.fetchone()
+              profile_id = row["id"]
+
+              cur.execute("""SELECT id FROM acquisition.icp_versions
+                             WHERE org_id = %s AND profile_id = %s
+                             ORDER BY version DESC LIMIT 1""", (org, profile_id))
+              row = cur.fetchone()
+              if row is None:
+                  cur.execute("""INSERT INTO acquisition.icp_versions
+                                   (org_id, profile_id, version, definition)
+                                 VALUES (%s, %s, 1, %s) RETURNING id""",
+                              (org, profile_id, psycopg.types.json.Json(icp)))
+                  row = cur.fetchone()
+              icp_version_id = row["id"]
+
+              # one campaign per day (idempotent by name)
+              cur.execute("""SELECT id FROM acquisition.campaigns
+                             WHERE org_id = %s AND name = %s LIMIT 1""",
+                          (org, f"Daily dental {today}"))
+              row = cur.fetchone()
+              if row:
+                  campaign_id = row["id"]
+                  print(f"campaign for {today} already exists: {campaign_id}")
+              else:
+                  row = cur.execute(
+                      """INSERT INTO acquisition.campaigns
+                           (org_id, name, icp_version_id, budget_cents)
+                         VALUES (%s, %s, %s, 0) RETURNING id""",
+                      (org, f"Daily dental {today}", icp_version_id)).fetchone()
+                  campaign_id = row["id"]
+
+              job_id = uuid.uuid4()
+              cur.execute(
+                  """INSERT INTO runtime.jobs
+                       (org_id, campaign_id, job_type, queue, payload, state,
+                        max_attempts, priority)
+                     VALUES (%s, %s, 'acquisition.run', 'default', %s,
+                             'QUEUED', 3, 100)""",
+                  (org, campaign_id,
+                   psycopg.types.json.Json({"campaign_id": str(campaign_id),
+                                             "icp_version_id": str(icp_version_id),
+                                             "budget_cents": 0})))
+              print(f"enqueued acquisition.run {job_id} (campaign {campaign_id}) "
+                    f"for org {org}")
+          PY
