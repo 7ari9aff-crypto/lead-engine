@@ -66,7 +66,10 @@ def build_gateway() -> ProviderGateway:
         gateway.register(FakeContactProvider(contacts_by_domain=DEMO_CONTACTS, priority=90))
     if mode in ("real", "auto"):
         from infrastructure.providers.real import (
+            ApolloContactAdapter,
             ExaSearchAdapter,
+            HunterContactAdapter,
+            HunterVerifyAdapter,
             SmtpVerifyAdapter,
             TavilySearchAdapter,
         )
@@ -76,6 +79,17 @@ def build_gateway() -> ProviderGateway:
         if _key("EXA_API_KEY"):
             gateway.register(ExaSearchAdapter())
         gateway.register(SmtpVerifyAdapter())
+        # FIND_CONTACT waterfall: Apollo (0 credits) → Hunter (1 credit).
+        # Without these the enrichment phase could only fail with CAPACITY —
+        # the root cause of "attempted: 28, enriched: 0".
+        if _key("APOLLO_API_KEY"):
+            gateway.register(ApolloContactAdapter())
+        if _key("HUNTER_API_KEY"):
+            gateway.register(HunterContactAdapter())
+        # VERIFY_EMAIL waterfall: SMTP probe first, Hunter second hop —
+        # catch-all/ambiguous domains get a real second opinion.
+        if _key("HUNTER_API_KEY"):
+            gateway.register(HunterVerifyAdapter())
     return gateway
 
 

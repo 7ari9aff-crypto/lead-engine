@@ -85,6 +85,7 @@ def mount_v6(legacy_app) -> None:
     from application.handlers.pipeline import AcquisitionPipelineHandler
     from infrastructure.config import Settings
     from infrastructure.events.relay import OutboxRelay
+    from infrastructure.events.webhook_consumer import WebhookDispatchConsumer
     from infrastructure.pii.vault import PiiVault
     from infrastructure.postgres.pool import Database
     from infrastructure.config import MIGRATIONS_DIR
@@ -111,8 +112,9 @@ def mount_v6(legacy_app) -> None:
         gateway=gateway, model_gateway=model_gateway,
         doctor=doctor,
         handlers={"acquisition.run": AcquisitionPipelineHandler()},
-        relay=OutboxRelay(db, consumer=lambda event: None,
-                          batch_size=settings.relay_batch_size),
+        relay=OutboxRelay(
+            db, consumer=WebhookDispatchConsumer(db, settings.master_key),
+            batch_size=settings.relay_batch_size),
     )
     init_done = getattr(legacy_app.state, "v6_container", None)
     if init_done is None:

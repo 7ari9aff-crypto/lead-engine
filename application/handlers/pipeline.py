@@ -36,6 +36,7 @@ from domain.acquisition.company import (
     resolve_identity,
 )
 from domain.acquisition.icp import build_query_plan, is_empty_plan
+from domain.acquisition.intent import detect_intent
 from domain.governance.policy import FAIL_CLOSED_VERSION
 from domain.governance.policy import GovernanceDecision, PolicyInput, evaluate, fail_closed
 from domain.intelligence.scoring import (
@@ -238,6 +239,12 @@ class AcquisitionPipelineHandler:
             )
         if domain:
             tx.repos.companies.add_identifier(company_id, "domain", domain)
+
+        # purchase-intent signals (ZoomInfo-lite): hiring/expansion/funding/
+        # active-marketing markers found in the discovery text itself
+        for intent_kind, marker in detect_intent(f"{title} {raw.get('snippet', '')}"):
+            tx.repos.intelligence.add_intent_signal(
+                company_id, intent_kind, marker, source_id)
 
         source_id = tx.repos.claims.get_or_create_source(
             "search_result", url, str(raw.get("provider", "search")), _sha(url + title),

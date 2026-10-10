@@ -188,3 +188,123 @@ class GeminiReasonModel:
         return ModelReply(text=text, model_id=self.model_id, cost_cents=0,
                           tokens=int(data.get("usageMetadata", {})
                                      .get("totalTokenCount", 0)))
+
+
+class ApolloContactAdapter:
+    """FIND_CONTACT via Apollo people search (0 credits on paid plans).
+    Request/response shape mirrors the proven legacy adapter."""
+
+    spec = ProviderSpec(provider_id="apollo", capability=Capability.FIND_CONTACT,
+                        priority=10, cost_cents_per_call=0)
+
+    def __init__(self):
+        self.pool = KeyPool("APOLLO_API_KEY")
+
+    def call(self, operation: str, params: dict[str, Any]) -> ProviderResult:
+        if not len(self.pool):
+            return ProviderResult(ok=False, error="APOLLO_API_KEY missing")
+        while True:
+            try:
+                with httpx.Client(timeout=_TIMEOUT) as client:
+                    resp = client.post(
+                        "https://api.apollo.io/v1/mixed_people/search",
+                        json={"organization_domains": [params.get("domain")] if params.get("domain") else [],
+                               "person_titles": params.get("titles", []),
+                               "page": 1},
+                        headers={"X-Api-Key": self.pool.current(),
+                                  "Content-Type": "application/json"})
+                    resp.raise_for_status()
+                    data = resp.json()
+                contacts = [
+                    {"name": p.get("name", "") or "",
+                     "role": p.get("title", "") or "",
+                     "email": p.get("email") or None,
+                     "phone": None,
+                     "social": p.get("linkedin_url", "") or None}
+                    for p in (data.get("people") or [])
+                    if p.get("name")
+                ]
+                return ProviderResult(ok=True, data={"contacts": contacts,
+                                                      "provider": "apollo"})
+            except httpx.HTTPStatusError as exc:
+                code = exc.response.status_code
+                if code in (401, 403, 429) and self.pool.rotate():
+                    continue
+                raise
+
+
+class HunterContactAdapter:
+    """FIND_CONTACT fallback via Hunter domain-search (1 credit/call)."""
+
+    spec = ProviderSpec(provider_id="hunter", capability=Capability.FIND_CONTACT,
+                        priority=20, cost_cents_per_call=1)
+
+    def __init__(self):
+        self.pool = KeyPool("HUNTER_API_KEY")
+
+    def call(self, operation: str, params: dict[str, Any]) -> ProviderResult:
+        domain = params.get("domain")
+        if not domain or not len(self.pool):
+            return ProviderResult(ok=False, error="HUNTER_API_KEY missing or no domain")
+        while True:
+            try:
+                with httpx.Client(timeout=_TIMEOUT) as client:
+                    resp = client.get(
+                        "https://api.hunter.io/v2/domain-search",
+                        params={"domain": domain, "limit": 3,
+                                 "api_key": self.pool.current()})
+                    resp.raise_for_status()
+                    data = resp.json().get("data", {})
+                contacts = [
+                    {"name": " ".join(x for x in (e.get("first_name"), e.get("last_name")) if x) or None,
+                     "role": e.get("position") or None,
+                     "email": e.get("value"),
+                     "phone": None,
+                     "social": None}
+                    for e in (data.get("emails") or [])
+                    if e.get("value")
+                ]
+                return ProviderResult(ok=True, data={"contacts": contacts,
+                                                      "provider": "hunter"})
+            except httpx.HTTPStatusError as exc:
+                code = exc.response.status_code
+                if code in (401, 403, 429) and self.pool.rotate():
+                    continue
+                raise
+
+
+class HunterVerifyAdapter:
+    """VERIFY_EMAIL fallback: Hunter email-verifier after the SMTP probe —
+    the waterfall's second hop for catch-all/ambiguous domains."""
+
+    spec = ProviderSpec(provider_id="hunter-verify", capability=Capability.VERIFY_EMAIL,
+                        priority=20, cost_cents_per_call=1)
+
+    def __init__(self):
+        self.pool = KeyPool("HUNTER_API_KEY")
+
+    def call(self, operation: str, params: dict[str, Any]) -> ProviderResult:
+        email = str(params.get("email", ""))
+        if not email or "@" not in email or not len(self.pool):
+            return ProviderResult(ok=False, error="HUNTER_API_KEY missing")
+        while True:
+            try:
+                with httpx.Client(timeout=_TIMEOUT) as client:
+                    resp = client.get(
+                        "https://api.hunter.io/v2/email-verifier",
+                        params={"email": email, "api_key": self.pool.current()})
+                    resp.raise_for_status()
+                    data = resp.json().get("data", {})
+                result = data.get("result", "unknown")
+                status = {"valid": "DELIVERABLE", "risky": "RISKY",
+                          "invalid": "INVALID", "unknown": "UNKNOWN"}.get(result, "UNKNOWN")
+                if data.get("status") == "catch_all":
+                    status = "CATCH_ALL"
+                return ProviderResult(ok=True, data={"status": status,
+                                                      "provider_verified": status == "DELIVERABLE",
+                                                      "details": {"hunter_result": result}})
+            except httpx.HTTPStatusError as exc:
+                code = exc.response.status_code
+                if code in (401, 403, 429) and self.pool.rotate():
+                    continue
+                raise

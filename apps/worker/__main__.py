@@ -23,6 +23,7 @@ def main(argv: list[str] | None = None) -> int:
     from infrastructure.config import MIGRATIONS_DIR, Settings
     from infrastructure.doctor.registry import build_doctor
     from infrastructure.events.relay import OutboxRelay
+    from infrastructure.events.webhook_consumer import WebhookDispatchConsumer
     from infrastructure.pii.vault import PiiVault
     from infrastructure.postgres.pool import Database
     from infrastructure.providers.bootstrap import build_gateway, build_model_gateway
@@ -52,8 +53,9 @@ def main(argv: list[str] | None = None) -> int:
         settings=settings, db=db, vault=vault, gateway=gateway,
         model_gateway=model_gateway, doctor=doctor,
         handlers={"acquisition.run": AcquisitionPipelineHandler()},
-        relay=OutboxRelay(db, consumer=lambda event: None,
-                          batch_size=settings.relay_batch_size),
+        relay=OutboxRelay(
+            db, consumer=WebhookDispatchConsumer(db, settings.master_key),
+            batch_size=settings.relay_batch_size),
     )
     uows = PgUowFactory(db, vault_engine=vault)
 

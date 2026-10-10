@@ -30,6 +30,7 @@ from application.usecases.campaigns import CreateCampaign, JobQuery
 from application.usecases.onboard import OnboardOrg
 from application.usecases.pii_access import ContactPiiReader
 from application.usecases.review import ReviewUseCase
+from infrastructure.events.webhook_repo import WebhookEndpointRepo
 from infrastructure.repos.system import BootstrapPg, JobRuntimePg, PlansReaderPg
 from infrastructure.uow import PgUowFactory
 
@@ -55,6 +56,12 @@ class DecisionBody(BaseModel):
 class PiiBody(BaseModel):
     purpose: str
     request_id: str | None = None
+
+
+class WebhookBody(BaseModel):
+    url: str = Field(min_length=8)
+    secret: str = Field(min_length=16)
+    events: list[str] = ["*"]
 
 
 def build_v6_router(container: Container) -> APIRouter:
@@ -164,6 +171,29 @@ def build_v6_router(container: Container) -> APIRouter:
                     principal: Principal = Depends(require_manager)) -> dict:
         report = container.doctor.run(container.settings, org=principal.org_id)
         return report.to_dict()
+
+    @router.get("/api/v1/webhooks")
+    def list_webhooks(request: Request,
+                      principal: Principal = Depends(require_manager)) -> list[dict]:
+        with uows(principal.org_id or "") as tx:
+            return WebhookEndpointRepo(tx.cursor).list()
+
+    @router.post("/api/v1/webhooks", status_code=201)
+    def create_webhook(body: WebhookBody, request: Request,
+                       principal: Principal = Depends(require_manager)) -> dict:
+        try:
+            with uows(principal.org_id or "") as tx:
+                return WebhookEndpointRepo(tx.cursor).create(
+                    body.url, body.secret, body.events)
+        except Exception as exc:
+            raise map_domain_errors(exc) from exc
+
+    @router.post("/api/v1/webhooks/{endpoint_id}/disable")
+    def disable_webhook(endpoint_id: str, request: Request,
+                        principal: Principal = Depends(require_manager)) -> dict:
+        with uows(principal.org_id or "") as tx:
+            ok = WebhookEndpointRepo(tx.cursor).disable(endpoint_id)
+        return {"disabled": ok}
 
     @router.post("/api/v1/leads/{lead_id}/pii")
     def read_lead_pii(lead_id: str, body: PiiBody, request: Request,
