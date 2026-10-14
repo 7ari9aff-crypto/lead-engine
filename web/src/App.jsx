@@ -5,6 +5,10 @@ import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
+import Login from '@/pages/Login';
+import Register from '@/pages/Register';
+import ForgotPassword from '@/pages/ForgotPassword';
+import ResetPassword from '@/pages/ResetPassword';
 import ScrollToTop from './components/ScrollToTop';
 import { LeadEngineProvider } from '@/lib/leadEngine/store';
 import { AppShell } from '@/components/leadEngine/AppShell';
@@ -26,7 +30,7 @@ import Settings from '@/pages/leadEngine/Settings';
 // Add page imports here
 
 const AuthenticatedApp = () => {
-  const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
+  const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin, isAuthenticated } = useAuth();
 
   // Show loading spinner while checking app public settings or auth
   if (isLoadingPublicSettings || isLoadingAuth) {
@@ -46,6 +50,24 @@ const AuthenticatedApp = () => {
       navigateToLogin();
       return null;
     }
+  }
+
+  // Signed-out gate: without it the production dashboard rendered for an
+  // anonymous visitor with every API call 401ing and the honesty banners
+  // reporting "cannot reach the server" — a wall of false errors hiding the
+  // one true fact (you must sign in). The auth pages were built (Login /
+  // Register / ForgotPassword / ResetPassword) but never routed, so /login
+  // answered 404 and there was no way in at all.
+  if (!isAuthenticated) {
+    return (
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="*" element={<Login />} />
+      </Routes>
+    );
   }
 
   // Render the main app
