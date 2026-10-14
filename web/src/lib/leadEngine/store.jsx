@@ -5,8 +5,10 @@
 // and the agentic research flow (/api/v1/research). No demo seeds anywhere.
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { makeT } from "./i18n";
+import { mergeActivity } from "./connState";
 import {
   apiGet, apiPost, mapJob, mapLead, mapProvider, mapActivityEvent, mapCredential, mapIcp,
+  mapAgent, mapTool, agentRunStats,
 } from "./api";
 
 const LeadEngineContext = createContext(null);
@@ -40,12 +42,29 @@ export function LeadEngineProvider({ children }) {
   const [providers, setProviders] = useState([]);
   const [creds, setCreds] = useState([]);
   const [agents, setAgents] = useState([]);
-  const [activity, setActivity] = useState([]);
+  const [tools, setTools] = useState([]);
+  // serverActivity = rows from /api/activity (replaced wholesale each poll).
+  // localActivity = this session's own actions, merged in for display so the
+  // operator's trail survives a failed poll instead of vanishing (and so a
+  // dead backend never silently drops the only evidence of recent work).
+  const [serverActivity, setServerActivity] = useState([]);
+  const [localActivity, setLocalActivity] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [chat, setChat] = useState([]);
   const [activeJobId, setActiveJobId] = useState(null);
   const [currentUser] = useState({ name: "Operator" });
+  // Connection honesty (FAIL-01): `connected` alone let every list render a
+  // failed refresh as an honest-looking empty. `lastError`/`lastSuccessAt`
+  // let surfaces say "stale since X" / "cannot reach the server" instead.
   const [connected, setConnected] = useState(true);
+  const [lastError, setLastError] = useState(null);
+  const [lastSuccessAt, setLastSuccessAt] = useState(null);
+  const [everLoaded, setEverLoaded] = useState(false);
+  // The secondary surfaces (agents/tools/credentials/icps) load after the
+  // first refresh cycle. Without this flag they render a confident "nothing
+  // registered" empty for the first seconds — the FAIL-02 false empty, back
+  // in its v12 form.
+  const [secondaryLoaded, setSecondaryLoaded] = useState(false);
   const loadedOnce = useRef(false);
 
   const t = useMemo(() => makeT(lang), [lang]);
@@ -66,7 +85,7 @@ export function LeadEngineProvider({ children }) {
   const toggleTheme = useCallback(() => setTheme((x) => (x === "dark" ? "light" : "dark")), []);
 
   const pushLocal = useCallback((action, target, detail, actor) => {
-    setActivity((prev) => [{ id: nid("ev"), actor: actor || "you", action, target, at: isoNow(), detail },
+    setLocalActivity((prev) => [{ id: nid("ev"), actor: actor || "you", action, target, at: isoNow(), detail },
       ...prev].slice(0, 200));
   }, []);
 
@@ -78,10 +97,13 @@ export function LeadEngineProvider({ children }) {
         apiGet.activity(60).catch(() => ({ events: [] })),
       ]);
       setConnected(true);
+      setLastError(null);
+      setLastSuccessAt(isoNow());
+      setEverLoaded(true);
       setProviders((status.providers || []).map(mapProvider));
       setJobs((jobsRows || []).map(mapJob));
       setLeads((leadsRows || []).map(mapLead));
-      setActivity((activityRows.events || []).map(mapActivityEvent));
+      setServerActivity((activityRows.events || []).map(mapActivityEvent));
       if (!loadedOnce.current) {
         loadedOnce.current = true;
         try {
@@ -89,12 +111,30 @@ export function LeadEngineProvider({ children }) {
           setCreds((k.keys || []).map(mapCredential));
           const icpRows = await apiGet.icps().catch(() => ({ versions: [] }));
           setIcps((icpRows.versions || []).map(mapIcp));
-          const a = await apiGet.agents().catch(() => ({ agents: [] }));
-          setAgents(a.agents || []);
+          // Agents carry no run counters or tools on their row — enrich from
+          // the runs feed and the tool registry so the page shows real
+          // numbers (it previously rendered undefined for every stat).
+          const [a, runs, toolRows] = await Promise.all([
+            apiGet.agents().catch(() => ({ agents: [] })),
+            apiGet.agentRuns().catch(() => ({ runs: [] })),
+            apiGet.tools().catch(() => ({ tools: [] })),
+          ]);
+          const stats = agentRunStats(runs.runs || []);
+          setAgents((a.agents || []).map((row) => {
+            const agent = mapAgent(row);
+            const s = stats[agent.id] || {};
+            return { ...agent, recentRuns: s.recentRuns || 0, failures: s.failures || 0, lastRunAt: s.lastRunAt || null };
+          }));
+          setTools((toolRows.tools || []).map(mapTool));
         } catch { /* optional surfaces */ }
+        finally { setSecondaryLoaded(true); }
       }
     } catch (err) {
+      // Keep whatever rows are on screen (they are the last truth we had),
+      // but mark the connection down so surfaces can say the data is stale
+      // instead of pretending an empty result is the truth.
       setConnected(false);
+      setLastError(err?.message || String(err));
       console.warn("refresh failed:", err?.message || err);
     }
   }, []);
@@ -273,11 +313,11 @@ export function LeadEngineProvider({ children }) {
 
   const value = {
     lang, toggleLang, theme, toggleTheme, t,
-    jobs, leads, icps, providers, credentials: creds, integrations: [], agents,
-    activity: useMemo(() => [...activity].sort((a, b) => new Date(b.at) - new Date(a.at)), [activity]),
+    jobs, leads, icps, providers, credentials: creds, integrations: [], agents, tools,
+    activity: useMemo(() => mergeActivity(serverActivity, localActivity), [serverActivity, localActivity]),
     notifications: useMemo(() => [...notifications].sort((a, b) => new Date(b.at) - new Date(a.at)), [notifications]),
     chat, activeJobId, setActiveJobId, currentUser, canFindContacts,
-    connected,
+    connected, lastError, lastSuccessAt, everLoaded, secondaryLoaded,
     submitObjective, answerClarification, reviewLead, undoReview, revealPII, researchMore,
     cancelJob, resumeJob, addCredential, testCredential, rotateCredential, toggleIntegration,
     markNotifRead, markAllNotifsRead, refresh, refreshJobEvents,

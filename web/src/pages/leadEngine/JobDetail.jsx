@@ -38,7 +38,7 @@ export default function JobDetail() {
   const icp = icps.find((i) => i.version === job.icpVersion);
   const live = isLiveStatus(job.status);
   const cancellable = live || job.status === "PAUSED" || job.status === "WAITING_FOR_USER";
-  const budgetPct = job.budget ? Math.round((job.budget.used / job.budget.limit) * 100) : 0;
+  const budgetPct = job.budget && job.budget.limit != null ? Math.round((job.budget.used / job.budget.limit) * 100) : null;
   const stop = STOP_META[job.stopReason];
   const jobLeads = leads.filter((l) => l.jobId === job.id);
   const base = Math.max(job.stages?.discovered || 0, 1);
@@ -48,7 +48,7 @@ export default function JobDetail() {
 
   return (
     <>
-      <PageHeader title={job.objective} subtitle={`${job.id} · ${job.createdByName}`}
+      <PageHeader title={job.objective} subtitle={job.id}
         actions={
           <>
             <button onClick={back} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="w-4 h-4" /> {ar ? "رجوع" : "Back"}</button>
@@ -140,8 +140,8 @@ export default function JobDetail() {
         <div className="space-y-5">
           <section className="card-surface p-5">
             <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Gauge className="w-4 h-4 text-muted-foreground" /> {t("jobs.budget")}</h3>
-            <div className="flex justify-between text-sm mb-1.5"><span className="text-muted-foreground">{ar ? "المستخدم" : "Used"}</span><span className="font-display font-semibold tnum">{fmtNum(job.budget?.used, lang)} / {fmtNum(job.budget?.limit, lang)} {ar ? "نقطة" : "pts"}</span></div>
-            <ProgressBar value={budgetPct} tone={budgetPct > 85 ? "danger" : "info"} />
+            <div className="flex justify-between text-sm mb-1.5"><span className="text-muted-foreground">{ar ? "المستخدم" : "Used"}</span><span className="font-display font-semibold tnum">{fmtNum(job.budget?.used, lang)} / {job.budget?.limit != null ? `${fmtNum(job.budget.limit, lang)} ${ar ? "نقطة" : "pts"}` : (ar ? "غير محدود" : "unlimited")}</span></div>
+            {budgetPct != null && <ProgressBar value={budgetPct} tone={budgetPct > 85 ? "danger" : "info"} />}
             <div className="mt-3 pt-3 border-t border-border text-xs space-y-1.5">
               <div className="flex justify-between"><span className="text-muted-foreground">{ar ? "أُنشئت" : "Created"}</span><TimeAgo iso={job.createdAt} /></div>
               {job.completedAt && <div className="flex justify-between"><span className="text-muted-foreground">{ar ? "انتهت" : "Ended"}</span><TimeAgo iso={job.completedAt} /></div>}

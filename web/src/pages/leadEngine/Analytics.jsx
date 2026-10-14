@@ -2,11 +2,11 @@ import React from "react";
 import { cn } from "@/lib/utils";
 import { useLeadEngine } from "@/lib/leadEngine/store";
 import { PageHeader } from "@/components/leadEngine/PageHeader";
-import { StatusBadge, Pill, TONE_BG } from "@/components/leadEngine/primitives";
+import { StatusBadge, Pill, TONE_BG, StaleBanner } from "@/components/leadEngine/primitives";
 import { BarChart3 } from "lucide-react";
 
 export default function Analytics() {
-  const { t, lang, jobs, leads, providers } = useLeadEngine();
+  const { t, lang, jobs, leads, providers, connected, lastSuccessAt, refresh } = useLeadEngine();
 
   // aggregate funnel from job stages (real data, no hardcoding)
   const funnel = ["discovered", "deduplicated", "researched", "verified", "qualified", "readyForReview"].map((k) => ({
@@ -33,13 +33,17 @@ export default function Analytics() {
     { label: "<70%", value: leads.filter((l) => l.evidenceCoverage < 70).length },
   ];
 
-  // provider usage
-  const providerUsage = providers.map((p) => ({ name: p.name, used: p.usage, quota: p.quota, pct: Math.round((p.usage / p.quota) * 100) }));
+  // provider usage — real mapped fields (quota.{used,limit}); limit null =
+  // unlimited, and a null must not divide into NaN.
+  const providerUsage = providers
+    .filter((p) => p.quota.limit != null)
+    .map((p) => ({ name: p.name, used: p.quota.used, quota: p.quota.limit, pct: Math.round((p.quota.used / p.quota.limit) * 100) }));
 
   return (
     <>
       <PageHeader title={t("analytics.title")} subtitle={lang === "ar" ? "من الاكتشاف حتى المراجعة، عبر كل وظائف البحث." : "From discovery to review, across all research jobs."} />
       <div className="px-4 lg:px-8 py-6 max-w-[1300px] space-y-6">
+        {!connected && <StaleBanner lastSuccessAt={lastSuccessAt} onRetry={refresh} />}
         {/* funnel */}
         <section className="card-surface p-5">
           <h3 className="text-sm font-semibold mb-4 flex items-center gap-2"><BarChart3 className="w-4 h-4 text-muted-foreground" /> {lang === "ar" ? "مسار البحث" : "Research funnel"}</h3>

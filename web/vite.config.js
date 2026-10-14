@@ -12,6 +12,12 @@ const proxy = Object.fromEntries(
     '/api', '/v6/api', '/v6/healthz', '/providers', '/leads', '/jobs',
     '/benchmark', '/verify-email', '/report', '/sync-supabase', '/mcp',
     '/health', '/docs', '/openapi.json', '/redoc',
+    // The backend serves the SPA for the API-colliding routes (/jobs, /leads,
+    // /providers — the single-origin design), so those HTML responses
+    // reference /assets/* from lead_engine/static. Without proxying /assets
+    // the dev server 404s them and a direct load or refresh of those routes
+    // shows a blank page (found by the browser walk).
+    '/assets', '/favicon.svg',
   ].map((p) => [p, { target: BACKEND, changeOrigin: true }]),
 )
 

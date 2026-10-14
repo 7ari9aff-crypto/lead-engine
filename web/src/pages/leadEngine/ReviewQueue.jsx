@@ -4,11 +4,12 @@ import { cn } from "@/lib/utils";
 import { useLeadEngine } from "@/lib/leadEngine/store";
 import { hasContact, tr } from "@/lib/leadEngine/format";
 import { PageHeader } from "@/components/leadEngine/PageHeader";
-import { StatusBadge, ScoreRing, TimeAgo, EmptyState } from "@/components/leadEngine/primitives";
+import { StatusBadge, ScoreRing, TimeAgo, EmptyState, StaleBanner, ConnectionEmpty } from "@/components/leadEngine/primitives";
+import { listEmptyKind } from "@/lib/leadEngine/connState";
 import { ClipboardCheck, ArrowUpRight, CheckCircle2, XCircle, FileSearch, Clock, Undo2 } from "lucide-react";
 
 export default function ReviewQueue() {
-  const { t, lang, leads, reviewLead, undoReview, researchMore, canFindContacts } = useLeadEngine();
+  const { t, lang, leads, reviewLead, undoReview, researchMore, canFindContacts, connected, lastSuccessAt, everLoaded, lastError, refresh } = useLeadEngine();
   const navigate = useNavigate();
   const ar = lang === "ar";
   const [tab, setTab] = useState("pending");
@@ -28,6 +29,7 @@ export default function ReviewQueue() {
     <>
       <PageHeader title={t("review.title")} subtitle={t("review.subtitle")} />
       <div className="px-4 lg:px-8 py-6 max-w-[1200px] space-y-4">
+        {!connected && <StaleBanner lastSuccessAt={lastSuccessAt} onRetry={refresh} />}
         <div className="flex items-center gap-1 border-b border-border" role="tablist">
           {[["pending", ar ? "بانتظار قرارك" : "Waiting for you", pending.length], ["saved", ar ? "محفوظة لوقت لاحق" : "Saved for later", saved.length]].map(([k, label, n]) => (
             <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
@@ -47,9 +49,14 @@ export default function ReviewQueue() {
         )}
 
         {queue.length === 0 ? (
-          <EmptyState icon={ClipboardCheck} title={tab === "pending" ? t("empty.review") : (ar ? "لا توجد عناصر محفوظة." : "Nothing saved.")}
-            hint={tab === "pending" ? (ar ? "عندما ينتهي بحث جديد ستظهر نتائجه هنا." : "Results of a finished search appear here.") : undefined}
-            action={tab === "pending" ? t("common.startResearch") : undefined} onAction={() => navigate("/chat")} />
+          (() => {
+            const kind = listEmptyKind({ connected, everLoaded, lastError, total: leads.length, filtered: queue.length });
+            if (kind === "loading") return <p className="text-sm text-muted-foreground py-10 text-center">{ar ? "جارٍ تحميل العملاء…" : "Loading leads…"}</p>;
+            if (kind === "backend-down") return <ConnectionEmpty onRetry={refresh} />;
+            return <EmptyState icon={ClipboardCheck} title={tab === "pending" ? t("empty.review") : (ar ? "لا توجد عناصر محفوظة." : "Nothing saved.")}
+                hint={tab === "pending" ? (ar ? "عندما ينتهي بحث جديد ستظهر نتائجه هنا." : "Results of a finished search appear here.") : undefined}
+                action={tab === "pending" ? t("common.startResearch") : undefined} onAction={() => navigate("/chat")} />;
+          })()
         ) : (
           <div className="space-y-3">
             {queue.map((l) => {

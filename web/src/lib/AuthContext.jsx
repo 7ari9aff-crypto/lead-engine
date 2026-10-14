@@ -97,7 +97,11 @@ export const AuthProvider = ({ children }) => {
     await checkAuth();
   }, [checkAuth]);
 
-  const logout = useCallback(async () => {
+  // Named signOut; `logout` stays exposed as the historical alias the
+  // interface comment documents. The value object referenced `signOut`
+  // without it ever being defined — a ReferenceError at render that took the
+  // ENTIRE dashboard down to a blank page (found by the browser walk).
+  const signOut = useCallback(async () => {
     await supabase.signOut();
     try { await apiPost.logout(); } catch { /* already signed out */ }
     setUser(null);
@@ -112,13 +116,13 @@ export const AuthProvider = ({ children }) => {
     authError,
     appPublicSettings: null,
     authChecked,
-    logout,
+    signOut,
+    logout: signOut,
     navigateToLogin,
     checkUserAuth: checkAuth,
     checkAppState: checkAuth,
     signInWithPassword,
     loginWithPasswordMode,
-    signOut,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

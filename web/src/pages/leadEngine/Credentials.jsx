@@ -31,7 +31,7 @@ function KeyForm({ ar, services, fixedService, onSubmit, onCancel }) {
 }
 
 export default function Credentials() {
-  const { t, lang, credentials, addCredential, testCredential, rotateCredential } = useLeadEngine();
+  const { t, lang, credentials, addCredential, testCredential, rotateCredential, secondaryLoaded, connected, refresh } = useLeadEngine();
   const ar = lang === "ar";
   const [testing, setTesting] = useState(null);
   const [okFlash, setOkFlash] = useState(null);
@@ -56,6 +56,13 @@ export default function Credentials() {
         </div>
 
         {form === "add" && <KeyForm ar={ar} services={addable} onCancel={() => setForm(null)} onSubmit={(s, k) => { if (addCredential(s, k)) setForm(null); }} />}
+
+        {!secondaryLoaded && credentials.length === 0 && (
+          <p className="text-sm text-muted-foreground py-6 text-center">{ar ? "جارٍ تحميل بيانات الاعتماد…" : "Loading credentials…"}</p>
+        )}
+        {secondaryLoaded && credentials.length === 0 && !connected && (
+          <p className="text-sm text-muted-foreground py-6 text-center">{ar ? "تعذّر تحميل المفاتيح من الخادم." : "Could not load the keys from the server."}</p>
+        )}
 
         {credentials.map((c) => (
           <div key={c.id} className="space-y-2">

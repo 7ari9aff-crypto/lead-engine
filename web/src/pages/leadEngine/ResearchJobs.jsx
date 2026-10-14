@@ -4,7 +4,8 @@ import { cn } from "@/lib/utils";
 import { useLeadEngine, isLiveStatus } from "@/lib/leadEngine/store";
 import { fmtNum } from "@/lib/leadEngine/format";
 import { PageHeader } from "@/components/leadEngine/PageHeader";
-import { StatusBadge, ProgressBar, EmptyState, TimeAgo } from "@/components/leadEngine/primitives";
+import { StatusBadge, ProgressBar, EmptyState, TimeAgo, StaleBanner, ConnectionEmpty } from "@/components/leadEngine/primitives";
+import { listEmptyKind } from "@/lib/leadEngine/connState";
 import { Radar, MessageSquare, Search } from "lucide-react";
 
 const FILTERS = [
@@ -15,7 +16,7 @@ const FILTERS = [
 const matches = (j, f) => f === "ALL" || (f === "RUNNING" ? isLiveStatus(j.status) : j.status === f);
 
 export default function ResearchJobs() {
-  const { t, lang, jobs } = useLeadEngine();
+  const { t, lang, jobs, connected, lastSuccessAt, everLoaded, lastError, refresh } = useLeadEngine();
   const navigate = useNavigate();
   const ar = lang === "ar";
   const [filter, setFilter] = useState("ALL");
@@ -50,14 +51,22 @@ export default function ResearchJobs() {
           </div>
         </div>
 
+        {!connected && <StaleBanner lastSuccessAt={lastSuccessAt} onRetry={refresh} />}
+
         {list.length === 0 ? (
-          <EmptyState icon={Radar} title={ar ? "لا توجد وظائف مطابقة." : "No matching jobs."} action={t("common.startResearch")} onAction={() => navigate("/chat")} />
+          (() => {
+            const kind = listEmptyKind({ connected, everLoaded, lastError, total: jobs.length, filtered: list.length });
+            if (kind === "loading") return <p className="text-sm text-muted-foreground py-10 text-center">{ar ? "جارٍ تحميل الوظائف…" : "Loading jobs…"}</p>;
+            if (kind === "backend-down") return <ConnectionEmpty onRetry={refresh} />;
+            return <EmptyState icon={Radar} title={ar ? "لا توجد وظائف مطابقة." : "No matching jobs."} action={t("common.startResearch")} onAction={() => navigate("/chat")} />;
+          })()
         ) : (
           <div className="space-y-2.5">
             {list.map((j) => {
               const live = isLiveStatus(j.status);
               const s = j.stages || {};
-              const budgetPct = j.budget ? Math.round((j.budget.used / j.budget.limit) * 100) : 0;
+              const hasBudget = j.budget && j.budget.limit != null;
+              const budgetPct = hasBudget ? Math.round((j.budget.used / j.budget.limit) * 100) : 0;
               return (
                 <button key={j.id} onClick={() => navigate(`/jobs/${j.id}`)} className="w-full text-start card-surface card-hover p-4 animate-fade-in">
                   <div className="flex flex-col lg:flex-row lg:items-center gap-4">
@@ -65,7 +74,7 @@ export default function ResearchJobs() {
                       <StatusBadge status={j.status} size="base" pulse={live} />
                       <div className="min-w-0">
                         <div className="text-sm font-medium truncate" dir="auto">{j.objective}</div>
-                        <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2"><span className="font-mono">{j.id}</span> · {j.createdByName} · <TimeAgo iso={j.createdAt} /></div>
+                        <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2"><span className="font-mono">{j.id}</span> · <TimeAgo iso={j.createdAt} /></div>
                       </div>
                     </div>
                     <div className="flex items-center gap-5 text-xs">
@@ -73,8 +82,10 @@ export default function ResearchJobs() {
                       <Mini label={ar ? "مؤهلة" : "Qualified"} value={fmtNum(s.qualified, lang)} />
                       <Mini label={ar ? "للمراجعة" : "For review"} value={fmtNum(s.readyForReview, lang)} />
                       <div className="w-28">
-                        <div className="flex justify-between text-[10px] text-muted-foreground mb-1"><span>{t("jobs.budget")}</span><span className="tnum">{budgetPct}%</span></div>
-                        <ProgressBar value={budgetPct} tone={budgetPct > 85 ? "danger" : "info"} />
+                        <div className="flex justify-between text-[10px] text-muted-foreground mb-1"><span>{t("jobs.budget")}</span>{hasBudget && <span className="tnum">{budgetPct}%</span>}</div>
+                        {hasBudget
+                          ? <ProgressBar value={budgetPct} tone={budgetPct > 85 ? "danger" : "info"} />
+                          : <span className="tnum text-[11px]">{fmtNum(j.budget?.used ?? 0, lang)} {j.budget?.unit}</span>}
                       </div>
                     </div>
                   </div>

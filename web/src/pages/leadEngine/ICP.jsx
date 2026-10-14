@@ -36,12 +36,18 @@ export default function ICP() {
               </div>
 
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2 text-sm mb-4">
-                <Criterion label={lang === "ar" ? "القطاع" : "Industry"} value={icp.criteria.industry?.join("، ")} />
-                <Criterion label={lang === "ar" ? "الموقع" : "Location"} value={icp.criteria.location} />
-                <Criterion label={lang === "ar" ? "الحجم" : "Size"} value={icp.criteria.companySize} />
-                <Criterion label={lang === "ar" ? "النموذج" : "Model"} value={icp.criteria.businessModel} />
-                <Criterion label={lang === "ar" ? "فريق مبيعات" : "Sales team"} value={icp.criteria.hasSalesTeam ? (lang === "ar" ? "مطلوب" : "Required") : (lang === "ar" ? "غير مشروط" : "Optional")} />
-                <Criterion label={lang === "ar" ? "موقع رسمي" : "Website"} value={icp.criteria.websiteRequired ? (lang === "ar" ? "مطلوب" : "Required") : (lang === "ar" ? "غير مشروط" : "Optional")} />
+                {/* Real definition shape (engine.icp_versions.definition):
+                    industry is a free-text string, cities is [{name}],
+                    keywords_* are arrays, criteria holds min_branches/notes.
+                    The demo shape this page was written against (industry as
+                    an array, flat location/companySize) crashed with
+                    "industry.join is not a function" — pinned by the walk. */}
+                <Criterion label={lang === "ar" ? "القطاع" : "Industry"} value={asText(icp.criteria.industry)} />
+                <Criterion label={lang === "ar" ? "الموقع" : "Location"} value={asText(icp.criteria.location) || cityList(icp.criteria.cities)} />
+                <Criterion label={lang === "ar" ? "كلمات مفتاحية" : "Keywords"} value={[...(icp.criteria.keywords_ar || []), ...(icp.criteria.keywords_en || [])].join("، ")} />
+                <Criterion label={lang === "ar" ? "الحد الأدنى للفروع" : "Min branches"} value={icp.criteria.criteria?.min_branches ? String(icp.criteria.criteria.min_branches) : null} />
+                <Criterion label={lang === "ar" ? "ملاحظات" : "Notes"} value={asText(icp.criteria.criteria?.notes)} />
+                <Criterion label={lang === "ar" ? "حدود البحث" : "Search budget"} value={icp.criteria.v0_limits?.max_search_queries ? `${icp.criteria.v0_limits.max_search_queries} ${lang === "ar" ? "استعلام" : "queries"}` : null} />
               </div>
 
               {icp.changes && (
@@ -72,3 +78,7 @@ function Criterion({ label, value }) {
     </div>
   );
 }
+
+// shape-tolerant readers: the definition mixes strings, arrays and objects
+const asText = (v) => (Array.isArray(v) ? v.join("، ") : v == null || v === "" ? null : String(v));
+const cityList = (cities) => (Array.isArray(cities) ? cities.map((c) => c?.name).filter(Boolean).join("، ") : null);

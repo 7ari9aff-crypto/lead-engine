@@ -121,6 +121,50 @@ export function EmptyState({ icon: Icon, title, action, onAction, hint }) {
   );
 }
 
+// Connection failure must never render as data (gap register FAIL-01/UX-01).
+// Shown above a list whose server data is stale or unreachable — role="status"
+// so assistive tech announces the change instead of silently flipping numbers.
+export function StaleBanner({ lastSuccessAt, onRetry }) {
+  const { t } = useLeadEngine();
+  return (
+    <div role="status" aria-live="polite" className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-[hsl(var(--warning)/0.35)] bg-[hsl(var(--warning-soft))] px-3 py-2 text-[13px] text-[hsl(var(--warning-ink))]">
+      <span aria-hidden="true">⚠</span>
+      <span className="font-medium">{t("conn.banner")}</span>
+      {lastSuccessAt
+        ? <span className="text-muted-foreground">{t("conn.lastSuccess")}: <TimeAgo iso={lastSuccessAt} /></span>
+        : <span className="text-muted-foreground">{t("conn.never")}</span>}
+      {onRetry && (
+        <button onClick={onRetry} className="focus-ring ms-auto rounded-md border border-[hsl(var(--warning)/0.4)] px-2.5 py-1 text-xs font-medium hover:bg-[hsl(var(--warning)/0.12)] transition">
+          {t("conn.retry")}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// The honest empty state for "the server would not answer": an explicit
+// failure surface with a retry, never "no leads yet" while the API is 500ing.
+export function ConnectionEmpty({ onRetry }) {
+  const { t } = useLeadEngine();
+  return (
+    <div role="alert" className="flex flex-col items-center justify-center text-center py-16 px-6 animate-fade-in">
+      <div className="w-14 h-14 rounded-2xl bg-[hsl(var(--danger-soft))] grid place-items-center mb-4 text-[hsl(var(--danger-ink))]">
+        <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M12 9v4" /><path d="M12 17h.01" />
+          <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+        </svg>
+      </div>
+      <p className="text-base font-medium text-foreground mb-1">{t("conn.emptyTitle")}</p>
+      <p className="text-sm text-muted-foreground max-w-md mb-5">{t("conn.emptyHint")}</p>
+      {onRetry && (
+        <button onClick={onRetry} className="focus-ring rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-medium hover:opacity-90 transition">
+          {t("conn.retry")}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function ProgressBar({ value, max = 100, tone = "primary", className }) {
   const pct = Math.min(100, Math.round((value / max) * 100));
   const bar = {

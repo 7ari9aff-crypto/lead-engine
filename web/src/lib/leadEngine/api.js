@@ -44,6 +44,10 @@ export const api = {
 // Backend shape → dashboard shape mappers. The backend speaks its own dialect
 // (engine.jobs / engine.leads rows); the pages speak the review-workflow
 // dialect (company/contact/facts). These are the ONLY translation points.
+//
+// Every shape below is pinned against a REAL captured payload in
+// api.test.js — the v12 rewrite shipped pages reading fields the endpoints
+// never send (Providers: [object Object] + NaN% bars; Agents: empty stats).
 // ---------------------------------------------------------------------------
 
 const JOB_STATUS_MAP = {
@@ -65,24 +69,42 @@ const EMAIL_STATUS_TO_VERIFICATION = {
   CATCH_ALL: "PARTIALLY_VERIFIED", UNKNOWN: "UNVERIFIED", INVALID: "UNVERIFIED",
 };
 
+// DB columns hold JSON as TEXT; the API may return it either way.
+const asJson = (v) => {
+  if (v == null || v === "") return null;
+  if (typeof v === "object") return v;
+  try { return JSON.parse(v); } catch { return null; }
+};
+
+// Real pipeline metrics live under jobs.params.metrics (benchmark runs) — the
+// per-job detail endpoint is the only other place they appear.
+const jobMetrics = (row) => asJson(row?.params)?.metrics || row?.metrics || asJson(row?.result)?.metrics || {};
+const jobStages = (row) => asJson(row?.result)?.stages || {};
+
 export function mapJob(row, index = 0) {
-  const metrics = row.metrics || {};
+  const m = jobMetrics(row);
+  const st = jobStages(row);
+  const params = asJson(row?.params) || {};
   const stages = {
-    discovered: metrics.discovery_raw_candidates ?? metrics.discovered ?? 0,
-    deduplicated: metrics.unique_after_dedup ?? metrics.deduplicated ?? 0,
-    researched: metrics.researched ?? 0,
-    verified: metrics.verified ?? 0,
-    qualified: metrics.final_leads ?? metrics.qualified ?? 0,
-    readyForReview: metrics.review_leads ?? metrics.readyForReview ?? 0,
+    discovered: m.discovery_raw_candidates ?? st.discovery?.raw_candidates ?? 0,
+    deduplicated: m.unique_after_dedup ?? st.dedup?.output_count ?? 0,
+    researched: m.researched ?? st.research?.researched ?? 0,
+    verified: st.verification?.verified ?? m.verified ?? 0,
+    qualified: m.qualification_scored ?? st.qualification?.scored ?? 0,
+    readyForReview: m.review_leads ?? st.legal_gate?.review ?? 0,
+    final: m.final_leads ?? st.legal_gate?.accepted ?? 0,
   };
   const stopMap = {
     COMPLETED: "COMPLETED", PAUSED: "WAITING_FOR_USER", FAILED: "SYSTEM_FAILURE",
     CANCELLED: "CANCELLED", READY_FOR_REVIEW: "COMPLETED",
     WAITING_FOR_USER: "WAITING_FOR_USER", PARTIAL_SUCCESS: "COMPLETED",
   };
+  // A job's objective is what the operator asked for; benchmark runs have no
+  // free-text objective, so the icp id is the honest label for them.
+  const objective = params.objective || row.icp_id || row.job_id;
   return {
     id: row.job_id,
-    objective: row.params?.objective || row.icp_id || row.job_id,
+    objective,
     icpVersion: row.icp_id || null,
     status: JOB_STATUS_MAP[row.state] || row.state,
     createdAt: row.created_at,
@@ -92,8 +114,10 @@ export function mapJob(row, index = 0) {
     stages,
     targets: null,
     budget: {
-      used: Math.round(metrics.quota_units_total ?? 0),
-      limit: Math.round(metrics.quota_units_total ?? 0) + 500,
+      used: Math.round(m.quota_units_total ?? 0),
+      // The daily provider-call ceiling lives on the organization, not the
+      // job row — null means "unknown here", never a fabricated 500.
+      limit: m.quota_limit ?? null,
       unit: "نداء",
     },
     stopReason: row.pause_reason ? "PROVIDER_UNAVAILABLE" : (stopMap[row.state] || null),
@@ -157,22 +181,83 @@ export function mapLead(row) {
 export function mapProvider(p) {
   const statusMap = {
     active: "OPERATIONAL", degraded: "DEGRADED", disabled: "DISCONNECTED",
-    exhausted: "EXHAUSTED", cooldown: "DEGRADED", unknown: "UNKNOWN",
+    exhausted: "EXHAUSTED", cooldown: "DEGRADED", unavailable: "UNKNOWN",
+    unknown: "UNKNOWN",
   };
+  // Real row (app.py _build_status): name, task, type, priority, status,
+  // status_reason, cooldown_until, key_env, has_key, is_local, quota_kind,
+  // quota_limit, quota_used, period, rpm_limit, base_url, model_name,
+  // calls, units, last_used. `has_key` — not `key_state`.
+  const limit = p.quota_limit ?? null;
+  const used = p.quota_used ?? 0;
   return {
     id: `${p.name}:${p.task}`,
     name: p.name,
     task: p.task,
+    type: p.type || null,
+    priority: p.priority ?? null,
     status: statusMap[p.status] || p.status,
     health: p.status_reason || p.status || "",
     lastFailure: p.status_reason || null,
-    quota: {
-      used: p.quota_used ?? 0,
-      limit: p.quota_limit ?? null,
-      kind: p.quota_kind || null,
-    },
+    quota: { used, limit, kind: p.quota_kind || null },
+    remaining: limit != null ? Math.max(0, limit - used) : null,
+    calls: p.calls ?? 0,
+    units: p.units ?? 0,
+    period: p.period || null,
+    rpmLimit: p.rpm_limit ?? null,
     lastUsed: p.last_used || null,
-    hasKey: p.key_state === "set" || p.key_state === "local",
+    hasKey: p.has_key ?? (p.key_state === "set" || p.key_state === "local"),
+    isLocal: !!p.is_local,
+    keyEnv: p.key_env || null,
+    baseUrl: p.base_url || null,
+    modelName: p.model_name || null,
+  };
+}
+
+// engine.agents row: agent_id, slug, name, description, status,
+// current_version, created_at, updated_at. Run counters and tool lists are
+// NOT on the row — the store enriches via agentRunStats()/the tools registry.
+export function mapAgent(a) {
+  return {
+    id: a.agent_id || a.slug,
+    slug: a.slug,
+    name: a.name,
+    version: a.current_version || null,
+    status: a.status,
+    note: a.description || null,
+    recentRuns: 0,
+    failures: 0,
+    lastRunAt: null,
+    tools: [],
+  };
+}
+
+// Aggregates engine.agent_runs rows per agent_id (pure — tested).
+export function agentRunStats(runs) {
+  const out = {};
+  for (const r of runs || []) {
+    const id = r.agent_id;
+    if (!id) continue;
+    const s = out[id] || (out[id] = { recentRuns: 0, failures: 0, lastRunAt: null });
+    s.recentRuns += 1;
+    if (r.status === "FAILED") s.failures += 1;
+    const at = r.created_at || r.updated_at;
+    if (at && (!s.lastRunAt || at > s.lastRunAt)) s.lastRunAt = at;
+  }
+  return out;
+}
+
+// engine.tools row: name, description, input_schema, output_schema,
+// scopes (JSON text), requires_approval, enabled, created_at.
+export function mapTool(t) {
+  let scopes = [];
+  try { scopes = JSON.parse(t.scopes || "[]"); } catch { scopes = []; }
+  return {
+    name: t.name,
+    description: t.description || "",
+    scopes: Array.isArray(scopes) ? scopes : [],
+    requiresApproval: !!t.requires_approval,
+    enabled: t.enabled !== 0 && t.enabled !== false,
   };
 }
 
@@ -235,6 +320,7 @@ export const apiGet = {
   activity: (limit = 50) => api.get(`/api/activity?limit=${limit}`),
   agents: () => api.get("/api/agents"),
   agentRuns: () => api.get("/api/agent-runs"),
+  tools: () => api.get("/api/tools"),
   keys: () => api.get("/api/keys"),
   keysUsage: () => api.get("/api/keys/usage"),
   icps: (slug = "agentic") =>

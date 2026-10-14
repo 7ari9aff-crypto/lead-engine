@@ -39,3 +39,9 @@ vercel_deploy.log
 
 # ephemeral local secret material (never commit)
 *.secret_tmp
+
+# pytest runtime temp (basetemp inside repo; never commit)
+.pytest_tmp/
+pytest_full.log
+# browser-session id scratch
+.agb-session.txt

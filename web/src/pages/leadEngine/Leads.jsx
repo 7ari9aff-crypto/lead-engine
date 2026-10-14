@@ -4,11 +4,12 @@ import { cn } from "@/lib/utils";
 import { useLeadEngine } from "@/lib/leadEngine/store";
 import { tr } from "@/lib/leadEngine/format";
 import { PageHeader } from "@/components/leadEngine/PageHeader";
-import { StatusBadge, ScoreRing, TimeAgo, EmptyState, Pill, statusLabel } from "@/components/leadEngine/primitives";
+import { StatusBadge, ScoreRing, TimeAgo, EmptyState, Pill, StaleBanner, ConnectionEmpty, statusLabel } from "@/components/leadEngine/primitives";
+import { listEmptyKind } from "@/lib/leadEngine/connState";
 import { Building2, Search, SlidersHorizontal } from "lucide-react";
 
 export default function Leads() {
-  const { t, lang, leads } = useLeadEngine();
+  const { t, lang, leads, connected, lastSuccessAt, everLoaded, lastError, refresh } = useLeadEngine();
   const ar = lang === "ar";
   const navigate = useNavigate();
   const [q, setQ] = useState("");
@@ -76,8 +77,15 @@ export default function Leads() {
           </div>
         )}
 
+        {!connected && <StaleBanner lastSuccessAt={lastSuccessAt} onRetry={refresh} />}
+
         {filtered.length === 0 ? (
-          <EmptyState icon={Building2} title={leads.length === 0 ? t("empty.leads") : (ar ? "لا نتائج بهذه الفلاتر." : "No leads match these filters.")} hint={leads.length === 0 ? (ar ? "ابدأ بحثًا من الشات ليكتشف النظام عملاء لك." : "Start research from chat and the system finds leads for you.") : undefined} action={leads.length === 0 ? t("common.startResearch") : (ar ? "مسح الفلاتر" : "Clear filters")} onAction={leads.length === 0 ? () => navigate("/chat") : reset} />
+          (() => {
+            const kind = listEmptyKind({ connected, everLoaded, lastError, total: leads.length, filtered: filtered.length });
+            if (kind === "loading") return <p className="text-sm text-muted-foreground py-10 text-center">{ar ? "جارٍ تحميل العملاء…" : "Loading leads…"}</p>;
+            if (kind === "backend-down") return <ConnectionEmpty onRetry={refresh} />;
+            return <EmptyState icon={Building2} title={leads.length === 0 ? t("empty.leads") : (ar ? "لا نتائج بهذه الفلاتر." : "No leads match these filters.")} hint={leads.length === 0 ? (ar ? "ابدأ بحثًا من الشات ليكتشف النظام عملاء لك." : "Start research from chat and the system finds leads for you.") : undefined} action={leads.length === 0 ? t("common.startResearch") : (ar ? "مسح الفلاتر" : "Clear filters")} onAction={leads.length === 0 ? () => navigate("/chat") : reset} />;
+          })()
         ) : (
           <>
             {/* desktop table */}

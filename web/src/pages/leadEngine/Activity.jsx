@@ -1,20 +1,25 @@
 import React, { useState } from "react";
 import { useLeadEngine } from "@/lib/leadEngine/store";
 import { PageHeader } from "@/components/leadEngine/PageHeader";
-import { TimeAgo } from "@/components/leadEngine/primitives";
+import { TimeAgo, StaleBanner, ConnectionEmpty } from "@/components/leadEngine/primitives";
+import { listEmptyKind } from "@/lib/leadEngine/connState";
 import { Search } from "lucide-react";
 
 export default function Activity() {
-  const { t, lang, activity } = useLeadEngine();
+  const { t, lang, activity, connected, lastSuccessAt, everLoaded, lastError, refresh } = useLeadEngine();
   const [q, setQ] = useState("");
   const actorName = (a) => (a.actor === "SYSTEM" ? (lang === "ar" ? "النظام" : "System") : a.actor);
   const ql = q.toLowerCase();
   const list = activity.filter((a) => !q || actorName(a).toLowerCase().includes(ql) || a.action.toLowerCase().includes(ql) || (a.target || "").toLowerCase().includes(ql) || (a.detail || "").toLowerCase().includes(ql));
+  // An empty feed while the backend is unreachable is a FAILURE, not an
+  // empty history (gap register FAIL-01) — say so, never "no results".
+  const emptyKind = listEmptyKind({ connected, everLoaded, lastError, total: activity.length, filtered: list.length });
 
   return (
     <>
       <PageHeader title={t("activity.title")} subtitle={lang === "ar" ? "من فعل ماذا، ومتى، وعلى أي عميل أو وظيفة. الأحدث أولًا." : "Who did what, when, and on which lead or job. Newest first."} />
       <div className="px-4 lg:px-8 py-6 max-w-[1200px] space-y-4">
+        {!connected && <StaleBanner lastSuccessAt={lastSuccessAt} onRetry={refresh} />}
         <div className="relative max-w-sm">
           <Search className="absolute top-1/2 -translate-y-1/2 start-3 w-4 h-4 text-muted-foreground" />
           <input dir="auto" value={q} onChange={(e) => setQ(e.target.value)} placeholder={lang === "ar" ? "بحث في السجل…" : "Search audit log…"} className="w-full h-9 ps-9 pe-3 rounded-lg border border-input bg-background text-sm focus-ring" />
@@ -47,7 +52,18 @@ export default function Activity() {
                   <td className="py-3 px-4"><TimeAgo iso={ev.at} /></td>
                 </tr>
               ))}
-              {list.length === 0 && <tr><td colSpan={5} className="py-10 text-center text-muted-foreground">{lang === "ar" ? "لا نتائج." : "No results."}</td></tr>}
+              {list.length === 0 && emptyKind === "loading" && (
+                <tr><td colSpan={5} className="py-10 text-center text-muted-foreground">{lang === "ar" ? "جارٍ تحميل السجل…" : "Loading the log…"}</td></tr>
+              )}
+              {list.length === 0 && emptyKind === "backend-down" && (
+                <tr><td colSpan={5} className="p-0"><ConnectionEmpty onRetry={refresh} /></td></tr>
+              )}
+              {list.length === 0 && emptyKind === "filtered" && (
+                <tr><td colSpan={5} className="py-10 text-center text-muted-foreground">{t("empty.filtered")}</td></tr>
+              )}
+              {list.length === 0 && emptyKind === "genuinely-empty" && (
+                <tr><td colSpan={5} className="py-10 text-center text-muted-foreground">{lang === "ar" ? "لا نتائج." : "No results."}</td></tr>
+              )}
             </tbody>
           </table>
         </div>

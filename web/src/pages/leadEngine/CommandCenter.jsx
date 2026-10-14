@@ -3,14 +3,14 @@ import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useLeadEngine } from "@/lib/leadEngine/store";
 import { PageHeader } from "@/components/leadEngine/PageHeader";
-import { StatusBadge, StatCard, TimeAgo, Pill, TONE_BG } from "@/components/leadEngine/primitives";
+import { StatusBadge, StatCard, TimeAgo, Pill, TONE_BG, StaleBanner } from "@/components/leadEngine/primitives";
 import { Radar, ClipboardCheck, Server, Gauge, ArrowUpRight, AlertTriangle, Clock, MessageSquare, Activity as ActivityIcon } from "lucide-react";
 
 const short = (s = "") => (s.length > 44 ? `${s.slice(0, 44)}…` : s);
 const LIVE_STATUSES = ["DISCOVERING", "RESEARCHING", "VERIFYING", "QUALIFYING", "RUNNING"];
 
 export default function CommandCenter() {
-  const { t, lang, jobs, leads, providers, activity, currentUser } = useLeadEngine();
+  const { t, lang, jobs, leads, providers, activity, currentUser, connected, lastSuccessAt, everLoaded, lastError, refresh } = useLeadEngine();
   const navigate = useNavigate();
 
   const activeJobs = jobs.filter((j) => LIVE_STATUSES.includes(j.status));
@@ -19,6 +19,18 @@ export default function CommandCenter() {
   const pausedJobs = jobs.filter((j) => j.status === "PAUSED");
   const degradedProviders = providers.filter((p) => p.status !== "OPERATIONAL");
   const totalBudget = jobs.reduce((a, j) => a + (j.budget?.used || 0), 0);
+  // An unreachable backend must not read as "Healthy / 0 providers" — that
+  // is the FAIL-01 lie on the system's own overview (gap register W4e fixed
+  // this pattern on /agents; the v12 rewrite brought it back here). And a
+  // still-loading first cycle must read "…", not a verdict either way.
+  const healthLoading = !everLoaded && !lastError;
+  const healthUnknown = !healthLoading && ((!everLoaded && lastError) || (!connected && providers.length === 0));
+  const healthLabel = healthLoading
+    ? (lang === "ar" ? "…" : "…")
+    : healthUnknown
+    ? (lang === "ar" ? "غير متاح" : "Unavailable")
+    : degradedProviders.length === 0 ? (lang === "ar" ? "سليم" : "Healthy")
+    : (lang === "ar" ? `${degradedProviders.length} يحتاج انتباهًا` : `${degradedProviders.length} need attention`);
 
   const actions = [
     ...readyLeads.slice(0, 3).map((l) => ({ kind: "review", text: `${l.company.name} ${lang === "ar" ? "تنتظر المراجعة" : "awaiting review"}`, to: `/leads/${l.id}`, tone: "primary" })),
@@ -42,11 +54,12 @@ export default function CommandCenter() {
       />
 
       <div className="px-4 lg:px-8 py-6 space-y-6 max-w-[1400px]">
+        {!connected && <StaleBanner lastSuccessAt={lastSuccessAt} onRetry={refresh} />}
         {/* stat row */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <StatCard label={t("cc.activeResearch")} value={activeJobs.length} sub={lang === "ar" ? "وظائف قيد التشغيل" : "jobs running"} icon={Radar} tone="info" />
           <StatCard label={t("cc.readyForReview")} value={readyLeads.length} sub={lang === "ar" ? "تنتظر قرارك" : "awaiting your decision"} icon={ClipboardCheck} tone="primary" />
-          <StatCard label={t("cc.systemHealth")} value={degradedProviders.length === 0 ? (lang === "ar" ? "سليم" : "Healthy") : (lang === "ar" ? `${degradedProviders.length} يحتاج انتباهًا` : `${degradedProviders.length} need attention`)} sub={`${providers.length} ${lang === "ar" ? "مزودين" : "providers"}`} icon={Server} tone={degradedProviders.length ? "warning" : "success"} />
+          <StatCard label={t("cc.systemHealth")} value={healthLabel} sub={`${providers.length} ${lang === "ar" ? "مزودين" : "providers"}`} icon={Server} tone={healthLoading ? "slate" : healthUnknown ? "warning" : degradedProviders.length ? "warning" : "success"} />
           <StatCard label={t("cc.usage")} value={totalBudget.toLocaleString()} sub={lang === "ar" ? `نقطة مستهلكة عبر ${jobs.length} وظائف` : `points spent across ${jobs.length} jobs`} icon={Gauge} tone="slate" />
         </div>
 

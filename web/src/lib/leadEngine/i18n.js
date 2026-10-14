@@ -124,6 +124,15 @@ export const dict = {
   "empty.leads": { ar: "لم تنشئ أي عملية بحث بعد.", en: "You haven't run any research yet." },
   "empty.review": { ar: "لا يوجد عملاء بانتظار مراجعتك الآن.", en: "No leads are waiting for your review." },
   "empty.integrations": { ar: "لم يتم ربط أي تكامل بعد.", en: "No integrations connected yet." },
+
+  // connection honesty — a failed refresh is never "no data" (FAIL-01)
+  "conn.banner": { ar: "تعذّر الاتصال بالخادم — البيانات المعروضة قديمة", en: "Cannot reach the server — the data shown may be stale" },
+  "conn.lastSuccess": { ar: "آخر تحديث ناجح", en: "Last successful update" },
+  "conn.never": { ar: "لم يكتمل تحديث ناجح بعد", en: "no successful update yet" },
+  "conn.retry": { ar: "إعادة المحاولة", en: "Retry" },
+  "conn.emptyTitle": { ar: "تعذّر تحميل البيانات من الخادم", en: "Could not load data from the server" },
+  "conn.emptyHint": { ar: "الخادم لا يستجيب الآن. أعد المحاولة أو تحقّق من حالة الخدمة — القائمة الفارغة لا تعني عدم وجود بيانات.", en: "The server is not responding. Retry or check the service status — an empty list does not mean there is no data." },
+  "empty.filtered": { ar: "لا نتائج بهذه الفلاتر.", en: "No results match these filters." },
 };
 
 // timeline / chat-status codes stored in data → human labels
