@@ -233,13 +233,17 @@ async def admin_session_guard(request: Request, call_next):
     from .auth import COOKIE_NAME, valid_session
 
     path = request.url.path
-    # Single-origin dashboard: browser navigations to paths that double as
-    # API routes (/jobs, /leads, /providers) must get the SPA, while API
-    # clients (curl, n8n) keep receiving JSON. The HTML response MUST be
+    # Single-origin dashboard: browser navigations to any non-API path (deep
+    # links like /jobs/<id> and /leads/<id> included) must get the SPA, while
+    # API clients (curl, n8n — no text/html Accept) keep receiving JSON. The
+    # exact-match rule used here before only covered the three bare list
+    # paths, so a deep link answered 401 JSON and the browser printed the
+    # error body as text with no app chrome at all. The HTML response MUST be
     # no-cache: otherwise the browser caches it under the API path and the
     # app's own fetch to that path receives HTML instead of JSON.
-    if request.method == "GET" and path in {"/jobs", "/leads", "/providers"} \
-            and "text/html" in request.headers.get("accept", ""):
+    if (request.method == "GET" and "text/html" in request.headers.get("accept", "")
+            and not path.startswith(("/api/", "/assets/"))
+            and not path.endswith((".js", ".css", ".svg", ".json", ".map"))):
         index = STATIC_DIR / "index.html"
         if index.exists():
             resp = FileResponse(index)
