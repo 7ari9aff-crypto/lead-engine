@@ -49,12 +49,13 @@ def build_adapters(settings: dict) -> dict:
     from .providers.email import AbstractProvider, HunterProvider, LocalSMTPVerifier
     from .providers.data import ApolloProvider
     from .providers.llm import GeminiProvider, GroqProvider, OllamaProvider, OpenRouterProvider
+    from .providers.manus import ManusProvider
     from .providers.search import BraveProvider, ExaProvider, TavilyProvider
 
     adapters = {}
     for cls in (
         TavilyProvider, BraveProvider, ExaProvider,
-        GeminiProvider, GroqProvider, OpenRouterProvider, OllamaProvider,
+        ManusProvider, GeminiProvider, GroqProvider, OpenRouterProvider, OllamaProvider,
         ApolloProvider,
         HunterProvider, AbstractProvider, LocalSMTPVerifier,
     ):
@@ -141,6 +142,20 @@ class Router:
             if configure:
                 configure(row)
 
+            # Credit-aware PRE-call rotation: providers whose keys carry a
+            # daily credit grant (Manus et al.) move to the next key BEFORE
+            # the current one runs dry — a planned in-run handoff, never an
+            # exception, never a paused job. Reactive 429/quota rotation below
+            # stays as the safety net.
+            has_credit_pool = (
+                len(getattr(adapter, "keys", []) or []) > 1
+                and getattr(adapter, "daily_key_budget", None) is not None
+            )
+            if has_credit_pool:
+                planned = getattr(adapter, "budget_probe", None)
+                est = planned() if callable(planned) else 1.0
+                _, idx = adapter.rotate_for_budget(est)
+
             # key pool: on 429/quota rotate to the next key BEFORE giving up
             # on the provider — 5 Tavily keys = 5x monthly credits.
             # Per the design: transient 5xx gets a SHORT RETRY on the same
@@ -201,6 +216,17 @@ class Router:
                                                int((time.time() - started) * 1000))
                     tried.append(f"{name}:error({exc})")
                     break
+
+            if has_credit_pool:
+                # Credit-aware forward rotation ran first; reconcile AFTER the
+                # call with the real cost when the provider reports usage, so
+                # the next pre-call decision sees the true remaining budget.
+                planned = getattr(adapter, "budget_probe", None)
+                est = planned() if callable(planned) else 1.0
+                if result:
+                    est = (result.get("usage") or {}).get("credits") or est
+                from .providers.base import note_credit_spend
+                note_credit_spend(name, adapter._key_index, float(est))
 
             if result is None:
                 continue

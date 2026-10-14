@@ -15,6 +15,11 @@ SEED = [
     ("tavily",      "search", "web_search",   1, "credits",   1000, "monthly", None, "TAVILY_API_KEY"),
     ("brave",       "search", "web_search",   2, "usd",       5.0,  "monthly", None, "BRAVE_SEARCH_API_KEY"),
     ("exa",         "search", "web_search",   3, "usd",       10.0, "monthly", None, "EXA_API_KEY"),
+    # manus leads the reasoning/inference waterfall: agent-grade quality and a
+    # 20-key credit pool (rotation moves off a key before its daily slice is
+    # spent). The cloud fallbacks keep their relative order beneath it.
+    ("manus",       "llm",    "reasoning",    0, "dynamic",   None, "none",    None, "MANUS_API_KEYS"),
+    ("manus",       "llm",    "inference",    0, "dynamic",   None, "none",    None, "MANUS_API_KEYS"),
     ("gemini",      "llm",    "reasoning",    1, "dynamic",   None, "none",    None, "GEMINI_API_KEY"),
     ("groq",        "llm",    "reasoning",    2, "dynamic",   None, "none",    None, "GROQ_API_KEY"),
     ("openrouter",  "llm",    "reasoning",    3, "dynamic",   None, "none",    None, "OPENROUTER_API_KEY"),

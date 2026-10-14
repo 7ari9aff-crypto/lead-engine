@@ -19,6 +19,32 @@ RETRY_AFTER_KEYS = ("retry-after",)
 REMAINING_KEYS = ("x-ratelimit-remaining-requests", "x-ratelimit-remaining",
                   "x-ratelimit-requests-remaining")
 
+# ---------------------------------------------------------------- credit pool
+# Per-provider, per-key index of credits already promised this UTC day.
+# The adapters bump it AFTER a successful call returns the real cost (e.g.
+# Manus usage events); the router consults it BEFORE the call and rotates
+# the key first when the remaining budget approaches zero — a planned split
+# mid-run, never an exception. Sources: MANUS_API_KEYS daily grants (300)
+# minus this day's ledger catch.
+CREDIT_SPEND: dict[str, list[float]] = {}
+CREDIT_LEDGER_DATE: dict[str, str] = {}
+
+
+def note_credit_spend(provider: str, key_index: int, cost: float) -> None:
+    """Record `cost` credits against (provider, key_index) for today."""
+    import datetime
+    today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+    per_provider = CREDIT_SPEND.setdefault(provider, [])
+    while len(per_provider) <= key_index:
+        per_provider.append(0.0)
+    if CREDIT_LEDGER_DATE.get(provider) != today:
+        CREDIT_LEDGER_DATE[provider] = today
+        CREDIT_SPEND[provider] = [0.0] * max(len(per_provider), key_index + 1)
+        per_provider = CREDIT_SPEND[provider]
+        while len(per_provider) <= key_index:
+            per_provider.append(0.0)
+    per_provider[key_index] += float(cost or 0.0)
+
 
 def random_local_part(length: int = 14) -> str:
     return "".join(random.choices(string.ascii_lowercase + string.digits, k=length))
@@ -87,6 +113,46 @@ class BaseProvider:
 
     def request(self, task: str, payload: dict) -> dict:
         raise NotImplementedError
+
+    # -------------------------------------------------- credit-aware rotation
+    def key_spend(self, key_index: int) -> float:
+        """Credits already promised against the key at `key_index` today."""
+        import datetime
+        today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+        per_provider = CREDIT_SPEND.get(self.name) or []
+        if CREDIT_LEDGER_DATE.get(self.name) != today:
+            return 0.0  # stale window: the day rolled over
+        return float(per_provider[key_index]) if key_index < len(per_provider) else 0.0
+
+    def budget_probe(self) -> float:
+        """Plan-relevant cost estimate for ONE call of `task` — overridden by
+        adapters with real metering; the default assumes one unit."""
+        return 1.0
+
+    def rotate_for_budget(self, planned_cost: float) -> tuple[bool, int]:
+        """Move to the next key when the CURRENT one cannot fit `planned_cost`
+        under its daily budget minus the safety margin. Returns
+        (rotated?, key_index_used). Never raises and never runs out: a pool
+        that is entirely over budget stays on the least-loaded key — the
+        real 429/quota errors (if any) then drive the reactive rotation."""
+        keys = self.keys
+        if not keys:
+            return False, self._key_index
+        limit = self.daily_key_budget - self.key_budget_safety_margin
+        fit_idx = None
+        for offset in range(len(keys)):
+            idx = (self._key_index + offset) % len(keys)
+            if self.key_spend(idx) + planned_cost <= limit:
+                fit_idx = idx
+                break
+        if fit_idx is None:
+            # Everyone is full: least-loaded key + margin at the boundary is
+            # the correct least-bad choice; the reactive layer owns errors.
+            spends = [self.key_spend(i) for i in range(len(keys))]
+            fit_idx = spends.index(min(spends))
+        rotated = fit_idx != self._key_index
+        self._key_index = fit_idx
+        return rotated, fit_idx
 
     # ------------------------------------------------------------------ http
     def _http(self, method: str, url: str, **kwargs):
