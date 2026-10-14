@@ -145,9 +145,23 @@ class OllamaProvider(LLMBase):
     def model_name(self):
         return self.configured_model_name or (self.settings.get("llm", {}) or {}).get("local_model", "llama3.1:8b")
 
+    def _base_url(self):
+        # An env var that EXISTS but is empty made base ""/api/chat — a
+        # relative URL with no scheme — and requests exploded with
+        # MissingSchema, which the orchestrator surfaced as the job's
+        # pause_reason ("retry: MissingSchema..."). Found by the production
+        # research run job-f06f351e60. The fallback chain must cover empty
+        # strings; a schemeless host still gets a scheme.
+        base = (self.endpoint_url
+                or (self.settings.get("llm", {}) or {}).get("ollama_base_url")
+                or __import__("os").environ.get("OLLAMA_BASE_URL")
+                or "http://localhost:11434").strip() or "http://localhost:11434"
+        if not base.startswith(("http://", "https://")):
+            base = "http://" + base
+        return base
+
     def complete(self, prompt, json_mode):
-        base = self.endpoint_url or (self.settings.get("llm", {}) or {}).get(
-            "ollama_base_url", __import__("os").environ.get("OLLAMA_BASE_URL", "http://localhost:11434"))
+        base = self._base_url()
         body = {"model": self.model_name, "messages": [{"role": "user", "content": prompt}],
                 "stream": False}
         if json_mode:
