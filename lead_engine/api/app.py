@@ -43,7 +43,7 @@ MAX_MAPPING_ITEMS = 32
 from .. import __version__
 from ..benchmark.metrics import compute_metrics, render_report
 from ..config import (
-    CONFIG_DIR, DB_PATH, DATA_DIR, OUTPUTS_DIR, ROOT, load_env, load_settings,
+    CONFIG_DIR, DB_PATH, DATA_DIR, ROOT, load_env, load_settings,
 )
 from ..db import open_db, Database
 from ..agent_registry import AgentRegistry
@@ -904,8 +904,12 @@ def get_job(job_id: str, db: Database = Depends(get_db)):
 @app.get("/jobs")
 def list_jobs(db: Database = Depends(get_db)):
     clause, params = _org_clause(db)
-    return db.query("SELECT job_id, icp_id, state, pause_reason, resume_at, created_at,"
-                    f" updated_at FROM jobs WHERE 1=1{clause}"
+    # params carries the research objective and the pipeline metrics
+    # (discovery/dedup/qualification counters) the dashboard's job list
+    # renders. Without it the frontend showed the icp_id as the objective
+    # and fabricated zeros for every stage — a dead display over live data.
+    return db.query("SELECT job_id, icp_id, state, pause_reason, resume_at, params,"
+                    f" created_at, updated_at FROM jobs WHERE 1=1{clause}"
                     " ORDER BY created_at DESC LIMIT 50", params)
 
 

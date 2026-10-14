@@ -5,7 +5,8 @@ is set; SQLite stays the local dev/test backend with the same interface.
 
 Adapter conventions — documented and covered by integration tests:
 - Placeholders: callers write `?`; the adapter rewrites them to %s for
-  psycopg. Engine SQL never contains a literal `?` inside statements.
+  psycopg, skipping quoted literals (a literal ? inside '...' or "..." is
+  data, not a parameter).
 - Timestamps: the engine passes ISO-8601 UTC strings (db.utcnow()); engine
   columns are timestamptz. Reads convert datetime values back to the exact
   engine format (%Y-%m-%dT%H:%M:%SZ) so existing string comparisons keep
@@ -75,8 +76,52 @@ def _normalize(value):
 
 
 def _translate_placeholders(sql: str) -> str:
-    """Rewrite SQLite-style ? placeholders to psycopg %s."""
-    return sql.replace("?", "%s")
+    """Rewrite SQLite-style ? placeholders to psycopg %s.
+
+    A blind sql.replace("?", "%s") corrupts any literal question mark inside
+    a SQL string constant ('is this ok?' -> 'is this ok%s'), which silently
+    changes what a statement matches. The scanner below tracks quoting so
+    only real parameter markers are translated:
+
+    - single-quoted '...' literals (with the '' escape) are copied verbatim
+    - double-quoted "..." identifiers are copied verbatim
+    - every ? outside quotes is a parameter marker -> %s (so ?::jsonb casts
+      keep working: the ? is the parameter, ::jsonb follows it)
+    """
+    out = []
+    i = 0
+    n = len(sql)
+    while i < n:
+        ch = sql[i]
+        if ch == "'":
+            j = i + 1
+            while j < n:
+                if sql[j] == "'":
+                    if j + 1 < n and sql[j + 1] == "'":
+                        j += 2  # escaped quote inside the literal
+                        continue
+                    break
+                j += 1
+            out.append(sql[i:min(j + 1, n)])  # include the closing quote
+            i = j + 1
+        elif ch == '"':
+            j = i + 1
+            while j < n:
+                if sql[j] == '"':
+                    if j + 1 < n and sql[j + 1] == '"':
+                        j += 2
+                        continue
+                    break
+                j += 1
+            out.append(sql[i:min(j + 1, n)])
+            i = j + 1
+        elif ch == "?":
+            out.append("%s")
+            i += 1
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
 
 
 def _inject_org(sql: str, params: list, org_id: str | None) -> tuple[str, list]:
@@ -345,8 +390,22 @@ class PgDatabase:
     def query(self, sql: str, params=()) -> list[dict]:
         cur = self.conn.cursor()
         self._bind_org(cur)
-        cur.execute(_translate_placeholders(sql), list(params or []))
-        rows = cur.fetchall()
+        try:
+            cur.execute(_translate_placeholders(sql), list(params or []))
+            rows = cur.fetchall()
+        except Exception:
+            # Same rule as execute(): a failed statement aborts the PG
+            # transaction, and without a rollback every later statement on
+            # this connection — including the caller's error handling —
+            # fails with InFailedSqlTransaction. Found by the first real
+            # agent run: a read failure left the job stuck in DISCOVERING
+            # because the FAILED transition itself hit the poisoned
+            # transaction.
+            try:
+                self.conn.rollback()
+            except Exception:
+                pass
+            raise
         self.conn.commit()
         return [{k: _normalize(v) for k, v in row.items()} for row in rows]
 

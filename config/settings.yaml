@@ -32,7 +32,11 @@ scoring:
 llm:
   local_model: llama3.1:8b
   cloud_models:
-    gemini: gemini-3.6-flash
+    # gemini-3.6-flash was returning a persistent 503 ("high demand") for all
+    # 5 pooled keys on 2026-10-14; gemini-2.5/2.0 models 404 for this project.
+    # The stable alias answers 200 — switch back if 3.x recovers and you want
+    # the newer model (measured with a direct probe, keys/values unprinted).
+    gemini: gemini-flash-latest
     groq: llama-3.3-70b-versatile
     openrouter: meta-llama/llama-3.3-70b-instruct:free
 

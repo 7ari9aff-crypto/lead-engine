@@ -61,7 +61,12 @@ def check_provider_call(db, org_id: str | None) -> bool:
     max_calls = int(limits.get("max_provider_calls_per_day",
                                DEFAULT_LIMITS["max_provider_calls_per_day"]))
     day_start = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00Z")
+    # usage_ledger is an ENGINE table: unqualified so the connection's
+    # search_path=engine resolves it. Qualifying it as public.* made every
+    # provider call on Postgres die with UndefinedTable (found by the first
+    # real agent run: the job then stuck in DISCOVERING because the poisoned
+    # transaction also broke the failure transition).
     row = db.one(
-        "SELECT COUNT(*) AS n FROM " + _t(db, "usage_ledger") +
+        "SELECT COUNT(*) AS n FROM usage_ledger"
         " WHERE organization_id = ? AND ts >= ?", (org_id, day_start))
     return (row["n"] if row else 0) < max_calls

@@ -69,6 +69,33 @@ class Registry:
             )
 
     # ------------------------------------------------------------------ read
+    def _expire_states(self, row):
+        """Clear monthly-quota rollover and cooldown expiry on a provider row.
+
+        Shared by providers_for_task (router path) and status_table (dashboard
+        path). The dashboard used to bypass it, so a provider whose cooldown
+        expired weeks ago kept rendering "cooling down" forever — the status
+        surface lied about reachable capacity (FAIL-01 class: a false system
+        state, not a false empty)."""
+        now = utcnow()
+        if row["period"] == "monthly" and row["period_start"]:
+            start = row["period_start"][:7]
+            if start != now[:7]:
+                self.db.execute(
+                    "UPDATE providers SET quota_used = 0, period_start = ?, status='active',"
+                    " status_reason=NULL, cooldown_until=NULL WHERE name=? AND task=?",
+                    (now, row["name"], row["task"]),
+                )
+                row["quota_used"], row["status"] = 0, ACTIVE
+        if row["status"] == COOLDOWN and row["cooldown_until"] and row["cooldown_until"] <= now:
+            self.db.execute(
+                "UPDATE providers SET status='active', cooldown_until=NULL, status_reason=NULL"
+                " WHERE name=? AND task=?",
+                (row["name"], row["task"]),
+            )
+            row["status"] = ACTIVE
+        return row
+
     def providers_for_task(self, task: str, key_counts: dict = None):
         """key_counts: provider name -> number of pooled keys; the effective
         quota is base limit x key count (5 Tavily keys = 5000 credits)."""
@@ -77,26 +104,9 @@ class Registry:
             "SELECT * FROM providers WHERE task = ? ORDER BY priority ASC", (task,)
         )
         out = []
-        now = utcnow()
         for row in rows:
-            # monthly quota window rollover
-            if row["period"] == "monthly" and row["period_start"]:
-                start = row["period_start"][:7]
-                if start != now[:7]:
-                    self.db.execute(
-                        "UPDATE providers SET quota_used = 0, period_start = ?, status='active',"
-                        " status_reason=NULL, cooldown_until=NULL WHERE name=? AND task=?",
-                        (now, row["name"], row["task"]),
-                    )
-                    row["quota_used"], row["status"] = 0, ACTIVE
-            # cooldown expiry
-            if row["status"] == COOLDOWN and row["cooldown_until"] and row["cooldown_until"] <= now:
-                self.db.execute(
-                    "UPDATE providers SET status='active', cooldown_until=NULL, status_reason=NULL"
-                    " WHERE name=? AND task=?",
-                    (row["name"], row["task"]),
-                )
-                row["status"] = ACTIVE
+            # monthly quota window rollover + cooldown expiry
+            self._expire_states(row)
             # key availability (None env_key => local provider)
             load_env()
             has_key = row["env_key"] is None or bool(_env(row["env_key"]))
@@ -117,10 +127,15 @@ class Registry:
     def status_table(self):
         rows = self.db.query(
             "SELECT name, task, type, priority, quota_kind, quota_limit, quota_used,"
-            " period, rpm_limit, status, status_reason, cooldown_until, env_key, base_url, model_name FROM providers"
+            " period, period_start, rpm_limit, status, status_reason, cooldown_until,"
+            " env_key, base_url, model_name FROM providers"
             " ORDER BY task, priority"
         )
         for row in rows:
+            # Same expiry pass the router applies — the dashboard must not show
+            # a cooldown that expired weeks ago as live (regression found on
+            # the Providers page: gemini "cooling down" for 26 days).
+            self._expire_states(row)
             row["has_key"] = row["env_key"] is None or bool(_env(row["env_key"]))
         return rows
 

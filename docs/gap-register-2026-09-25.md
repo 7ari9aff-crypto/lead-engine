@@ -967,3 +967,63 @@ trail and the new index all become live behavior rather than intentions.
 
 **Residue check:** the E2E created no rows in Postgres (jobs lived in the ephemeral file
 and are gone); nothing synthetic remains in production.
+
+---
+
+## Wave W5 record (2026-10-13) — post-v12 regression hunt
+
+Context: the v12 dark dashboard rewrite (`c9d0b13` + follow-ups) replaced the
+surfaces the W4 waves had pinned with tests. The old FAIL-01/UX-01/FRONT-02
+failure modes returned, and three findings from the register's "genuinely
+confirmed defects, still open" batch were still unfixed. Everything below was
+reproduced by execution first (tests red, live probes), then fixed, then
+re-verified. Local gate at landing: **backend 411 passed / 2 skipped / 1
+xfailed**, `ruff` clean, **web 20/20 vitest + typecheck(eslint) clean + build
+green**, `tests/v6` 19 passed (35 errored at setup — the v6 suite's remote-DB
+wipe guard refuses the production DSN; needs a local Postgres, pre-existing).
+
+| Item | Evidence |
+|---|---|
+| `_translate_placeholders` blind `?`→`%s` | Reproduced: `WHERE note = 'is this ok?'` → `'is this ok%s'`. Fixed with a quote-aware scanner (`'...'` with `''` escapes, `"..."` identifiers, `?::jsonb` still a parameter). 9 tests in `tests/test_db_pg_translate.py` — 5 red before the fix |
+| FAIL-01/UX-01 regression in v12 | No page consumed the store's `connected`; every failed refresh rendered as an honest-looking empty ("لا نتائج." / "سليم" over a dead server). Fixed: store tracks `lastError`/`lastSuccessAt`/`everLoaded`, keeps stale rows on failure, merges local actions into the feed; new `StaleBanner` (role=status, aria-live) + `ConnectionEmpty` (role=alert) wired into Activity, Leads, ResearchJobs, ReviewQueue, Providers, Agents, CommandCenter, Analytics. Decision logic is pure and pinned: `connState.js` → 9 tests |
+| `useLiveData` stale-after-failure / local-only events | v12 equivalent: `pushLocal` rows were wiped by the next 15s poll, and a failed poll silently mixed stale + local rows. Fixed by the same merge; the banner makes staleness visible |
+| Providers page read unmapped fields | `p.usage`/`p.remaining`/`p.capability`/`p.rationale` never existed in `mapProvider`'s output → `[object Object]` quota, NaN% bars, blank "why". `mapProvider` also read `p.key_state` while the real payload carries `has_key` → every provider showed "no key". Fixed against the verbatim captured `/api/status` row; pinned in `api.test.js` |
+| Agents page read unmapped fields | `a.version`/`a.model`/`a.recentRuns`/`a.failures`/`a.tools`/`a.note` were all undefined against the real `agents` row. Fixed: `mapAgent` (real columns), `agentRunStats` aggregation (store enriches from `/api/agent-runs`), tool registry now lists the real `/api/tools` rows with approval/enabled flags (FRONT-02's mislabelled panel, in its v12 form) |
+| Jobs list could not show objectives | `/api/jobs` SELECT omitted `params`, so `mapJob`'s objective fell back to the icp_id and every stage counter was 0 — the jobs/analytics/comand-center surfaces were dead displays over live data. Fixed: the endpoint now returns `params`; `mapJob` reads `params.metrics` (JSON text) with `result.stages` fallback; the fabricated `used+500` budget limit is gone (null when unknown, never a lie). Verified live: `job-ce43751280` → discovered 64, deduplicated 35, qualified 25, for-review 24, quota 33 |
+| Analytics/JobDetail provider + budget math | `p.usage / p.quota` (object) → NaN; `createdByName` undefined. Both fixed to the mapped shape; null-limit budgets render "unlimited" instead of NaN |
+| Ruff regression after the intent/integrations commits | `OUTPUTS_DIR` imported-but-unused in `app.py` (verified not a re-export seam before removal) → ruff clean again |
+
+**Still the owner's (unchanged):** EXEC-01 (set `SUPABASE_DB_URL` in Vercel —
+the documented one-command fix is in the entry above; the value already exists
+in local `.env`), PITR/backups (OPS-05), custom domain + env scoping
+(OPS-03/04), token rotation at ship time, and the one operator-started
+production job that proves `QUEUED → RUNNING → COMPLETED` end to end.
+
+## EXEC-01 — CLOSED 2026-10-14 (production runs on Supabase Postgres)
+
+Owner-authorized (explicit, in-session). Token note: the first `vcp_` token the
+owner sent was rejected by Vercel (`/v2/user` → `User not found`; project-scoped
+endpoints 403) — dead/rotated. The second token authenticated at project scope
+(`/v9/projects/lead-engine` 200, env endpoints 200; `/v2/user` and the
+deployments read API stay 403 for it — deployment-creation was the only write it
+needed).
+
+Measured chain, every step executed:
+
+| # | Action | Result |
+|---|---|---|
+| 1 | `GET /v9/projects/lead-engine/env` | `SUPABASE_DB_URL` present, id `pmSjUAU6Skbqpqvi`, target production+preview, **value empty** — EXEC-01 reproduced at the source |
+| 2 | DSN shape in local `.env` (no secret printed) | no `sslmode`, no `?` → correct append is `?sslmode=require`; host `aws-1-eu-west-1.pooler.supabase.com` |
+| 3 | `DELETE .../env/pmSjUAU6Skbqpqvi` | **200** |
+| 4 | `POST .../env` with the DSN + `?sslmode=require` (type `encrypted`, target production) | **201** |
+| 5 | Redeploy last production deployment via `POST /v13/deployments` | `dpl_DNPiVqFXY1Ume6ZuuPjgksTLNhaZ`, INITIALIZING |
+| 6 | `GET https://lead-engine3.vercel.app/api/status` (machine bearer) | **`storage = {backend: "postgres", dsn_present: true, dsn_host: "aws-1-eu-west-1.pooler.supabase.com:5432"}`**, `leads_total = 102`, `jobs_by_state = {CANCELLED 8, COMPLETED 4, PAUSED 2, READY_FOR_REVIEW 2}` — identical to the live database |
+
+Residue: the var exists on `production` only (the empty `preview` copy was
+removed with it — preview now has no DSN, which is the same effective behavior
+as the empty value it had). The cron tick was probed once: reachable and
+fail-closed (`{"error":"unauthorized"}` — the handler's shape; `CRON_SECRET` ≠
+`LEAD_ENGINE_MCP_TOKEN` and is not held locally; the scheduled tick itself is
+proven live by the W4d GitHub Actions record). **Owner rotation reminder
+issued:** every token pasted in chat (Vercel ×2 — one dead, GitHub PAT,
+Supabase `sbp_`) must be rotated; the `sbp_` is Management-API superuser.
