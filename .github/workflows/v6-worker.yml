@@ -56,10 +56,19 @@ jobs:
           LEAD_ENGINE_V6_PROVIDERS: real
           # Black-box probe of the deployed app in the doctor's http.surface check
           LEAD_ENGINE_PUBLIC_BASE_URL: ${{ vars.LEAD_ENGINE_PUBLIC_BASE_URL }}
+          # The dispatch input goes through env, never straight into the
+          # script: ${{ }} is substituted textually, so a crafted value would
+          # run as shell with the secrets above in scope.
+          CYCLES_INPUT: ${{ github.event.inputs.cycles }}
         run: |
+          CYCLES="${CYCLES_INPUT:-80}"
+          if ! [[ "$CYCLES" =~ ^[0-9]+$ ]]; then
+            echo "::error::cycles must be a non-negative integer"
+            exit 1
+          fi
           python -m apps.worker --queues default \
             --worker-id "gh-worker-scheduled" \
-            --cycles "${{ github.event.inputs.cycles || '80' }}"
+            --cycles "$CYCLES"
 
       - name: Alert on failure
         if: failure()
