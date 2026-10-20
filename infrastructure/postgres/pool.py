@@ -28,7 +28,12 @@ class Database:
             dsn,
             min_size=min_size,
             max_size=max_size,
-            kwargs={"row_factory": dict_row, "autocommit": False},
+            # prepare_threshold=None: Supabase's pooler is pgbouncer in transaction
+            # mode, which hands the same backend to different clients. psycopg3's
+            # automatic server-side prepared statements then collide with
+            # DuplicatePreparedStatement "_pg3_1" (killed the v6 worker in CI).
+            kwargs={"row_factory": dict_row, "autocommit": False,
+                    "prepare_threshold": None},
             open=True,
             check=psycopg_pool.ConnectionPool.check_connection,
         )

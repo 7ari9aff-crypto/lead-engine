@@ -191,3 +191,22 @@ def test_fail_handles_null_attempts(db):
     j = jm.create_job("icp-x")
     db.execute("UPDATE jobs SET state='RUNNING', attempts=NULL WHERE job_id=?", (j,))
     assert queue.fail(db, j, "boom") == "QUEUED"
+
+
+# ---- L9: v6 pool must disable server-side prepared statements (pgbouncer
+# transaction mode reuses backends -> DuplicatePreparedStatement "_pg3_1")
+def test_v6_pool_disables_prepared_statements(monkeypatch):
+    captured = {}
+
+    class _FakePool:
+        def __init__(self, *a, **kw):
+            captured.update(kw)
+        def wait(self, *a, **k): pass
+
+    from infrastructure.postgres import pool as poolmod
+    monkeypatch.setattr(poolmod, "ConnectionPool", _FakePool)
+    try:
+        poolmod.Database("postgresql://u:p@h:6543/db")
+    except Exception:
+        pass
+    assert captured.get("kwargs", {}).get("prepare_threshold", "missing") is None, captured
