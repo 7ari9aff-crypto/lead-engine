@@ -186,7 +186,7 @@ def fail(db, job_id: str, reason: str) -> str:
     if not job:
         return "UNKNOWN"
     if (job["attempts"] or 0) < (job["max_attempts"] or 3):
-        backoff = min(3600, 60 * (2 ** max(0, job["attempts"] - 1)))
+        backoff = min(3600, 60 * (2 ** max(0, (job["attempts"] or 0) - 1)))
         resume_at = (datetime.now(timezone.utc) + timedelta(seconds=backoff)).strftime(
             "%Y-%m-%dT%H:%M:%SZ")
         db.execute(

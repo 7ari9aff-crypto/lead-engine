@@ -27,18 +27,26 @@ class HardFilter:
 
 class Scorer:
     def __init__(self, settings: dict):
-        self.weights = (settings.get("scoring", {}) or {}).get("weights", {})
-        self.weights.setdefault("qualification", 0.5)
-        self.weights.setdefault("evidence", 0.2)
-        self.weights.setdefault("contact", 0.2)
-        self.weights.setdefault("verification", 0.1)
+        # Copy: never mutate the shared settings dict (setdefault on the
+        # original polluted it for every other consumer).
+        weights = dict((settings.get("scoring", {}) or {}).get("weights", {}) or {})
+        for key, default in (("qualification", 0.5), ("evidence", 0.2),
+                             ("contact", 0.2), ("verification", 0.1)):
+            weights.setdefault(key, default)
+        # A partially customised set (e.g. only qualification=0.9) used to sum
+        # to 1.4 and push scores past 100. Normalise so the total is 1.0.
+        total = sum(v for v in weights.values() if v > 0) or 1.0
+        self.weights = {k: max(v, 0) / total for k, v in weights.items()}
 
     def score(self, lead: dict) -> float:
         qualification = (lead.get("qualification_score") or 0) / 100.0
         evidence = min(1.0, len(lead.get("source_urls") or []) / 3.0)
-        if lead.get("email") and lead.get("phone"):
+        # An email the verifier proved INVALID is not a way to reach anyone, so
+        # it must not count as contact data (it used to add up to +12 points).
+        has_email = bool(lead.get("email")) and lead.get("email_status") != "INVALID"
+        if has_email and lead.get("phone"):
             contact = 1.0
-        elif lead.get("email") or lead.get("phone"):
+        elif has_email or lead.get("phone"):
             contact = 0.6
         elif lead.get("decision_maker"):
             contact = 0.3

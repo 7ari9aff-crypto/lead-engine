@@ -44,7 +44,11 @@ def check_job_start(db, org_id: str | None) -> tuple[bool, str | None]:
     max_jobs = int(limits.get("max_jobs_per_day", DEFAULT_LIMITS["max_jobs_per_day"]))
     day_start = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00Z")
     row = db.one(
-        "SELECT COUNT(*) AS n FROM jobs WHERE organization_id = ? AND created_at >= ?",
+        "SELECT COUNT(*) AS n FROM jobs WHERE organization_id = ? AND created_at >= ?"
+        # A job that FAILED or was CANCELLED delivered nothing: counting it
+        # would let our own outages (or a user's cancel) burn the customer's
+        # daily quota.
+        " AND state NOT IN ('FAILED', 'CANCELLED')",
         (org_id, day_start))
     used = row["n"] if row else 0
     if used >= max_jobs:

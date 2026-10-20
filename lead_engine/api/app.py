@@ -954,7 +954,9 @@ def recover_jobs(request: Request, db: Database = Depends(get_db)):
     from ..queue import platform_mode, reclaim_expired
 
     reclaimed = reclaim_expired(db) if platform_mode() else 0
-    recovered = JobManager(db).recover_interrupted_jobs()
+    # In queue/platform mode a live worker may still own a RUNNING job: only
+    # recover jobs whose lease has actually expired.
+    recovered = JobManager(db).recover_interrupted_jobs(respect_leases=platform_mode())
     return {"recovered_jobs": recovered, "reclaimed_leases": reclaimed}
 
 

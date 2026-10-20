@@ -77,16 +77,32 @@ def build_adhoc_icp(cities: list, industry: str = "b2b",
 
 
 def build_plan(icp: dict) -> dict:
-    queries = []
+    per_city = []
     for city in icp.get("cities", []):
+        city_queries = []
         for kw in icp.get("keywords_en", []):
-            queries.append({"q": f"{kw} in {city['name']}", "city": city["name"], "lang": "en"})
+            city_queries.append({"q": f"{kw} in {city['name']}", "city": city["name"], "lang": "en"})
         for kw in icp.get("keywords_ar", []):
-            queries.append({"q": f"{kw} {city['ar']}", "city": city["name"], "lang": "ar"})
+            city_queries.append({"q": f"{kw} {city['ar']}", "city": city["name"], "lang": "ar"})
+        per_city.append(city_queries)
 
     limits = icp.get("v0_limits", {}) or {}
-    if limits.get("max_search_queries"):
-        queries = queries[: int(limits["max_search_queries"])]
+    cap = int(limits["max_search_queries"]) if limits.get("max_search_queries") else None
+    if cap is None or len(per_city) <= 1:
+        queries = [q for group in per_city for q in group]
+        if cap is not None:
+            queries = queries[:cap]
+    else:
+        # Round-robin across cities. Truncating the flat list spent the whole
+        # budget on the first city, so asking for Riyadh+Jeddah+Dammam with a
+        # budget of 4 searched only Riyadh and silently dropped the rest.
+        queries = []
+        depth = 0
+        while len(queries) < cap and any(depth < len(g) for g in per_city):
+            for group in per_city:
+                if depth < len(group) and len(queries) < cap:
+                    queries.append(group[depth])
+            depth += 1
 
     return {
         "icp": icp,

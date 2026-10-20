@@ -39,9 +39,28 @@ class RateLimiter:
         self._buckets: dict = {}
         self._lock = threading.Lock()
 
-    def _key(self, scope) -> tuple:
+    @staticmethod
+    def _behind_trusted_proxy() -> bool:
+        # Only Vercel's edge sets a trustworthy X-Forwarded-For. Off Vercel a
+        # client could spoof it to dodge the limiter, so it is ignored there.
+        return bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV"))
+
+    def _client_ip(self, scope) -> str:
         client = scope.get("client")
         ip = client[0] if client else "unknown"
+        if self._behind_trusted_proxy():
+            for name, value in scope.get("headers", []):
+                if name == b"x-forwarded-for":
+                    # Vercel appends the real peer as the LEFT-most entry it saw;
+                    # take the first hop, ignore anything the client prepended
+                    # beyond a single value.
+                    first = value.decode("latin-1").split(",")[0].strip()
+                    if first:
+                        return first
+        return ip
+
+    def _key(self, scope) -> tuple:
+        ip = self._client_ip(scope)
         path = scope.get("path", "")
         # Group by first two path segments so one hot endpoint can't eat
         # the budget of unrelated routes, while per-job polling shares one.

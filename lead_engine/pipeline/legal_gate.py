@@ -33,6 +33,10 @@ class LegalGate:
 
         src_rules = self.policy.get("source_types", {}) or {}
         approved = True
+        if not (lead.get("sources") or []):
+            # Default-deny: no recorded provenance is not an approved source.
+            approved = False
+            requires_review = True
         for source in lead.get("sources") or []:
             rule = src_rules.get(source)
             if rule is None or not rule.get("approved", False):

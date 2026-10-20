@@ -145,19 +145,37 @@ class JobManager:
             "SELECT * FROM job_events WHERE job_id=? ORDER BY id", (job_id,)
         )
 
-    def recover_interrupted_jobs(self, reason: str = "worker restart: interrupted") -> list[str]:
+    def recover_interrupted_jobs(self, reason: str = "worker restart: interrupted",
+                                 respect_leases: bool = False) -> list[str]:
         """Finds any jobs left in active execution states when the process stopped,
-        and transitions them safely to PAUSED so they can be resumed cleanly."""
+        and transitions them safely to PAUSED so they can be resumed cleanly.
+
+        Every recovered job gets a resume_at: a PAUSED row without one is never
+        picked up again (expire_stale_paused cancels it after 48h), so recovery
+        used to turn an interrupted job into a permanent zombie.
+
+        respect_leases=True (queue/platform mode) skips jobs whose lease is
+        still valid: a live worker owns them and pausing one would corrupt a
+        run that is actually progressing."""
+        from datetime import datetime, timedelta, timezone
+
         placeholders = ",".join("?" for _ in INTERRUPTED_STATES)
         rows = self.db.query(
-            f"SELECT job_id, state FROM jobs WHERE state IN ({placeholders})",
+            f"SELECT job_id, state, lease_expires_at FROM jobs"
+            f" WHERE state IN ({placeholders})",
             list(INTERRUPTED_STATES),
         )
+        now = utcnow()
+        resume_at = (datetime.now(timezone.utc) + timedelta(seconds=60)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ")
         recovered = []
         for r in rows:
+            lease = r.get("lease_expires_at")
+            if respect_leases and lease and str(lease) >= now:
+                continue
             job_id = r["job_id"]
             try:
-                self.transition(job_id, PAUSED, reason)
+                self.pause(job_id, reason, resume_at)
                 recovered.append(job_id)
             except Exception:
                 pass

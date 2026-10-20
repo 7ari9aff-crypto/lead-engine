@@ -81,6 +81,40 @@ def _webhook_secret() -> str | None:
     return os.environ.get("STRIPE_WEBHOOK_SECRET") or None
 
 
+_PLAN_RANK = {"free": 0, "pro": 1, "business": 2}
+
+
+def _fetch_line_items(session_id: str) -> list:
+    """checkout.session.completed does NOT embed line_items (Stripe omits them
+    unless expanded), so the paid price must be fetched. Best effort: any
+    failure returns [] and the caller falls back to the metadata plan."""
+    secret = _secret()
+    if not (secret and session_id):
+        return []
+    import requests
+
+    try:
+        resp = requests.get(f"{_STRIPE_API}/checkout/sessions/{session_id}/line_items",
+                            auth=(secret, ""), timeout=10)
+        if resp.status_code == 200:
+            return resp.json().get("data") or []
+    except requests.RequestException:
+        pass
+    return []
+
+
+def _paid_plan(obj: dict) -> str | None:
+    """Plan implied by the price actually paid on the session."""
+    items = ((obj.get("line_items") or {}).get("data")) or []
+    if not items:
+        items = _fetch_line_items(obj.get("id") or "")
+    for item in items:
+        plan = plan_for_price(((item or {}).get("price") or {}).get("id", ""))
+        if plan:
+            return plan
+    return None
+
+
 def plan_for_price(price_id: str) -> str | None:
     """Map a Stripe price ID to a plan name via the env wiring."""
     for plan, env in _PRICE_ENV.items():
@@ -152,6 +186,12 @@ def create_checkout(req: CheckoutRequest, request: Request):
                 "client_reference_id": org_id,
                 "metadata[org_id]": org_id,
                 "metadata[plan]": req.plan,
+                # Stripe copies Session.metadata to the session only. Without
+                # this the later customer.subscription.* events (cancel/pause)
+                # carry no org and were silently skipped, leaving the customer
+                # on a paid plan forever.
+                "subscription_data[metadata][org_id]": org_id,
+                "subscription_data[metadata][plan]": req.plan,
                 "success_url": f"{base_url}/pricing?checkout=success",
                 "cancel_url": f"{base_url}/pricing?checkout=cancelled",
             },
@@ -218,12 +258,23 @@ async def stripe_webhook(request: Request):
     # Resolve the org: client_reference_id on sessions, metadata elsewhere.
     org_id = obj.get("client_reference_id") or (obj.get("metadata") or {}).get("org_id")
     if not org_id:
+        # Loud, not silent: an unattributable cancel means a customer may keep
+        # a paid plan for free until someone notices.
+        log.warning("billing.unattributed_event", event=etype,
+                    subscription=obj.get("id"), customer=obj.get("customer"))
         return {"received": True, "skipped": "no org reference"}
 
     if etype == "checkout.session.completed":
         plan = (obj.get("metadata") or {}).get("plan")
         if plan not in PLANS:
             return {"received": True, "skipped": f"unknown plan {plan!r}"}
+        # Entitlements follow what was PAID, not what a metadata string claims:
+        # if the price maps to a smaller plan, grant that smaller plan.
+        paid = _paid_plan(obj)
+        if paid and _PLAN_RANK[paid] < _PLAN_RANK[plan]:
+            log.warning("billing.plan_clamped_to_paid_price", org_id=org_id,
+                        claimed=plan, paid=paid)
+            plan = paid
     elif etype in ("customer.subscription.deleted", "customer.subscription.paused"):
         plan = "free"
     else:
