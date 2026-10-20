@@ -268,3 +268,181 @@ def test_storage_not_allowed_still_rejects():
 
 def test_low_score_goes_to_review():
     assert _stage({"qualification_score": 10}) == "REVIEW"
+
+
+# ---- A2: the shared machine token must not be root
+MACHINE = "machine-token-for-tests-0123456789"
+
+
+@pytest.fixture
+def machine_client(db, monkeypatch, tmp_path):
+    """TestClient with EVERY filesystem write target redirected to tmp_path.
+    These tests hit routes that write config/.env; if the guard ever regresses
+    a failing test must not overwrite real repo files (it did once)."""
+    from fastapi.testclient import TestClient
+    from lead_engine.api import app as app_module
+    sandbox_cfg = {}
+    for key, path in app_module.CONFIG_FILES.items():
+        copy = tmp_path / path.name
+        copy.write_text(path.read_text(encoding="utf-8") if path.exists() else "", encoding="utf-8")
+        sandbox_cfg[key] = copy
+    monkeypatch.setattr(app_module, "CONFIG_FILES", sandbox_cfg)
+    monkeypatch.setattr(app_module, "ENV_PATH", tmp_path / ".env")
+    monkeypatch.setenv("LEAD_ENGINE_MCP_TOKEN", MACHINE)
+    monkeypatch.setenv("LEAD_ENGINE_DEV_OPEN", "0")
+    monkeypatch.setattr(app_module, "open_db", lambda *a, **k: db)
+    monkeypatch.setattr("lead_engine.api.auth_jwt.auth_mode", lambda: "supabase")
+    return TestClient(app_module.app, raise_server_exceptions=False)
+
+
+H = {"Authorization": f"Bearer {MACHINE}"}
+
+
+# (method, path, valid body) -- bodies must pass FastAPI validation so the
+# request actually reaches the require_admin guard instead of 422-ing first.
+SENSITIVE = [
+    ("GET", "/api/keys", {}), ("POST", "/api/keys", {"keys": {"X": "y"}}),
+    ("GET", "/api/config", {}), ("PUT", "/api/config/settings", {"text": "a: 1"}),
+    ("POST", "/api/cache/purge", {}), ("POST", "/api/data/reset", {}),
+    ("POST", "/api/privacy/erase", {"subject": "a@b.sa"}),
+    ("GET", "/api/code/workspace", {}), ("GET", "/api/code/file?path=README.md", {}),
+    ("POST", "/api/agents", {"slug": "aa", "name": "A"}),
+    ("POST", "/api/tools", {"name": "t"}),
+    ("POST", "/api/connections/register", {"connection_id": "cc", "provider": "p"}),
+    ("PUT", "/api/providers/p/t/config", {}),
+]
+
+
+@pytest.mark.parametrize("method,path,body", SENSITIVE)
+def test_machine_token_denied_on_sensitive_routes(machine_client, method, path, body):
+    r = machine_client.request(method, path, headers=H, json=body)
+    assert r.status_code == 403, (path, r.status_code, r.text[:120])
+
+
+@pytest.mark.parametrize("method,path", [
+    ("POST", "/api/v1/jobs/recover"), ("POST", "/api/jobs/drain-queued"),
+    ("GET", "/api/v1/ready"),
+])
+def test_machine_token_still_allowed_on_operational_routes(machine_client, method, path):
+    r = machine_client.request(method, path, headers=H, json={})
+    assert r.status_code not in (401, 403), (path, r.status_code, r.text[:120])
+
+
+def test_no_token_still_401(machine_client):
+    assert machine_client.get("/api/keys").status_code == 401
+
+
+def test_real_admin_session_still_allowed(db, monkeypatch):
+    """A verified owner/admin must keep access to the guarded routes."""
+    from types import SimpleNamespace
+    from lead_engine.api import app as app_module
+    from lead_engine.api import auth_jwt
+    monkeypatch.setattr(auth_jwt, "is_admin", lambda claims, d: True)
+    req = SimpleNamespace(state=SimpleNamespace(claims={"sub": "u1"}, machine=False),
+                          url=SimpleNamespace(path="/api/keys"))
+    assert app_module.require_admin(req, db) is None
+
+
+def test_non_admin_member_still_denied(db, monkeypatch):
+    from types import SimpleNamespace
+    from fastapi import HTTPException
+    from lead_engine.api import app as app_module
+    from lead_engine.api import auth_jwt
+    monkeypatch.setattr(auth_jwt, "is_admin", lambda claims, d: False)
+    req = SimpleNamespace(state=SimpleNamespace(claims={"sub": "u1"}, machine=False),
+                          url=SimpleNamespace(path="/api/keys"))
+    with pytest.raises(HTTPException) as ei:
+        app_module.require_admin(req, db)
+    assert ei.value.status_code == 403
+
+
+# ---- A3: code tools in chat / MCP are admin-only
+PRIVILEGED = ["list_code", "read_code", "search_code", "git_history", "git_show",
+              "run_tests", "propose_patch"]
+
+
+def test_privileged_tool_set_is_derived_from_scopes():
+    from lead_engine.api.chat import PRIVILEGED_TOOLS, TOOL_SCOPES
+    assert set(PRIVILEGED) <= set(PRIVILEGED_TOOLS)
+    # nothing privileged may be added to TOOL_SCOPES without being gated
+    for name, scopes in TOOL_SCOPES.items():
+        if any(s.startswith("code:") or s == "tests:run" for s in scopes):
+            assert name in PRIVILEGED_TOOLS
+
+
+@pytest.mark.parametrize("tool", PRIVILEGED)
+def test_execute_tool_refuses_code_tools_by_default(db, tool):
+    from lead_engine.api.chat import execute_tool
+    out = execute_tool(tool, {"path": "README.md", "query": "x", "patch": "", "title": "t"}, None, db)
+    assert "error" in out and "admin" in out["error"].lower()
+
+
+def test_execute_tool_runs_code_tool_for_admin(db):
+    from lead_engine.api.chat import execute_tool
+    out = execute_tool("list_code", {}, None, db, privileged=True)
+    assert "admin" not in str(out.get("error", "")).lower()
+
+
+def test_non_privileged_tools_unaffected(db):
+    from lead_engine.api.chat import execute_tool
+    out = execute_tool("system_status", {}, None, db)
+    assert "admin" not in str(out.get("error", "")).lower()
+
+
+def test_mcp_code_tool_denied_for_non_admin(db):
+    from lead_engine.api.mcp import handle_jsonrpc
+    body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "read_code", "arguments": {"path": "lead_engine/db.py"}}}
+    payload, _ = handle_jsonrpc(body, None, db)
+    assert payload["result"]["isError"] is True
+    assert "def open_db" not in payload["result"]["content"][0]["text"]
+
+
+def test_mcp_tools_list_hides_code_tools_for_non_admin(db):
+    from lead_engine.api.mcp import handle_jsonrpc
+    payload, _ = handle_jsonrpc({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, None, db)
+    names = {t["name"] for t in payload["result"]["tools"]}
+    assert not (names & set(PRIVILEGED))
+    payload, _ = handle_jsonrpc({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, None, db, privileged=True)
+    assert set(PRIVILEGED) <= {t["name"] for t in payload["result"]["tools"]}
+
+
+def test_sensitive_route_tests_never_touch_the_repo(machine_client):
+    """Guard for the sandbox itself: hammer every write route, repo stays clean."""
+    import subprocess
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    before = subprocess.run(["git", "status", "--porcelain", "--", "config", ".env"],
+                            cwd=root, capture_output=True, text=True).stdout
+    for method, path, body in SENSITIVE:
+        machine_client.request(method, path, headers=H, json=body)
+    after = subprocess.run(["git", "status", "--porcelain", "--", "config", ".env"],
+                           cwd=root, capture_output=True, text=True).stdout
+    assert before == after
+
+
+def test_mcp_endpoint_http_hides_and_blocks_code_tools_for_machine_token(machine_client):
+    r = machine_client.post("/mcp", headers=H, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    names = {t["name"] for t in r.json()["result"]["tools"]}
+    assert "read_code" not in names and "run_lead_generation" in names
+    r = machine_client.post("/mcp", headers=H, json={
+        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        "params": {"name": "read_code", "arguments": {"path": "lead_engine/db.py"}}})
+    res = r.json()["result"]
+    assert res["isError"] is True and "def open_db" not in res["content"][0]["text"]
+
+
+def test_chat_endpoint_never_declares_code_tools_to_non_admin(machine_client, monkeypatch):
+    seen = {}
+
+    class FakeRouter:
+        def __init__(self, *a, **k): pass
+        def route(self, task, payload, **k):
+            seen["tools"] = payload.get("tools")
+            return {"text": "ok", "function_calls": []}, {"provider": "fake"}
+    monkeypatch.setattr("lead_engine.api.app.Router", FakeRouter)
+    machine_client.post("/api/chat", headers=H, json={
+        "messages": [{"role": "user", "content": "hi"}],
+        "tools": ["read_code", "run_tests", "list_leads"]})
+    declared = {d["name"] for t in (seen.get("tools") or []) for d in t["function_declarations"]}
+    assert declared == {"list_leads"}

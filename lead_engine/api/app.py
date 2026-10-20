@@ -288,7 +288,37 @@ async def admin_session_guard(request: Request, call_next):
         # Request-scoped tenant context: downstream handlers resolve the org
         # from the verified token subject instead of the env bridge.
         request.state.claims = claims
+        # Mark static-token callers explicitly; require_admin uses this to
+        # keep the shared secret off sensitive routes (audit A2).
+        request.state.machine = bool(machine_ok and claims is None)
     return await call_next(request)
+
+
+# Operational routes the shared machine token may call (jobs, benchmark,
+# recovery, queue drain, supabase sync). Everything else that is guarded by
+# require_admin needs a real owner/admin session. Override with
+# LEAD_ENGINE_MACHINE_ROUTES="/prefix,/prefix2" if a client needs more.
+_MACHINE_ROUTE_PREFIXES = (
+    "/api/v1/jobs/", "/api/jobs/", "/jobs/", "/api/v1/benchmark/", "/benchmark/",
+    "/api/v1/sync-supabase", "/sync-supabase",
+)
+
+
+def _machine_allowed(request: Request) -> bool:
+    extra = tuple(p.strip() for p in os.environ.get("LEAD_ENGINE_MACHINE_ROUTES", "").split(",") if p.strip())
+    path = request.url.path
+    return path.startswith(_MACHINE_ROUTE_PREFIXES + extra)
+
+
+def _caller_is_admin(request: Request, db) -> bool:
+    """Same policy as require_admin, as a boolean: owner/admin of the active
+    org. The static machine token is never privileged here (audit A2/A3)."""
+    claims = getattr(request.state, "claims", None)
+    if not claims:
+        return False
+    from . import auth_jwt
+
+    return bool(auth_jwt.is_admin(claims, db))
 
 
 def require_admin(request: Request = None, db: Database = None):
@@ -299,6 +329,12 @@ def require_admin(request: Request = None, db: Database = None):
         return
     claims = getattr(request.state, "claims", None)
     if not claims:
+        # Static machine token (n8n / MCP / schedulers): operational routes
+        # only. It is one never-rotating shared secret, so it must not read
+        # or write provider keys, config, code, approvals, or erase data.
+        if getattr(request.state, "machine", False) and not _machine_allowed(request):
+            raise HTTPException(status_code=403,
+                                detail="machine token is not permitted on this route")
         return
     from . import auth_jwt
 
@@ -1080,12 +1116,13 @@ class ChatRequest(BaseModel):
 
 
 @app.post("/api/chat")
-def api_chat(req: ChatRequest, db: Database = Depends(get_db)):
+def api_chat(req: ChatRequest, request: Request, db: Database = Depends(get_db)):
     from .chat import run_agent
 
     router = Router(db, _cache(db), settings)
     return run_agent(router, db, [message.dict() for message in req.messages], provider=req.provider,
-                     enabled_tools=req.tools, agent_slug=req.agent)
+                     enabled_tools=req.tools, agent_slug=req.agent,
+                     privileged=_caller_is_admin(request, db))
 
 
 # ---------------------------------------------------------------------------
@@ -1100,7 +1137,8 @@ async def mcp_endpoint(request: Request, db: Database = Depends(get_db)):
         body = await request.json()
     except Exception as exc:
         raise HTTPException(status_code=400, detail="invalid JSON body") from exc
-    payload, status = handle_jsonrpc(body, Router(db, _cache(db), settings), db)
+    payload, status = handle_jsonrpc(body, Router(db, _cache(db), settings), db,
+                                     privileged=_caller_is_admin(request, db))
     if payload is None:
         return Response(status_code=status)
     return JSONResponse(payload, status_code=status)

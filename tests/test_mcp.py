@@ -28,16 +28,27 @@ def test_initialize():
     assert "tools" in result["capabilities"]
 
 
-def test_tools_list_covers_core_and_code_tools():
+CODE_TOOLS = {"list_code", "read_code", "search_code", "git_history",
+              "git_show", "run_tests", "propose_patch"}
+
+
+def test_tools_list_covers_core_tools_and_hides_code_tools_from_non_admin():
     r = client.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
     tools = r.json()["result"]["tools"]
     names = {t["name"] for t in tools}
     # The original engine tools must always be present.
     assert {"run_lead_generation", "get_job_status", "list_leads",
             "verify_email", "system_status"} <= names
-    # Code-aware tools: the agent traces its own source and proposes patches.
-    assert {"list_code", "read_code", "search_code", "git_history",
-            "git_show", "run_tests", "propose_patch"} <= names
+    # Code-aware tools expose source / tests / patches: admin-only (audit A3).
+    assert not (CODE_TOOLS & names)
+
+
+def test_tools_list_includes_code_tools_for_admin():
+    from lead_engine.api.mcp import handle_jsonrpc
+    payload, _ = handle_jsonrpc({"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+                                None, None, privileged=True)
+    tools = payload["result"]["tools"]
+    assert CODE_TOOLS <= {t["name"] for t in tools}
     for t in tools:
         assert "inputSchema" in t
         assert t["description"]

@@ -7,7 +7,7 @@ self-contained, which is what serverless deployments can support.
 """
 import json
 
-from .chat import execute_tool
+from .chat import PRIVILEGED_TOOLS, execute_tool
 
 PROTOCOL_VERSION = "2025-03-26"
 
@@ -113,7 +113,7 @@ def _error(rid, code, message):
     return {"jsonrpc": "2.0", "id": rid, "error": {"code": code, "message": message}}
 
 
-def handle_jsonrpc(body: dict, router, db):
+def handle_jsonrpc(body: dict, router, db, privileged: bool = False):
     """Handle one JSON-RPC request. Returns (response_dict_or_None, http_status).
     None response = notification (HTTP 202)."""
     if not isinstance(body, dict):
@@ -154,14 +154,15 @@ def handle_jsonrpc(body: dict, router, db):
         return _result(rid, {}), 200
 
     if method == "tools/list":
-        return _result(rid, {"tools": MCP_TOOLS}), 200
+        tools = MCP_TOOLS if privileged else [t for t in MCP_TOOLS if t["name"] not in PRIVILEGED_TOOLS]
+        return _result(rid, {"tools": tools}), 200
 
     if method == "tools/call":
         params = body.get("params") or {}
         name = params.get("name", "")
         args = params.get("arguments") or {}
         try:
-            out = execute_tool(name, args, router, db)
+            out = execute_tool(name, args, router, db, privileged=privileged)
         except Exception as exc:
             out = {"error": f"{type(exc).__name__}: {exc}"}
         is_error = "error" in out

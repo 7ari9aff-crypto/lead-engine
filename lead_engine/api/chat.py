@@ -39,6 +39,14 @@ TOOL_SCOPES = {
     "propose_patch": ["code:write"],
 }
 
+# Tools that read source code, run the test suite or queue patches. They are
+# derived from TOOL_SCOPES so a newly added code tool is gated automatically.
+# Chat and MCP are open to every org member; these are admin-only (audit A3).
+PRIVILEGED_TOOLS = frozenset(
+    name for name, scopes in TOOL_SCOPES.items()
+    if any(sc.startswith("code:") or sc == "tests:run" for sc in scopes)
+)
+
 SYSTEM_INSTRUCTION = """أنت "مساعد محرك الـLeads" — واجهة محادثة لنظام توليد leads واعٍ بالحصص (quotas).
 لديك أدوات تنفّذ عمليات حقيقية على النظام: تشغيل التوليد، متابعة المهام، استعراض الـleads، فحص الإيميلات، وحالة النظام.
 
@@ -250,10 +258,16 @@ def _research_ctx(db, job_id):
     return ctx
 
 
-def execute_tool(name: str, args: dict, router, db) -> dict:
+def execute_tool(name: str, args: dict, router, db, privileged: bool = False) -> dict:
     """Execute one tool call against the real engine. Always returns a
-    JSON-serializable dict (honest errors included)."""
+    JSON-serializable dict (honest errors included).
+
+    privileged=False (default, fail-closed) refuses PRIVILEGED_TOOLS: the
+    caller chooses `tools` in the request and a model can name any tool, so
+    declaration-time filtering alone is not an access boundary."""
     args = args or {}
+    if name in PRIVILEGED_TOOLS and not privileged:
+        return {"error": f"الأداة {name} محتاجة صلاحية مالك أو مشرف (admin only)"}
     try:
         if name == "run_lead_generation":
             if hasattr(db, "execute"):
@@ -549,7 +563,7 @@ def execute_tool(name: str, args: dict, router, db) -> dict:
 
 def run_agent(router, db, messages: list, provider: str | None = None,
               enabled_tools: list | None = None,
-              agent_slug: str | None = None) -> dict:
+              agent_slug: str | None = None, privileged: bool = False) -> dict:
     """One user turn -> up to MAX_STEPS tool rounds -> final Arabic reply.
     provider: pin the model (chat model picker). enabled_tools: subset of the
     tool names to expose this turn (integrations picker); None = all.
@@ -590,6 +604,11 @@ def run_agent(router, db, messages: list, provider: str | None = None,
                            if set(tool_scopes) & allowed_scopes}
                 enabled_tools = list(allowed) or None
 
+    if not privileged:
+        # Never even declare code tools to the model for non-admin callers.
+        enabled_tools = [d["name"] for d in TOOLS_DECL[0]["function_declarations"]
+                         if d["name"] not in PRIVILEGED_TOOLS
+                         and (enabled_tools is None or d["name"] in set(enabled_tools))]
     tools_decl = TOOLS_DECL
     if enabled_tools is not None:
         allowed = set(enabled_tools)
@@ -621,7 +640,7 @@ def run_agent(router, db, messages: list, provider: str | None = None,
                                        for fc in fcs]})
             responses = []
             for fc in fcs:
-                out = execute_tool(fc["name"], fc.get("args") or {}, router, db)
+                out = execute_tool(fc["name"], fc.get("args") or {}, router, db, privileged=privileged)
                 compact = json.dumps(out, ensure_ascii=False, default=str)
                 tool_trace.append({
                     "name": fc["name"], "args": fc.get("args") or {},
