@@ -30,7 +30,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  WORKER_URL: https://lead-engine3.vercel.app/api/cron/worker
+  WORKER_URL: https://lead-engine-lead-691e.vercel.app/api/cron/worker
 
 jobs:
   tick:
