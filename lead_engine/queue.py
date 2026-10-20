@@ -102,6 +102,13 @@ def lease_next(db, worker_id: str, lease_seconds: int = 600) -> dict | None:
     )
 
 
+# States a leased job can be in: RUNNING plus the research phases the
+# orchestrator moves it through. Reclaiming only RUNNING left crashed research
+# jobs stuck in DISCOVERING/QUALIFYING forever (audit C1/C2).
+_LEASED_STATES = ("RUNNING", "DISCOVERING", "RESEARCHING", "VERIFYING", "QUALIFYING")
+_LEASED_SQL = "(" + ",".join(f"'{s}'" for s in _LEASED_STATES) + ")"
+
+
 def reclaim_expired(db) -> int:
     """Return expired-lease jobs to the queue (crashed worker recovery).
 
@@ -124,13 +131,13 @@ def reclaim_expired(db) -> int:
     cur = db.execute(
         "UPDATE jobs SET state='FAILED', worker_id=NULL, lease_expires_at=NULL,"
         " pause_reason='lease expired after max attempts; not requeued',"
-        f" updated_at=? WHERE state='RUNNING' AND {expired}"
+        f" updated_at=? WHERE state IN {_LEASED_SQL} AND {expired}"
         " AND COALESCE(attempts, 0) >= COALESCE(max_attempts, 3)",
         (_now(),))
     failed = getattr(cur, "rowcount", 0)
     cur = db.execute(
         "UPDATE jobs SET state='QUEUED', worker_id=NULL, lease_expires_at=NULL,"
-        f" updated_at=? WHERE state='RUNNING' AND {expired}",
+        f" updated_at=? WHERE state IN {_LEASED_SQL} AND {expired}",
         (_now(),))
     return failed + getattr(cur, "rowcount", 0)
 

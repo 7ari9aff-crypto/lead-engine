@@ -97,6 +97,34 @@ def resolve_membership(claims: dict, db) -> dict | None:
     return dict(row) if row else None
 
 
+def _membership_table_exists(db) -> bool:
+    """True when the platform membership table is queryable. A failed lookup
+    caused by a MISSING table (ephemeral SQLite) is not the same as a user
+    who simply has no membership row."""
+    try:
+        db.one("SELECT 1 FROM public.organization_members LIMIT 1")
+        return True
+    except Exception:
+        return False
+
+
+def tenant_for_claims(claims: dict, db) -> str:
+    """Single tenant-resolution policy for verified users (audit A1).
+
+    1. Membership row -> that organisation.
+    2. No row, membership table EXISTS (platform mode) -> '__no_org__'
+       (fail closed). Previously this silently landed in the global bridge
+       org, so any open signup could read the main tenant's data.
+    3. No membership table at all (ephemeral single-org SQLite) -> the
+       LEAD_ENGINE_ORG_ID bridge, or '__no_org__' when unset."""
+    resolved = resolve_org_id(claims, db)
+    if resolved:
+        return resolved
+    if _membership_table_exists(db):
+        return "__no_org__"
+    return os.environ.get("LEAD_ENGINE_ORG_ID") or "__no_org__"
+
+
 def is_admin(claims: dict, db) -> bool:
     """Owner or admin for the token's active organization.
     Ephemeral single-org deployments (SQLite, no membership table) used to

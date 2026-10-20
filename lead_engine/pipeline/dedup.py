@@ -49,10 +49,24 @@ class DedupEngine:
                 i = parent[i]
             return i
 
+        # Domains seen per group. Two groups whose domains differ are two
+        # different companies: a shared phone / info@ mailbox / similar name
+        # must never bridge them, directly or through a chain (audit D1).
+        def _dom(lead):
+            d = lead.get("domain")
+            return str(d).lower() if d else None
+
+        group_domains = [({_dom(lead)} - {None}) for lead in leads]
+
         def union(i, j):
             ri, rj = find(i), find(j)
-            if ri != rj:
-                parent[max(ri, rj)] = min(ri, rj)
+            if ri == rj:
+                return
+            if group_domains[ri] and group_domains[rj] and group_domains[ri] != group_domains[rj]:
+                return  # conflicting domains -> keep separate
+            root, other = min(ri, rj), max(ri, rj)
+            parent[other] = root
+            group_domains[root] = group_domains[root] | group_domains[other]
 
         # ---- Stage 1: exact identifiers
         keymap = {}
@@ -63,7 +77,7 @@ class DedupEngine:
             if lead.get("email"):
                 keys.append("e:" + str(lead["email"]).lower())
             if lead.get("phone"):
-                keys.append("p:" + normalize_phone(lead["phone"]))
+                keys.append("p:" + normalize_phone(lead["phone"], str(lead.get("country") or "")))
             if lead.get("linkedin"):
                 keys.append("l:" + str(lead["linkedin"]).lower())
             if lead.get("source_id"):

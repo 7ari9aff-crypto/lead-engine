@@ -327,15 +327,7 @@ def get_db(request: Request = None):
             if claims:
                 from . import auth_jwt
 
-                resolved = auth_jwt.resolve_org_id(claims, db)
-                if resolved:
-                    db.org_id = resolved
-                else:
-                    # Verified user with no membership: on ephemeral-SQLite
-                    # deployments no membership table survives a deploy, so
-                    # the verified user rides the env-bridge org (same trust
-                    # model as tenant.apply_context). Fail-closed when unset.
-                    db.org_id = os.environ.get("LEAD_ENGINE_ORG_ID") or "__no_org__"
+                db.org_id = auth_jwt.tenant_for_claims(claims, db)
             elif not getattr(db, "org_id", None):
                 # Preserve the worker/service bridge for token-less contexts;
                 # browser requests always take the verified claims branch above.

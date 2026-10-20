@@ -67,21 +67,34 @@ def clean_title(title: str) -> str:
     return t.strip()
 
 
+_DIGIT_MAP = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+_COUNTRY_DIAL = {"SA": "966", "EG": "20", "AE": "971", "KW": "965", "QA": "974",
+                 "BH": "973", "OM": "968", "JO": "962"}
+
+
 def normalize_phone(phone: str, country: str = "") -> str:
     """Normalize a phone number to E.164 format.
-    Supports any international phone number; country hint is optional."""
-    digits = re.sub(r"\D", "", phone or "")
+
+    Handles Arabic-Indic digits, the 00 international prefix, and local
+    numbers with a leading trunk 0 (resolved with the country hint). Without
+    a country hint a local number cannot be fully resolved; it is returned
+    with a '+' and no leading zero, as before."""
+    raw = (phone or "").strip().translate(_DIGIT_MAP)
+    digits = re.sub(r"\D", "", raw)
     if not digits:
         return ""
-    # Already has country code (starts with international prefix digits)
-    if phone.strip().startswith("+"):
+    if raw.startswith("+"):
         return "+" + digits
-    # KSA local format hint
-    if country == "SA":
-        if digits.startswith("966"):
+    if digits.startswith("00"):          # 00966... == +966...
+        return "+" + digits[2:]
+    dial = _COUNTRY_DIAL.get((country or "").upper())
+    if dial:
+        if digits.startswith(dial) and len(digits) > len(dial) + 6:
             return "+" + digits
-        if digits.startswith("0") and len(digits) == 10:
-            return "+966" + digits[1:]
+        if digits.startswith("0"):
+            return "+" + dial + digits[1:]
+        if len(digits) in (8, 9):        # national number written without trunk 0
+            return "+" + dial + digits
     # Generic: strip leading zero (common local prefix in many countries)
     if digits.startswith("0") and len(digits) >= 8:
         digits = digits[1:]

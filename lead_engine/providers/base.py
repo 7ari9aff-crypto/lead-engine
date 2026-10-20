@@ -155,6 +155,17 @@ class BaseProvider:
         return rotated, fit_idx
 
     # ------------------------------------------------------------------ http
+    def _scrub(self, text) -> str:
+        """Redact every key this adapter holds from text that may be logged,
+        persisted (providers.status_reason) or returned to a client. requests
+        embeds the full request URL, query string included, in connection
+        errors, and some providers echo the key in 4xx bodies (audit E1/E2)."""
+        out = str(text)
+        for key in self.keys:
+            if key and len(key) >= 6:
+                out = out.replace(key, "***")
+        return out
+
     def _http(self, method: str, url: str, **kwargs):
         kwargs.setdefault("timeout", self.timeout)
         if self._session is None:
@@ -162,9 +173,9 @@ class BaseProvider:
         try:
             resp = self._session.request(method, url, **kwargs)
         except requests.ConnectionError as exc:
-            raise ProviderUnavailable(f"connection failed: {exc}") from exc
+            raise ProviderUnavailable(f"connection failed: {self._scrub(exc)}") from None
         except requests.Timeout as exc:
-            raise ProviderUnavailable(f"timeout: {exc}") from exc
+            raise ProviderUnavailable(f"timeout: {self._scrub(exc)}") from None
         self._last_rate_info = self._rate_info(resp.headers)
         if resp.status_code == 429:
             retry_after = resp.headers.get("retry-after")
@@ -180,7 +191,7 @@ class BaseProvider:
         if resp.status_code >= 500:
             raise ProviderUnavailable(f"{self.name}: server error {resp.status_code}")
         if resp.status_code >= 400:
-            body = resp.text[:300]
+            body = self._scrub(resp.text[:300])
             low = body.lower()
             if "quota" in low or "credit" in low:
                 raise QuotaExhausted(f"{self.name}: {body}")

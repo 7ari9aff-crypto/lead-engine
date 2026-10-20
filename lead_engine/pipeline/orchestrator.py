@@ -24,6 +24,26 @@ from .qualification import Qualifier
 ACCEPT_THRESHOLD = 60.0
 
 
+def decide_stage(lead: dict, verdict: dict) -> str:
+    """Final lead stage from the legal verdict, review flags and score.
+
+    An INVALID email never yields ACCEPTED (audit D3): the verification stage
+    ran but the old inline logic never read its result. The company itself may
+    be real, so the lead goes to human REVIEW instead of being rejected."""
+    if verdict.get("requires_review"):
+        lead["requires_review"] = True
+    if not verdict.get("storage_allowed", True):
+        return "REJECTED"
+    if lead.get("email") and lead.get("email_status") == "INVALID":
+        lead["requires_review"] = True
+        return "REVIEW"
+    if lead.get("requires_review"):
+        return "REVIEW"
+    if (lead.get("qualification_score") or 0) >= ACCEPT_THRESHOLD:
+        return "ACCEPTED"
+    return "REVIEW"
+
+
 class PipelineOrchestrator:
     def __init__(self, db, settings: dict, legal_country: str = None,
                  agent_run_id: str | None = None):
@@ -134,16 +154,7 @@ class PipelineOrchestrator:
                 verdict = gate.evaluate(lead)
                 lead["legal_decision"] = verdict["decision"]
                 lead["retention_days"] = verdict["retention_days"]
-                if verdict["requires_review"]:
-                    lead["requires_review"] = True
-                if not verdict["storage_allowed"]:
-                    lead["stage"] = "REJECTED"
-                elif lead.get("requires_review"):
-                    lead["stage"] = "REVIEW"
-                elif (lead.get("qualification_score") or 0) >= ACCEPT_THRESHOLD:
-                    lead["stage"] = "ACCEPTED"
-                else:
-                    lead["stage"] = "REVIEW"
+                lead["stage"] = decide_stage(lead, verdict)
                 lead["job_id"] = job_id
                 self.db.insert_lead(lead)
                 for url, query in zip(lead.get("source_urls") or [], lead.get("source_queries") or []):

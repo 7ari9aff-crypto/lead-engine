@@ -17,11 +17,10 @@ def apply_context(db, request: Request | None) -> None:
     claims = getattr(request.state, "claims", None) if request is not None else None
     if claims:
         from .api import auth_jwt
-        resolved = auth_jwt.resolve_org_id(claims, db)
-        # Fallback: ephemeral-SQLite deployments keep no membership table, so
-        # a verified Supabase user rides the env-bridge org (the deployment's
-        # trust model: Supabase accounts are operator-invited).
-        db.org_id = resolved or os.environ.get("LEAD_ENGINE_ORG_ID") or "__no_org__"
+        # One policy (auth_jwt.tenant_for_claims): membership -> own org;
+        # no membership in platform mode -> fail closed; bridge org only for
+        # ephemeral SQLite deployments that have no membership table.
+        db.org_id = auth_jwt.tenant_for_claims(claims, db)
         return
     if not getattr(db, "org_id", None):
         db.org_id = os.environ.get("LEAD_ENGINE_ORG_ID")

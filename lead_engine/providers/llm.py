@@ -69,9 +69,11 @@ class GeminiProvider(LLMBase):
             body["tools"] = tools
         endpoint = self.endpoint_url or self.URL
         endpoint = endpoint.format(model=self.model_name or "gemini-3.6-flash")
+        # Key travels in the x-goog-api-key header, never the URL: URLs end up
+        # in exception text, proxies and access logs (audit E1).
         resp = self._http(
-            "POST", endpoint
-            + f"?key={self.current_key()}",
+            "POST", endpoint,
+            headers={"x-goog-api-key": self.current_key() or ""},
             json=body,
         )
         data = self._json(resp)
