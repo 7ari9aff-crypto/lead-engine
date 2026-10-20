@@ -224,6 +224,39 @@ def _verify_signature(payload: bytes, header: str, secret: str) -> bool:
     return hmac.compare_digest(digest, expected)
 
 
+def _org_from_stripe_ids(subscription_id: str | None, customer_id: str | None) -> str | None:
+    """Fallback attribution for subscription events that carry no metadata."""
+    if not (subscription_id or customer_id):
+        return None
+    db = open_db()
+    try:
+        tbl = _t(db, "organizations")
+        for col, val in (("stripe_subscription_id", subscription_id),
+                         ("stripe_customer_id", customer_id)):
+            if not val:
+                continue
+            try:
+                row = db.one(f"SELECT id FROM {tbl} WHERE {col} = ?", (val,))
+            except Exception:
+                return None  # columns not migrated yet
+            if row:
+                return str(row["id"])
+    finally:
+        db.conn.close()
+    return None
+
+
+def _record_stripe_ids(db, org_id: str, customer: str | None, subscription: str | None) -> None:
+    if not (customer or subscription):
+        return
+    try:
+        db.execute(f"UPDATE {_t(db, 'organizations')} SET stripe_customer_id = COALESCE(?, stripe_customer_id),"
+                   " stripe_subscription_id = COALESCE(?, stripe_subscription_id) WHERE id = ?",
+                   (customer, subscription, org_id))
+    except Exception:
+        log.warning("billing.stripe_ids_not_recorded", org_id=org_id)
+
+
 def _apply_plan(db, org_id: str, plan: str) -> None:
     tbl = _t(db, "organizations")
     if plan == "free":
@@ -257,6 +290,8 @@ async def stripe_webhook(request: Request):
 
     # Resolve the org: client_reference_id on sessions, metadata elsewhere.
     org_id = obj.get("client_reference_id") or (obj.get("metadata") or {}).get("org_id")
+    if not org_id and etype.startswith("customer.subscription."):
+        org_id = _org_from_stripe_ids(obj.get("id"), obj.get("customer"))
     if not org_id:
         # Loud, not silent: an unattributable cancel means a customer may keep
         # a paid plan for free until someone notices.
@@ -283,6 +318,8 @@ async def stripe_webhook(request: Request):
     db = open_db()
     try:
         _apply_plan(db, org_id, plan)
+        if etype == "checkout.session.completed":
+            _record_stripe_ids(db, org_id, obj.get("customer"), obj.get("subscription"))
         db.conn.commit()
     finally:
         db.conn.close()

@@ -139,3 +139,24 @@ def test_stripe_lookup_failure_falls_back_to_metadata_plan(client, monkeypatch):
     r = _post(client, {"type": "checkout.session.completed", "data": {"object": {
         "id": "cs_2", "client_reference_id": "org-1", "metadata": {"plan": "pro"}}}})
     assert r.status_code == 200 and r.json().get("plan") == "pro"
+
+
+# ---- B3: ids recorded at purchase let a metadata-less cancellation find its org
+def test_checkout_completed_records_customer_and_subscription(client, db_path):
+    r = _post(client, {"type": "checkout.session.completed", "data": {"object": {
+        "client_reference_id": "org-1", "customer": "cus_9", "subscription": "sub_9",
+        "metadata": {"plan": "pro"}}}})
+    assert r.status_code == 200
+    row = Database(db_path).one("SELECT stripe_customer_id c, stripe_subscription_id s"
+                                " FROM organizations WHERE id='org-1'")
+    assert (row["c"], row["s"]) == ("cus_9", "sub_9")
+
+
+def test_cancellation_without_metadata_resolves_org_via_stored_ids(client, db_path):
+    _post(client, {"type": "checkout.session.completed", "data": {"object": {
+        "client_reference_id": "org-1", "customer": "cus_9", "subscription": "sub_9",
+        "metadata": {"plan": "pro"}}}})
+    r = _post(client, {"type": "customer.subscription.deleted",
+                       "data": {"object": {"id": "sub_9", "customer": "cus_9", "metadata": {}}}})
+    assert r.json().get("plan") == "free", r.json()
+    assert _limits(db_path)["max_jobs_per_day"] == DEFAULT_LIMITS["max_jobs_per_day"]
