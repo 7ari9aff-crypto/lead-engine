@@ -179,6 +179,19 @@ def release(db, job_id: str) -> None:
         " WHERE job_id=?", (_now(), job_id))
 
 
+def yield_slice(db, job_id: str) -> None:
+    """Hand a job back after a time slice. The run stopped itself before the
+    serverless request limit, so this is progress, not a failure: the attempt
+    taken by lease_next is refunded (otherwise a long job would exhaust
+    max_attempts just by being long) and no backoff is applied, so the next
+    tick continues it."""
+    db.execute(
+        "UPDATE jobs SET state='QUEUED', worker_id=NULL, lease_expires_at=NULL,"
+        " resume_at=NULL, pause_reason=NULL,"
+        " attempts=CASE WHEN COALESCE(attempts,0) > 0 THEN attempts - 1 ELSE 0 END,"
+        " updated_at=? WHERE job_id=?", (_now(), job_id))
+
+
 def fail(db, job_id: str, reason: str) -> str:
     """Retry with exponential backoff while attempts remain, else FAILED.
     Returns the resulting state."""

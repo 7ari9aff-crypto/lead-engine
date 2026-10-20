@@ -40,6 +40,9 @@ class FakeQueue:
         self.calls.append(("fail", job_id, reason))
         return "QUEUED"
 
+    def yield_slice(self, db, job_id):
+        self.calls.append(("yield", job_id))
+
 
 @pytest.fixture()
 def sqldb(tmp_path):
@@ -55,7 +58,8 @@ def leased_job(job_id):
 @pytest.fixture()
 def fake_queue(monkeypatch):
     fq = FakeQueue()
-    for name in ("reclaim_expired", "lease_next", "complete", "release", "fail"):
+    for name in ("reclaim_expired", "lease_next", "complete", "release", "fail",
+                 "yield_slice"):
         monkeypatch.setattr(queue_mod, name, getattr(fq, name))
     return fq
 
@@ -83,7 +87,7 @@ def fake_benchmark(monkeypatch):
 def fake_research(monkeypatch):
     def install(summary):
         class FakeOrchestrator:
-            def __init__(self, db, settings, job_id):
+            def __init__(self, db, settings, job_id, **kwargs):
                 pass
 
             def run(self):
@@ -196,3 +200,41 @@ def test_platform_mode_on_vercel_means_a_worker_exists(monkeypatch):
     monkeypatch.delenv("VERCEL")
     monkeypatch.delenv("LEAD_ENGINE_QUEUE_MODE")
     assert platform_mode() is False
+
+
+def test_yielded_research_returns_to_queue_without_burning_an_attempt(
+        sqldb, fake_queue, fake_research):
+    fake_research({"state": "DISCOVERING", "yielded": True})
+    from lead_engine.research import ResearchJobManager
+    job_id = ResearchJobManager(sqldb).create("long research")
+    fake_queue.job = leased_job(job_id)
+
+    result = run_worker_tick(sqldb, "w-1", settings={})
+
+    assert ("yield", job_id) in fake_queue.calls
+    assert not any(c[0] in ("fail", "complete", "release") for c in fake_queue.calls)
+    assert result["yielded"] is True
+    assert result["error"] is None
+
+
+def test_tick_passes_a_deadline_inside_the_request_limit(
+        sqldb, fake_queue, monkeypatch):
+    seen = {}
+
+    class Spy:
+        def __init__(self, db, settings, job_id, **kwargs):
+            seen.update(kwargs)
+
+        def run(self):
+            return {"state": "READY_FOR_REVIEW"}
+
+    monkeypatch.setattr("lead_engine.research.orchestrator.ResearchOrchestrator", Spy)
+    from lead_engine.research import ResearchJobManager
+    import time
+    job_id = ResearchJobManager(sqldb).create("r")
+    fake_queue.job = leased_job(job_id)
+    t0 = time.monotonic()
+    run_worker_tick(sqldb, "w-1", settings={})
+    # default budget leaves headroom under Vercel's 60 s
+    assert seen["deadline"] - t0 <= 50
+    assert seen["deadline"] - t0 > 10

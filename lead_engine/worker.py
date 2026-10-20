@@ -10,19 +10,33 @@ seed_csv is an inline-run affordance only: queue mode enqueues a bare
 job_id, so API-started runs that pass seed_csv lose it in queue mode.
 """
 import os
+import time
 
 from . import queue
 from .config import load_settings
 
 
+def tick_budget_seconds() -> float:
+    """Wall-clock a serverless tick may spend driving a job. Vercel kills the
+    function at maxDuration (60 s) with a 504, so the default leaves headroom
+    for finalize writes and the response. 0/invalid disables slicing (CLI)."""
+    try:
+        return float(os.environ.get("LEAD_ENGINE_TICK_BUDGET_SECONDS", "45"))
+    except ValueError:
+        return 45.0
+
+
 def run_worker_tick(db, worker_id: str, settings: dict | None = None,
-                    lease_seconds: int = 600) -> dict:
+                    lease_seconds: int = 600,
+                    budget_seconds: float | None = None) -> dict:
     """Run exactly one scheduling step. Returns what happened, never raises:
     the cron endpoint reports this dict over HTTP instead of a stack trace."""
+    started = time.monotonic()
+    budget = tick_budget_seconds() if budget_seconds is None else budget_seconds
     result = {"worker_id": worker_id, "reclaimed": 0, "stale_runs_reaped": 0,
               "paused_expired": 0, "retention_erased": 0,
               "leased": False, "job_id": None,
-              "state": None, "error": None}
+              "state": None, "error": None, "yielded": False}
     result["reclaimed"] = queue.reclaim_expired(db)
     result["paused_expired"] = queue.expire_stale_paused(db)
     try:
@@ -49,10 +63,16 @@ def run_worker_tick(db, worker_id: str, settings: dict | None = None,
             # agentic research path — resumable, budgeted, human gate
             from .research.orchestrator import ResearchOrchestrator
 
+            kwargs = {"deadline": started + budget} if budget > 0 else {}
             summary = ResearchOrchestrator(
-                db, settings or load_settings(), job["job_id"]).run()
+                db, settings or load_settings(), job["job_id"], **kwargs).run()
             state = summary.get("state") or "READY_FOR_REVIEW"
-            if state == "PAUSED":
+            if summary.get("yielded"):
+                # ran out of request time, not out of work: back to the queue
+                # with the attempt refunded; the next tick resumes (E3)
+                queue.yield_slice(db, job["job_id"])
+                result["yielded"] = True
+            elif state == "PAUSED":
                 queue.fail(db, job["job_id"],
                            summary.get("pause_reason") or "paused")
             else:

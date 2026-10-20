@@ -77,3 +77,23 @@ def test_fail_exhausts_to_failed(db, org_id):
         assert db.one("SELECT state FROM jobs WHERE job_id=?", (job_id,))["state"] == "FAILED"
     finally:
         _cleanup(db, job_id)
+
+
+def test_yield_slice_refunds_the_attempt_and_resumes(db, org_id):
+    from lead_engine import queue
+
+    job_id = _mk_job(db, org_id)
+    try:
+        queue.enqueue(db, job_id)
+        leased = queue.lease_next(db, "worker-test")
+        assert leased and leased["attempts"] == 1
+        queue.yield_slice(db, job_id)
+        row = db.one("SELECT state, attempts, worker_id, lease_expires_at, resume_at"
+                     " FROM jobs WHERE job_id=?", (job_id,))
+        assert row["state"] == "QUEUED" and row["attempts"] == 0
+        assert row["worker_id"] is None and row["lease_expires_at"] is None
+        # immediately leasable again: no backoff, and it does not eat max_attempts
+        again = queue.lease_next(db, "worker-test")
+        assert again and again["job_id"] == job_id and again["attempts"] == 1
+    finally:
+        _cleanup(db, job_id)

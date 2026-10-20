@@ -23,6 +23,7 @@ Design:
 - No tool named send_* exists; approval authority stays human (§31).
 """
 import json
+import time
 from datetime import datetime, timedelta, timezone
 
 from ..agent_registry import AgentRegistry
@@ -74,6 +75,10 @@ ICP (إن وجد):
 
 STALL_ROUNDS_LIMIT = 3
 MAX_PARSE_RETRIES = 1
+TIME_SLICE = "TIME_SLICE"  # not a job state: the run yielded, the job is resumable
+# One agent turn = up to 2 model calls + 4 tools. If less than this is left we
+# yield instead of starting a turn the serverless limit would kill half-way.
+TURN_RESERVE_SECONDS = 25.0
 
 
 class OrchestratorError(RuntimeError):
@@ -82,7 +87,13 @@ class OrchestratorError(RuntimeError):
 
 class ResearchOrchestrator:
     def __init__(self, db, settings: dict, job_id: str, *,
-                 router: Router | None = None):
+                 router: Router | None = None,
+                 deadline: float | None = None, clock=time.monotonic):
+        # deadline is an absolute `clock()` value. None = unlimited (CLI worker,
+        # inline API run, tests). Serverless ticks pass one so a job that needs
+        # longer than the request limit yields instead of being killed (E3).
+        self.deadline = deadline
+        self.clock = clock
         self.db = db
         self.settings = settings or {}
         self.job_id = job_id
@@ -131,6 +142,14 @@ class ResearchOrchestrator:
             current = self.manager.jobs.current(self.job_id)
             if current in (CANCELLED, PAUSED, COMPLETED, FAILED, WAITING_FOR_USER):
                 return self._summary(current)
+            if self._out_of_time():
+                # State is already durable (plan, facts, counters, steps), so
+                # the next slice resumes here. Finalize is deliberately NOT run:
+                # verify/qualify/materialize must not be cut in half.
+                out = self._summary(TIME_SLICE,
+                                    note="yielded before the request limit")
+                out["yielded"] = True
+                return out
             ok, exceeded, snap = self.manager.budget_check(self.job_id)
             if not ok:
                 # a budget stop does NOT skip closure: whatever was learned
@@ -161,6 +180,10 @@ class ResearchOrchestrator:
 
         return self._finalize(agent_run_id, stop_reason=stop_reason,
                               stop_detail=stop_detail)
+
+    def _out_of_time(self) -> bool:
+        return (self.deadline is not None
+                and self.clock() + TURN_RESERVE_SECONDS >= self.deadline)
 
     # ------------------------------------------------------ agent turn
     def _agent_turn(self, objective: str, plan: dict, agent_run_id: str,

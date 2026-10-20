@@ -19,6 +19,18 @@ from v6api.app import build_v6_router
 from application.ports import Principal
 
 
+def v6_org_bridge() -> str:
+    """Tenant for the env-bridge paths. v6 is its own tenant ("Production Org"),
+    distinct from the v1 engine org that LEAD_ENGINE_ORG_ID names. The dedicated
+    variable wins; the shared one stays as the fallback so deployments that set
+    only LEAD_ENGINE_ORG_ID keep their behaviour."""
+    for name in ("LEAD_ENGINE_V6_ORG_ID", "LEAD_ENGINE_ORG_ID"):
+        value = (os.environ.get(name) or "").strip()
+        if value:
+            return value
+    return ""
+
+
 def _bridge_principal(request: Request) -> Principal:
     from v6api.dependencies import get_container
 
@@ -49,7 +61,7 @@ def _bridge_principal(request: Request) -> Principal:
         # reads, but as a MEMBER. Owner privilege requires a real membership row
         # (or the legacy cookie path below) — an open-supabase signup must never
         # inherit admin of the deployment org by merely existing.
-        org_bridge = (os.environ.get("LEAD_ENGINE_ORG_ID") or "").strip()
+        org_bridge = v6_org_bridge()
         if org_bridge:
             return Principal(org_id=org_bridge, user_ext_id=sub, role="member")
 
@@ -57,14 +69,14 @@ def _bridge_principal(request: Request) -> Principal:
     from lead_engine.api import auth as legacy_auth
 
     if legacy_auth.valid_session(request.cookies.get(legacy_auth.COOKIE_NAME)):
-        org_bridge = (os.environ.get("LEAD_ENGINE_ORG_ID") or "").strip()
+        org_bridge = v6_org_bridge()
         if org_bridge:
             return Principal(org_id=org_bridge, user_ext_id="legacy-cookie",
                              role="owner")
         if not legacy_auth.enabled():
             raise HTTPException(
                 status_code=401,
-                detail="open mode needs LEAD_ENGINE_ORG_ID for tenant resolution")
+                detail="open mode needs LEAD_ENGINE_V6_ORG_ID (or LEAD_ENGINE_ORG_ID) for tenant resolution")
     raise HTTPException(status_code=401, detail="authentication required")
 
 
