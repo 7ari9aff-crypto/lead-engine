@@ -28,13 +28,15 @@ def plan(rows: list[dict]) -> dict:
 
     rows: id, org_id, canonical_name, domain, city, name_key
     """
-    updates: list[tuple[str, str]] = []
+    updates: list[tuple[str, str | None]] = []
     skipped_generic = 0
     groups: dict[tuple, list[dict]] = defaultdict(list)
     for r in rows:
         key = name_key(r.get("canonical_name"))
         if not key:
             skipped_generic += 1          # generic name: intentionally no key
+            if r.get("name_key"):         # ...and a STALE key must not keep matching
+                updates.append((str(r["id"]), None))
             continue
         if r.get("name_key") != key:
             updates.append((str(r["id"]), key))
@@ -90,9 +92,9 @@ def main() -> int:
             print("\nDRY RUN: nothing written. Re-run with --apply.")
             return 0
         for cid, key in result["updates"]:
-            esc = key.replace("'", "''")
-            sql.q(f"UPDATE company_identity.companies SET name_key = '{esc}' "
-                  f"WHERE id = '{cid}'::uuid AND name_key IS DISTINCT FROM '{esc}'")
+            val = "NULL" if key is None else "'" + key.replace("'", "''") + "'"
+            sql.q(f"UPDATE company_identity.companies SET name_key = {val} "
+                  f"WHERE id = '{cid}'::uuid AND name_key IS DISTINCT FROM {val}")
         print(f"\nAPPLIED: {len(result['updates'])} rows updated.")
         return 0
     finally:
