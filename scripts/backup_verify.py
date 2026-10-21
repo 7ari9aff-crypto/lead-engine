@@ -53,6 +53,8 @@ def main(argv: list[str]) -> int:
     if not src:
         print("::error::source reported zero tables - refusing to call this a backup")
         return 2
+    # public.organizations is restored by the workflow first (FK target of 15 engine
+    # tables); the schemas dump is restored here and then compared table by table
     subprocess.run(["pg_restore", "--no-owner", "--no-privileges", "--exit-on-error",
                     "-d", restore_dsn, dump], check=True)
     problems = compare(src, table_counts(restore_dsn))
