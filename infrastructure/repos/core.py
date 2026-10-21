@@ -170,15 +170,31 @@ class CompanyRepo:
             (name.lower(),),
         )
 
+    def find_by_name_key(self, key: str) -> dict[str, Any] | None:
+        """Match on the language-aware key. Rows not yet backfilled (name_key
+        NULL) are still found through the legacy canonical_name comparison, so
+        deploying code before the backfill never loses a match."""
+        return _one(
+            self.cur,
+            """SELECT * FROM company_identity.companies
+               WHERE org_id = current_setting('app.tenant_id', true)::uuid
+                 AND merged_into_id IS NULL
+                 AND (name_key = %s
+                      OR (name_key IS NULL AND lower(canonical_name) = %s))
+               ORDER BY created_at LIMIT 1""",
+            (key, key),
+        )
+
     def create_company(self, company_id: str, canonical_name: str, domain: str | None,
-                       country: str | None, industry: str | None, city: str | None) -> str:
+                       country: str | None, industry: str | None, city: str | None,
+                       name_key: str | None = None) -> str:
         row = _one(
             self.cur,
             """INSERT INTO company_identity.companies
-                 (id, org_id, canonical_name, domain, country, industry, city)
-               VALUES (%s, current_setting('app.tenant_id', true)::uuid, %s, %s, %s, %s, %s)
+                 (id, org_id, canonical_name, domain, country, industry, city, name_key)
+               VALUES (%s, current_setting('app.tenant_id', true)::uuid, %s, %s, %s, %s, %s, %s)
                RETURNING id""",
-            (company_id, canonical_name, domain, country, industry, city),
+            (company_id, canonical_name, domain, country, industry, city, name_key or None),
         )
         return str(row["id"])
 
