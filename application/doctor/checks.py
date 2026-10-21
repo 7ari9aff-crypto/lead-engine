@@ -15,13 +15,36 @@ from contracts.doctor import CheckStatus, DoctorCheck
 PLAINTEXT_EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 
 
+# A single cold `SELECT 1` includes TCP/TLS connection setup. The worker runs on
+# GitHub Actions (US) against Supabase (eu-west-1), so the old 500ms single-shot
+# threshold measured the network path, not database health: ~280 WARN alerts in
+# five weeks, all 500-590ms and all self-resolving. We now warm the connection,
+# take the BEST of a few probes (robust to one-off jitter, still catches a
+# genuinely slow database), and use a configurable threshold.
+DB_LATENCY_WARN_MS_DEFAULT = 1000.0
+DB_LATENCY_PROBES = 3
+
+
+def _latency_threshold_ms() -> float:
+    import os
+    try:
+        return float(os.environ.get("LEAD_ENGINE_DB_LATENCY_WARN_MS", DB_LATENCY_WARN_MS_DEFAULT))
+    except ValueError:
+        return DB_LATENCY_WARN_MS_DEFAULT
+
+
 def check_db_latency(backend, settings, org) -> DoctorCheck:
-    t0 = time.monotonic()
-    backend.system_one("SELECT 1")
-    ms = round((time.monotonic() - t0) * 1000, 1)
-    status = CheckStatus.OK if ms < 500 else CheckStatus.WARN
+    samples: list[float] = []
+    for _ in range(DB_LATENCY_PROBES):
+        t0 = time.monotonic()
+        backend.system_one("SELECT 1")
+        samples.append(round((time.monotonic() - t0) * 1000, 1))
+    ms = min(samples)
+    threshold = _latency_threshold_ms()
+    status = CheckStatus.OK if ms < threshold else CheckStatus.WARN
     return DoctorCheck("db.latency", "اتصال قاعدة البيانات وزمن الاستجابة",
-                       status, f"زمن الاستجابة {ms}ms", {"latency_ms": ms})
+                       status, f"زمن الاستجابة {ms}ms",
+                       {"latency_ms": ms, "samples_ms": samples, "warn_ms": threshold})
 
 
 def check_migrations(backend, settings, org) -> DoctorCheck:
