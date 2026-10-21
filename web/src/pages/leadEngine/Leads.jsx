@@ -113,7 +113,7 @@ export default function Leads() {
                         </td>
                         <td className="py-3 px-4 text-muted-foreground">{tr(l.company.location, lang)}</td>
                         <td className="py-3 px-4"><Pill>{tr(l.company.industry, lang)}</Pill></td>
-                        <td className="py-3 px-4"><div className="flex items-center justify-center gap-2"><ScoreRing score={l.icpFit.score} size={36} /><span className="tnum font-medium">{l.icpFit.score}%</span></div></td>
+                        <td className="py-3 px-4"><div className="flex items-center justify-center gap-2"><ScoreRing score={l.icpFit.score} size={36} /></div></td>
                         <td className="py-3 px-4"><StatusBadge status={l.status} /></td>
                         <td className="py-3 px-4"><StatusBadge status={l.verificationStatus} /></td>
                         <td className="py-3 px-4 text-center tnum">{l.evidenceCoverage}%</td>
