@@ -200,7 +200,7 @@ export default function LeadDetail() {
                   <button disabled={busy} onClick={() => decide("RESEARCH_MORE")} className="rounded-lg border border-border py-2 text-xs font-semibold hover:bg-muted transition inline-flex items-center justify-center gap-1.5 disabled:opacity-40"><FileSearch className="w-3.5 h-3.5" /> {t("review.researchMore")}</button>
                   {lead.status !== "SAVED" && <button disabled={busy} onClick={() => decide("SAVED")} className="rounded-lg border border-border py-2 text-xs font-semibold hover:bg-muted transition inline-flex items-center justify-center gap-1.5 disabled:opacity-40"><Clock className="w-3.5 h-3.5" /> {t("review.saveLater")}</button>}
                 </div>
-                {!contactOk && <p className="text-[11px] text-muted-foreground leading-relaxed">{canFindContacts ? (ar ? "الاعتماد يحتاج جهة اتصال. اضغط «ابحث أكثر» للعثور على صانع قرار." : "Approval needs a contact. Use Research more to find a decision maker.") : (ar ? "الاعتماد يحتاج جهة اتصال. اربط ZoomInfo من «بيانات الاعتماد» ثم اضغط «ابحث أكثر»." : "Approval needs a contact. Connect ZoomInfo under Credentials, then use Research more.")}</p>}
+                {!contactOk && <p className="text-[11px] text-muted-foreground leading-relaxed">{canFindContacts ? (ar ? "الاعتماد يحتاج جهة اتصال. اضغط «ابحث أكثر» للعثور على صانع قرار." : "Approval needs a contact. Use Research more to find a decision maker.") : (ar ? "الاعتماد يحتاج جهة اتصال. اربط Apollo من «بيانات الاعتماد» ثم اضغط «ابحث أكثر»." : "Approval needs a contact. Connect Apollo under Credentials, then use Research more.")}</p>}
                 {busy && <p className="text-[11px] text-muted-foreground">{ar ? "جارٍ البحث عن المعلومات الناقصة…" : "Looking for the missing information…"}</p>}
                 <p className="text-[10px] text-muted-foreground leading-relaxed pt-1">{t("review.noSend")}</p>
               </div>
@@ -225,7 +225,7 @@ export default function LeadDetail() {
                 <div className="text-[10px] text-muted-foreground pt-2 border-t border-border">{ar ? "سبب الكشف" : "Reason"}: {lead.contact.revealReason} · <TimeAgo iso={lead.contact.revealAt} /></div>
               </dl>
             ) : !contactOk ? (
-              <div className="text-sm text-muted-foreground py-1">{canFindContacts ? (ar ? "لم يُحدَّد صانع قرار بعد. استخدم «ابحث أكثر»." : "No decision maker yet. Use Research more.") : (ar ? "لم يُحدَّد صانع قرار — ZoomInfo غير مربوط." : "No decision maker — ZoomInfo is not connected.")}</div>
+              <div className="text-sm text-muted-foreground py-1">{canFindContacts ? (ar ? "لم يُحدَّد صانع قرار بعد. استخدم «ابحث أكثر»." : "No decision maker yet. Use Research more.") : (ar ? "لم يُحدَّد صانع قرار — Apollo غير مربوط." : "No decision maker — Apollo is not connected.")}</div>
             ) : (
               <div>
                 <p className="text-xs text-muted-foreground mb-3 leading-relaxed">{ar ? "بيانات الاتصال حساسة: يتطلب كشفها سببًا ويُسجَّل في سجل التدقيق." : "Contact data is sensitive: revealing it needs a reason and is audit-logged."}</p>

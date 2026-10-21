@@ -22,6 +22,7 @@ const STATUS_LABELS = {
   DEGRADED: { ar: "متوقف مؤقتًا", en: "Cooling down" },
   EXHAUSTED: { ar: "نفدت الحصة", en: "Quota exhausted" },
   DISCONNECTED: { ar: "غير مربوط", en: "Not connected" },
+  UNCONFIGURED: { ar: "المفتاح غير مضبوط", en: "No API key" },
   UNKNOWN: { ar: "غير معروف", en: "Unknown" },
 };
 

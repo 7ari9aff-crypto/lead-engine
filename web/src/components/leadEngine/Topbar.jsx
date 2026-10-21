@@ -13,7 +13,7 @@ export function Topbar({ onMenu }) {
 
   const q = query.trim().toLowerCase();
   const leadHits = q
-    ? leads.filter((l) => l.company.name.toLowerCase().includes(q) || (l.company.domain || "").includes(q))
+    ? leads.filter((l) => l.company.name.toLowerCase().includes(q) || (l.company.rawName || "").toLowerCase().includes(q) || (l.company.domain || "").includes(q))
         .slice(0, 4).map((l) => ({ type: "lead", id: l.id, label: l.company.name, sub: l.company.domain, to: `/leads/${l.id}` }))
     : [];
   const jobHits = q

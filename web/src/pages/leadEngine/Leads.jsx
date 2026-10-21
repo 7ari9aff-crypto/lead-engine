@@ -25,7 +25,7 @@ export default function Leads() {
   const reset = () => { setStatus("ALL"); setVerification("ALL"); setIndustry("ALL"); setMinFit(0); setQ(""); };
 
   const filtered = leads.filter((l) => {
-    if (q && !(l.company.name.toLowerCase().includes(q.toLowerCase()) || (l.company.domain || "").includes(q.toLowerCase()) || (l.company.location || "").toLowerCase().includes(q.toLowerCase()))) return false;
+    if (q && !(l.company.name.toLowerCase().includes(q.toLowerCase()) || (l.company.rawName || "").toLowerCase().includes(q.toLowerCase()) || (l.company.domain || "").includes(q.toLowerCase()) || (l.company.location || "").toLowerCase().includes(q.toLowerCase()))) return false;
     if (status !== "ALL" && l.status !== status) return false;
     if (verification !== "ALL" && l.verificationStatus !== verification) return false;
     if (industry !== "ALL" && l.company.industry !== industry) return false;

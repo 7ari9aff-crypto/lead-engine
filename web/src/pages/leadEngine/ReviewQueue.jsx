@@ -83,15 +83,15 @@ export default function ReviewQueue() {
                       </div>
                     </div>
                     <div className="flex items-center gap-5 text-xs">
-                      <Metric label={ar ? "معايير مطابقة" : "Criteria met"} value={`${matchCount}/${l.icpFit.criteria.length}`} />
-                      <Metric label={ar ? "معلومات متحققة" : "Facts verified"} value={`${factVerified}/${l.facts.length}`} />
+                      <Metric label={ar ? "معايير مطابقة" : "Criteria met"} value={l.icpFit.criteria.length ? `${matchCount}/${l.icpFit.criteria.length}` : "—"} />
+                      <Metric label={ar ? "معلومات متحققة" : "Facts verified"} value={l.facts.length ? `${factVerified}/${l.facts.length}` : "—"} />
                       <Metric label={ar ? "تغطية الأدلة" : "Evidence"} value={`${l.evidenceCoverage}%`} />
                     </div>
                     <div className="flex items-center gap-2 flex-wrap lg:ms-2">
                       <button onClick={() => navigate(`/leads/${l.id}`)} className="rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-muted transition inline-flex items-center gap-1">
                         {ar ? "التفاصيل" : "Details"} <ArrowUpRight className="w-3.5 h-3.5" />
                       </button>
-                      <button disabled={busy || !contactOk} onClick={() => decide(l, "APPROVED")}
+                      <button disabled={busy || !contactOk} title={!contactOk ? (ar ? "لا يمكن الاعتماد بدون جهة اتصال" : "Cannot approve without a contact") : undefined} onClick={() => decide(l, "APPROVED")}
                         title={!contactOk ? (ar ? "لا توجد جهة اتصال محددة" : "No contact identified") : undefined}
                         className="h-9 px-3 rounded-lg bg-[hsl(var(--success))] text-white text-xs font-medium inline-flex items-center gap-1.5 hover:opacity-90 transition disabled:opacity-40 disabled:cursor-not-allowed">
                         <CheckCircle2 className="w-4 h-4" /> {ar ? "اعتماد" : "Approve"}
@@ -109,7 +109,7 @@ export default function ReviewQueue() {
                     </div>
                   </div>
                   {!contactOk && !busy && (
-                    <p className="text-[11px] text-muted-foreground mt-3 ps-1">{canFindContacts ? (ar ? "لم تُحدَّد جهة اتصال بعد — اضغط «ابحث أكثر» ليبحث النظام عن صانع قرار." : "No contact yet — use Research more to look for a decision maker.") : (ar ? "لم تُحدَّد جهة اتصال. اربط ZoomInfo من «بيانات الاعتماد» ثم اضغط «ابحث أكثر»." : "No contact yet. Connect ZoomInfo under Credentials, then use Research more.")}</p>
+                    <p className="text-[11px] text-muted-foreground mt-3 ps-1">{canFindContacts ? (ar ? "لم تُحدَّد جهة اتصال بعد — اضغط «ابحث أكثر» ليبحث النظام عن صانع قرار." : "No contact yet — use Research more to look for a decision maker.") : (ar ? "لم تُحدَّد جهة اتصال. اربط Apollo من «بيانات الاعتماد» ثم اضغط «ابحث أكثر»." : "No contact yet. Connect Apollo under Credentials, then use Research more.")}</p>
                   )}
                   {busy && <p className="text-[11px] text-muted-foreground mt-3 ps-1">{ar ? "جارٍ البحث عن المعلومات الناقصة…" : "Looking for the missing information…"}</p>}
                 </div>
