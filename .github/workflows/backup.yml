@@ -71,11 +71,20 @@ jobs:
           pg_dump --version | grep -q " 17\." || { echo "::error::wrong pg_dump: $(pg_dump --version)"; exit 1; }
           # session-mode pooler port: pg_dump needs session state, not transaction pooling
           DSN="${BACKUP_DB_URL/:6543\//:5432/}"
-          # --serializable-deferrable = one consistent snapshot across schemas
+          # -t NARROWS a -n selection instead of adding to it (measured: -n x3 plus
+          # -t public.organizations produced 6 KB instead of 290 KB, silently dropping
+          # 38 tables). So the schemas and the one extra table are separate dumps.
+          # --serializable-deferrable = one consistent snapshot per dump
           pg_dump "$DSN" --format=custom --compress=9 --no-owner --no-privileges \
-            --serializable-deferrable -n engine -n platform -n runtime -t public.organizations \
+            --serializable-deferrable -n engine -n platform -n runtime \
             --file=backup.dump
-          ls -l backup.dump
+          pg_dump "$DSN" --format=custom --compress=9 --no-owner --no-privileges \
+            --serializable-deferrable -t public.organizations \
+            --file=backup_public.dump
+          # a dump this small cannot hold 38 tables of real data: refuse it outright
+          SIZE=$(stat -c %s backup.dump)
+          if [ "$SIZE" -lt 50000 ]; then echo "::error::backup.dump is only $SIZE bytes - looks empty"; exit 1; fi
+          ls -l backup.dump backup_public.dump
           # the same snapshot instant as the dump is not guaranteed by a second
           # connection, so counts are taken right after under repeatable read; any
           # row written in between would show up as a mismatch and fail loudly
@@ -98,6 +107,11 @@ jobs:
           # calls. Recreate it (same body as production) rather than widening the dump
           # to the whole `public` schema, which the backup role cannot read anyway.
           psql "$RESTORE" -v ON_ERROR_STOP=1 -c "create or replace function public.touch_updated_at() returns trigger language plpgsql set search_path to '' as \$\$ begin new.updated_at = now(); return new; end; \$\$;"
+          # Supabase roles referenced by RLS policies do not exist in a plain Postgres
+          for r in anon authenticated service_role; do
+            psql "$RESTORE" -v ON_ERROR_STOP=1 -c "do \$\$ begin if not exists (select 1 from pg_roles where rolname='$r') then create role $r nologin; end if; end \$\$;"
+          done
+          pg_restore --no-owner --no-privileges --exit-on-error -d "$RESTORE" backup_public.dump
           python scripts/backup_verify.py backup.dump "$BACKUP_DB_URL" "$RESTORE" source_counts.json
 
       - name: Encrypt
@@ -110,7 +124,9 @@ jobs:
           fi
           openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:BACKUP_PASSPHRASE \
             -in backup.dump -out "backup-$(date -u +%F).dump.enc"
-          rm -f backup.dump source_counts.json
+          openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:BACKUP_PASSPHRASE \
+            -in backup_public.dump -out "backup-public-$(date -u +%F).dump.enc"
+          rm -f backup.dump backup_public.dump source_counts.json
 
       - uses: actions/upload-artifact@v4
         with:
