@@ -7,11 +7,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { UserPlus, Mail, Lock, Loader2 } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
+import { useAuthLang } from "@/hooks/useAuthLang";
 import { safeReturnTo } from "@/lib/authReturnTo";
 
 export default function Register() {
   const { signInWithPassword } = useAuth();
   const navigate = useNavigate();
+  const lang = useAuthLang();
+  const { t } = lang;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -24,7 +27,7 @@ export default function Register() {
     setError("");
     setNotice("");
     if (password !== confirmPassword) {
-      setError("Passwords do not match");
+      setError(t("register.mismatch"));
       return;
     }
     setLoading(true);
@@ -36,10 +39,10 @@ export default function Register() {
         await signInWithPassword(email, password);
         navigate(safeReturnTo());
       } catch {
-        setNotice("Account created — check your email to confirm, then log in.");
+        setNotice(t("register.confirmEmail"));
       }
-    } catch (err) {
-      setError(err.message || "Registration failed");
+    } catch {
+      setError(t("register.failed"));
     } finally {
       setLoading(false);
     }
@@ -47,78 +50,82 @@ export default function Register() {
 
   return (
     <AuthLayout
+      lang={lang}
       icon={UserPlus}
-      title="Create your account"
-      subtitle="Sign up to get started"
+      title={t("register.title")}
+      subtitle={t("register.subtitle")}
       footer={
         <>
-          Already have an account?{" "}
+          {t("register.haveAccount")}{" "}
           <Link
             to={"/login" + (safeReturnTo() !== "/" ? "?returnTo=" + encodeURIComponent(safeReturnTo()) : "")}
             className="text-primary font-medium hover:underline"
           >
-            Log in
+            {t("register.logIn")}
           </Link>
         </>
       }
     >
       {error && (
-        <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
+        <div role="alert" className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
           {error}
         </div>
       )}
       {notice && (
-        <div className="mb-4 p-3 rounded-lg bg-primary/10 text-primary text-sm">
+        <div role="status" className="mb-4 p-3 rounded-lg bg-primary/10 text-primary text-sm">
           {notice}
         </div>
       )}
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="email">Email</Label>
+          <Label htmlFor="email">{t("field.email")}</Label>
           <div className="relative">
-            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+            <Mail className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
             <Input
               id="email"
               type="email"
+              dir="ltr"
               autoComplete="email"
               autoFocus
               placeholder="you@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="pl-10 h-12"
+              className="ps-10 h-12 text-start"
               required
             />
           </div>
         </div>
         <div className="space-y-2">
-          <Label htmlFor="password">Password</Label>
+          <Label htmlFor="password">{t("field.password")}</Label>
           <div className="relative">
-            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+            <Lock className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
             <Input
               id="password"
               type="password"
+              dir="ltr"
               autoComplete="new-password"
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="pl-10 h-12"
+              className="ps-10 h-12 text-start"
               required
               minLength={8}
             />
           </div>
         </div>
         <div className="space-y-2">
-          <Label htmlFor="confirm">Confirm Password</Label>
+          <Label htmlFor="confirm">{t("field.confirm")}</Label>
           <div className="relative">
-            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+            <Lock className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
             <Input
               id="confirm"
               type="password"
+              dir="ltr"
               autoComplete="new-password"
               placeholder="••••••••"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              className="pl-10 h-12"
+              className="ps-10 h-12 text-start"
               required
             />
           </div>
@@ -126,11 +133,11 @@ export default function Register() {
         <Button type="submit" className="w-full h-12 font-medium" disabled={loading}>
           {loading ? (
             <>
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              Creating account...
+              <Loader2 className="w-4 h-4 me-2 animate-spin" />
+              {t("register.submitting")}
             </>
           ) : (
-            "Create account"
+            t("register.submit")
           )}
         </Button>
       </form>

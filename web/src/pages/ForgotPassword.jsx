@@ -4,10 +4,13 @@ import { resetPasswordForEmail } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Mail, ArrowLeft, Loader2 } from "lucide-react";
+import { Mail, ArrowRight, Loader2 } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
+import { useAuthLang } from "@/hooks/useAuthLang";
 
 export default function ForgotPassword() {
+  const lang = useAuthLang();
+  const { t } = lang;
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
@@ -27,34 +30,38 @@ export default function ForgotPassword() {
 
   return (
     <AuthLayout
+      lang={lang}
       icon={Mail}
-      title="Reset password"
-      subtitle="We'll send you a link to reset it"
+      title={t("forgot.title")}
+      subtitle={t("forgot.subtitle")}
       footer={
         <Link to="/login" className="text-primary font-medium hover:underline">
-          <ArrowLeft className="w-3 h-3 inline mr-1" />Back to log in
+          {/* "back" points toward the start edge: rotate in RTL where start is right */}
+          <ArrowRight className={"w-3 h-3 inline me-1 " + (lang.dir === "rtl" ? "" : "rotate-180")} aria-hidden="true" />
+          {t("forgot.back")}
         </Link>
       }
     >
       {sent ? (
-        <p className="text-sm text-foreground text-center">
-          If an account exists with that email, you'll receive a password reset link shortly.
+        <p role="status" className="text-sm text-foreground text-center">
+          {t("forgot.sent")}
         </p>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="email">Email address</Label>
+            <Label htmlFor="email">{t("forgot.emailLabel")}</Label>
             <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+              <Mail className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
               <Input
                 id="email"
                 type="email"
+                dir="ltr"
                 autoComplete="email"
                 autoFocus
                 placeholder="you@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="pl-10 h-12"
+                className="ps-10 h-12 text-start"
                 required
               />
             </div>
@@ -62,11 +69,11 @@ export default function ForgotPassword() {
           <Button type="submit" className="w-full h-12 font-medium" disabled={loading}>
             {loading ? (
               <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Sending...
+                <Loader2 className="w-4 h-4 me-2 animate-spin" />
+                {t("forgot.submitting")}
               </>
             ) : (
-              "Send reset link"
+              t("forgot.submit")
             )}
           </Button>
         </form>
