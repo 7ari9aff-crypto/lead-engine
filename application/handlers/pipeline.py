@@ -32,6 +32,8 @@ from contracts.providers import Capability
 from domain.acquisition.company import (
     domain_from_url,
     extract_contacts,
+    name_key,
+    name_match_is_safe,
     normalize_name,
     resolve_identity,
 )
@@ -208,6 +210,22 @@ class AcquisitionPipelineHandler:
         ops.checkpoint({**ck, "phase": "ENRICHING", "enrich_index": 0}, state="ENRICHING")
         return {**ck, "phase": "ENRICHING"}
 
+    @staticmethod
+    def _name_match(tx, title: str, domain: str | None, city: str | None):
+        """Existing company with the same business name, or None.
+
+        Uses the language-aware name_key, and refuses the match when the two
+        sides carry conflicting domains/cities (name alone is weak evidence)."""
+        key = name_key(title)
+        if not key:                       # purely generic name: never match by name
+            return None
+        company = tx.repos.companies.find_by_name_key(key)
+        if company is None:
+            return None
+        if not name_match_is_safe(domain, company.get("domain"), city, company.get("city")):
+            return None
+        return company
+
     def _ingest_result(self, tx, ctx: JobContext, ck: dict[str, Any],
                        entry: dict[str, str], raw: dict[str, Any]) -> str | None:
         url = str(raw.get("url") or "")
@@ -222,20 +240,21 @@ class AcquisitionPipelineHandler:
 
         domain = domain_from_url(url)
         known_by_domain = bool(domain and tx.repos.companies.find_by_domain(domain))
-        known_by_name = bool(tx.repos.companies.find_by_normalized_name(normalize_name(title)))
+        known_by_name = self._name_match(tx, title, domain, entry.get("city")) is not None
         kind = resolve_identity(title, url, known_by_domain, known_by_name)
         if kind in ("social", "editorial"):
             return None
 
         if kind == "existing":
             company = (tx.repos.companies.find_by_domain(domain) if domain else None) \
-                or tx.repos.companies.find_by_normalized_name(normalize_name(title))
+                or self._name_match(tx, title, domain, entry.get("city"))
             company_id = str(company["id"])
         else:
             company_id = str(uuid4())
             tx.repos.companies.create_company(
                 company_id, normalize_name(title) or title, domain,
                 ck.get("icp_country"), ck.get("icp_industry"), entry.get("city"),
+                name_key=name_key(title) or None,
             )
         if domain:
             tx.repos.companies.add_identifier(company_id, "domain", domain)
