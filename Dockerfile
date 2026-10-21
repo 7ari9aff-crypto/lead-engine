@@ -7,6 +7,17 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY lead_engine/ lead_engine/
 COPY api/ api/
 COPY config/ config/
+# V6 (mounted by lead_engine/api/app.py via v6api.bridge) imports these
+# packages. Without them the mount fails silently (caught in app.py) and the
+# image serves no /api/v1/* routes.
+COPY v6api/ v6api/
+COPY application/ application/
+COPY domain/ domain/
+COPY infrastructure/ infrastructure/
+COPY contracts/ contracts/
+COPY runtime/ runtime/
+COPY apps/ apps/
+COPY migrations/ migrations/
 ENV PYTHONUNBUFFERED=1
 # Non-root runtime: /app/data (default SQLite home) and /app/outputs stay
 # writable; override with LEAD_ENGINE_DATA_DIR / LEAD_ENGINE_OUTPUTS_DIR.
