@@ -11,7 +11,8 @@ name: backup
 # only, default_transaction_read_only). The app role cannot be used: pg_dump aborts on
 # RLS tables, and --enable-row-security would dump a single tenant per run.
 #
-# Scope, deliberately: engine, platform and runtime only. NOT Supabase Auth users,
+# Scope, deliberately: engine, platform and runtime, plus public.organizations (15 engine
+# tables hold a foreign key to it, so a dump without it cannot be restored). NOT Supabase Auth users,
 # vault, or the legacy `public` tables, and this repo stores no superuser secret.
 # A green run is a verified backup of the live business data, not of the whole DB.
 #
@@ -72,7 +73,7 @@ jobs:
           DSN="${BACKUP_DB_URL/:6543\//:5432/}"
           # --serializable-deferrable = one consistent snapshot across schemas
           pg_dump "$DSN" --format=custom --compress=9 --no-owner --no-privileges \
-            --serializable-deferrable -n engine -n platform -n runtime \
+            --serializable-deferrable -n engine -n platform -n runtime -t public.organizations \
             --file=backup.dump
           ls -l backup.dump
           # the same snapshot instant as the dump is not guaranteed by a second

@@ -18,6 +18,7 @@ import sys
 import psycopg
 
 SCHEMAS = ("engine", "platform", "runtime")
+EXTRA_TABLES = (("public", "organizations"),)   # FK target of 15 engine tables
 
 
 def table_counts(dsn: str, schemas=SCHEMAS) -> dict[str, int]:
@@ -28,6 +29,7 @@ def table_counts(dsn: str, schemas=SCHEMAS) -> dict[str, int]:
             "SELECT table_schema, table_name FROM information_schema.tables"
             " WHERE table_type='BASE TABLE' AND table_schema = ANY(%s)"
             " ORDER BY 1,2", (list(schemas),)).fetchall()
+        tables = list(tables) + list(EXTRA_TABLES)
         for schema, name in tables:
             n = conn.execute(f'SELECT count(*) FROM "{schema}"."{name}"').fetchone()[0]
             out[f"{schema}.{name}"] = n
