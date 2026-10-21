@@ -327,10 +327,15 @@ function Note({ text }) {
 }
 
 /* ---------- side panel ---------- */
-function RunPanel({ job, ar, live }) {
+// exported for the regression test (src/pages/leadEngine/Chat.test.jsx)
+export function RunPanel({ job, ar, live }) {
   if (!job) return null;
   const base = Math.max(job.stages?.discovered || 0, 1);
-  const budgetPct = job.budget ? Math.round((job.budget.used / job.budget.limit) * 100) : 0;
+  // limit is null when the backend does not know the org ceiling (mapJob: "null
+  // means unknown here, never a fabricated 500"). JobDetail/ResearchJobs already
+  // guard this; Chat did not, and crashed the whole page for every real job.
+  const hasBudgetLimit = job.budget && job.budget.limit != null;
+  const budgetPct = hasBudgetLimit ? Math.round((job.budget.used / job.budget.limit) * 100) : 0;
   return (
     <div className="p-5 space-y-6">
       <div>
@@ -356,8 +361,8 @@ function RunPanel({ job, ar, live }) {
 
       {job.budget && (
         <div>
-          <div className="flex justify-between text-xs mb-1.5"><span className="font-semibold">{ar ? "الميزانية" : "Budget"}</span><span className="tnum text-muted-foreground">{job.budget.used.toLocaleString()} / {job.budget.limit.toLocaleString()}</span></div>
-          <ProgressBar value={budgetPct} tone={budgetPct > 85 ? "danger" : "info"} />
+          <div className="flex justify-between text-xs mb-1.5"><span className="font-semibold">{ar ? "الميزانية" : "Budget"}</span><span className="tnum text-muted-foreground">{hasBudgetLimit ? `${job.budget.used.toLocaleString()} / ${job.budget.limit.toLocaleString()}` : job.budget.used.toLocaleString()}</span></div>
+          {hasBudgetLimit && <ProgressBar value={budgetPct} tone={budgetPct > 85 ? "danger" : "info"} />}
         </div>
       )}
 
