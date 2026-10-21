@@ -440,3 +440,38 @@ def test_backup_compare_flags_missing_and_short_tables():
     assert any("engine.leads" in p and "120" in p for p in bad)
     assert any("MISSING" in p and "engine.jobs" in p for p in bad)
     assert mod.compare({"a.b": 0}, {"a.b": 0}) == []      # empty tables are fine
+
+
+# ---- OPS2: failure alerting opens ONE issue per workflow, closes it on recovery
+def _alert_mod():
+    import importlib.util
+    import pathlib
+    spec = importlib.util.spec_from_file_location(
+        "failure_alert", pathlib.Path(__file__).parent.parent / "scripts" / "failure_alert.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def test_alert_creates_once_then_comments_instead_of_duplicating():
+    m = _alert_mod()
+    assert m.decide([], "worker-tick", "failure") == "create"
+    open_issue = [{"number": 7, "title": m.issue_title("worker-tick")}]
+    assert m.decide(open_issue, "worker-tick", "failure") == "comment"
+    assert m.decide(open_issue, "worker-tick", "timed_out") == "comment"
+
+
+def test_alert_closes_on_recovery_and_ignores_cancelled_and_other_workflows():
+    m = _alert_mod()
+    open_issue = [{"number": 7, "title": m.issue_title("worker-tick")}]
+    assert m.decide(open_issue, "worker-tick", "success") == "close"
+    assert m.decide([], "worker-tick", "success") == "noop"
+    assert m.decide(open_issue, "worker-tick", "cancelled") == "noop"
+    # a different workflow's issue must not be touched by this one
+    assert m.decide(open_issue, "v6-worker", "failure") == "create"
+
+
+def test_alert_never_matches_a_pull_request_with_the_same_title():
+    m = _alert_mod()
+    pr = [{"number": 3, "title": m.issue_title("worker-tick"), "pull_request": {}}]
+    assert m.decide(pr, "worker-tick", "failure") == "create"
