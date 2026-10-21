@@ -156,3 +156,16 @@ def test_unconfirmed_titles_are_returned_unchanged_never_guessed(title, domain):
 
 def test_two_competing_segments_means_no_decision():
     assert bn("Noor Clinic | Noor Clinic Riyadh", "noorclinic.sa") == "Noor Clinic | Noor Clinic Riyadh"
+
+
+@pytest.mark.parametrize("title", [
+    "دليلك الشامل لاختيار أفضل مركز اسنان بالرياض في 2025",   # an article, only a year left
+    "Top 10 Dental Clinics 2026",
+    "، ؟ ؛",
+])
+def test_a_bare_number_or_punctuation_is_not_a_business_name(title):
+    assert k(title) == ""
+
+
+def test_arabic_punctuation_is_not_part_of_the_key():
+    assert "،" not in k("سنان لطب الأسنان ، عيادة أسنان بمفهوم مختلف في الرياض")
