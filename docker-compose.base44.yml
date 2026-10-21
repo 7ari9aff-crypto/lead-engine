@@ -21,7 +21,7 @@ services:
         required: false
       - path: /run/base44/app.env
         required: false
-    command: sh -c "pip install -r requirements.txt && python -m lead_engine init && uvicorn lead_engine.api.app:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/lead_engine"
+    command: sh -c "pip install -r requirements-dev.txt && python -m lead_engine init && uvicorn lead_engine.api.app:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/lead_engine"
     ports:
       - "8000:8000"
     healthcheck:
