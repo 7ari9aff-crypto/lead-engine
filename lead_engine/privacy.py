@@ -70,7 +70,7 @@ def _anonymize(db, lead_ids: list[str], reason: str) -> int:
     now = _now_iso()
     placeholders = ", ".join("?" for _ in lead_ids)
     set_cols = ", ".join(f"{c} = NULL" for c in ANON_COLUMNS)
-    db.execute(
+    cur = db.execute(
         f"UPDATE leads SET {set_cols},"
         " raw = ?,"
         f" legal_decision = '{_MARK}',"
@@ -82,7 +82,10 @@ def _anonymize(db, lead_ids: list[str], reason: str) -> int:
         f"   AND (legal_decision IS NULL OR legal_decision <> '{_MARK}')",
         (_redacted_raw(), reason, reason, now, now, *lead_ids),
     )
-    return len(lead_ids)
+    # rows actually changed: the WHERE skips leads that are already erased, so
+    # len(lead_ids) over-reports (and erase_lead audited a phantom erasure)
+    changed = getattr(cur, "rowcount", None)
+    return changed if isinstance(changed, int) and changed >= 0 else len(lead_ids)
 
 
 def retain_expired(db, now: datetime | None = None) -> int:
@@ -111,7 +114,7 @@ def erase_lead(db, lead_id: str, actor: str) -> bool:
     row = db.one("SELECT lead_id FROM leads WHERE lead_id = ?", (lead_id,))
     if row is None:
         return False
-    _anonymize(db, [lead_id], f"erased-by-request by {actor}")
-    db.audit(actor, "privacy.erase", "lead", lead_id,
-             {"legal_decision": _MARK})
+    if _anonymize(db, [lead_id], f"erased-by-request by {actor}"):
+        db.audit(actor, "privacy.erase", "lead", lead_id,
+                 {"legal_decision": _MARK})
     return True

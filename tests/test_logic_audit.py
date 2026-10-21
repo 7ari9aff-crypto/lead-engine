@@ -390,3 +390,37 @@ def test_unresolved_emails_are_not_reverified_in_every_slice(tmp_path):
     orch._verify_emails("run-1")
     orch._verify_emails("run-2")      # next slice / retry
     assert calls.count("email_verify") == 1, calls
+
+
+# ---- L13: retention sweep must report rows it really erased
+def _lead(db, lead_id, created, retention_days=30, marked=None):
+    import json
+    db.execute(
+        "INSERT INTO leads (lead_id, name, email, phone, raw, created_at, updated_at,"
+        " legal_decision) VALUES (?,?,?,?,?,?,?,?)",
+        (lead_id, "Clinic", "a@b.com", "+966500000000",
+         json.dumps({"pipeline": {"retention_days": retention_days}}),
+         created, created, marked))
+
+
+def test_retain_expired_counts_only_rows_actually_erased(db):
+    from lead_engine import privacy
+    _lead(db, "old-1", "2020-01-01T00:00:00Z")
+    _lead(db, "fresh", utcnow())
+    assert privacy.retain_expired(db) == 1
+
+
+def test_retain_expired_is_idempotent_and_does_not_recount(db):
+    from lead_engine import privacy
+    _lead(db, "old-1", "2020-01-01T00:00:00Z")
+    assert privacy.retain_expired(db) == 1
+    assert privacy.retain_expired(db) == 0
+    row = db.one("SELECT email, phone, legal_decision FROM leads WHERE lead_id='old-1'")
+    assert row["email"] is None and row["phone"] is None
+    assert row["legal_decision"] == "retention-erased"
+
+
+def test_erase_lead_on_already_erased_lead_reports_no_new_erasure(db):
+    from lead_engine import privacy
+    _lead(db, "x", "2020-01-01T00:00:00Z", marked="retention-erased")
+    assert privacy._anonymize(db, ["x"], "again") == 0
