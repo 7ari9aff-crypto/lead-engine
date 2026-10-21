@@ -7,10 +7,13 @@ name: backup
 # the live database (scripts/backup_verify.py). A bad dump fails the job; a green run
 # means "restored and matched", not "a file exists".
 #
-# Scope, deliberately: the app role (SUPABASE_DB_URL) cannot read `auth`, `vault` or
-# the legacy `public` tables, and this repo does not store a superuser secret in
-# GitHub. So this covers all live business data and NOT Supabase Auth users. Do not
-# read a green run as a full-database backup.
+# Identity: BACKUP_DB_URL is the read-only `backup_reader` role (BYPASSRLS, SELECT
+# only, default_transaction_read_only). The app role cannot be used: pg_dump aborts on
+# RLS tables, and --enable-row-security would dump a single tenant per run.
+#
+# Scope, deliberately: engine, platform and runtime only. NOT Supabase Auth users,
+# vault, or the legacy `public` tables, and this repo stores no superuser secret.
+# A green run is a verified backup of the live business data, not of the whole DB.
 #
 # Storage: GitHub artifact, 30-day retention, AES-256 encrypted with BACKUP_PASSPHRASE
 # (the dump holds contact PII, so it never sits in an artifact in clear).
@@ -61,12 +64,12 @@ jobs:
 
       - name: Dump
         env:
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_DB_URL: ${{ secrets.BACKUP_DB_URL }}
         run: |
-          if [ -z "$SUPABASE_DB_URL" ]; then echo "::error::SUPABASE_DB_URL is not set"; exit 1; fi
+          if [ -z "$BACKUP_DB_URL" ]; then echo "::error::BACKUP_DB_URL is not set"; exit 1; fi
           pg_dump --version | grep -q " 17\." || { echo "::error::wrong pg_dump: $(pg_dump --version)"; exit 1; }
           # session-mode pooler port: pg_dump needs session state, not transaction pooling
-          DSN="${SUPABASE_DB_URL/:6543\//:5432/}"
+          DSN="${BACKUP_DB_URL/:6543\//:5432/}"
           # --serializable-deferrable = one consistent snapshot across schemas
           pg_dump "$DSN" --format=custom --compress=9 --no-owner --no-privileges \
             --serializable-deferrable -n engine -n platform -n runtime \
@@ -79,18 +82,18 @@ jobs:
           import json, os, sys
           sys.path.insert(0, "scripts")
           from backup_verify import table_counts
-          dsn = os.environ["SUPABASE_DB_URL"].replace(":6543/", ":5432/")
+          dsn = os.environ["BACKUP_DB_URL"].replace(":6543/", ":5432/")
           json.dump(table_counts(dsn), open("source_counts.json", "w"))
           PY
 
       - name: Restore into a throwaway database and compare
         env:
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_DB_URL: ${{ secrets.BACKUP_DB_URL }}
         run: |
           RESTORE="postgresql://postgres:restore@localhost:5433/postgres"
           # roles/schemas the dump references but does not create
           psql "$RESTORE" -v ON_ERROR_STOP=1 -c "create extension if not exists pgcrypto; create extension if not exists \"uuid-ossp\";"
-          python scripts/backup_verify.py backup.dump "$SUPABASE_DB_URL" "$RESTORE" source_counts.json
+          python scripts/backup_verify.py backup.dump "$BACKUP_DB_URL" "$RESTORE" source_counts.json
 
       - name: Encrypt
         env:
