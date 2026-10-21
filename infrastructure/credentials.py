@@ -12,6 +12,7 @@ Never logs or returns a secret value: only env-var NAMES and counts.
 from __future__ import annotations
 
 import base64
+import hashlib
 import os
 from collections.abc import Callable, Mapping, MutableMapping
 from dataclasses import dataclass, field
@@ -30,18 +31,28 @@ class HydrationResult:
     reason: str | None = None   # why nothing was loaded; None when the read succeeded
 
     @property
+    def org_fingerprint(self) -> str:
+        """Non-secret, stable id for the org in logs. CI masks the raw org id as
+        ``***`` (it is a repo secret), which made it impossible to tell WHICH
+        org a worker hydrated from. First 8 hex of SHA-256: comparable, not
+        reversible to the id."""
+        if not self.org_id:
+            return "none"
+        return hashlib.sha256(self.org_id.encode()).hexdigest()[:8]
+
+    @property
     def count(self) -> int:
         return len(self.loaded)
 
     def summary(self) -> str:
         if self.reason:
-            return f"credential hydration: 0 keys, reason={self.reason}"
+            return f"credential hydration (org#{self.org_fingerprint}): 0 keys, reason={self.reason}"
         parts = [f"loaded={len(self.loaded)} {list(self.loaded)}"]
         if self.skipped_existing:
             parts.append(f"kept_explicit_env={list(self.skipped_existing)}")
         if self.undecryptable:
             parts.append(f"undecryptable={list(self.undecryptable)}")
-        return f"credential hydration (org={self.org_id}): " + ", ".join(parts)
+        return f"credential hydration (org#{self.org_fingerprint}): " + ", ".join(parts)
 
 
 def _decrypt(blob: str, key: bytes) -> str:
