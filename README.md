@@ -162,7 +162,7 @@ cd web && pnpm run typecheck && pnpm run test && pnpm run build   # 78 tests, 13
 
 ```jsonc
 // أي MCP client (streamable HTTP, stateless JSON-RPC 2.0)
-{ "url": "https://lead-engine-gamma-silk.vercel.app/mcp" }
+{ "url": "https://lead-engine-lead-691e.vercel.app/mcp" }
 ```
 
 الأدوات: `run_lead_generation` (مدينة/مجال → خط كامل)، `list_leads`، `get_job_status`،
@@ -192,8 +192,11 @@ curl -X POST https://<host>/mcp -H 'Content-Type: application/json' \
 كل دفعة، فالإنتاج دايماً مبني من نفس الكوميت. يعني الفرونت **مش** بيتبني على Vercel، فمفيش
 `VITE_*` على Vercel (تعريفها الوحيد `web/.env.production` + repository variables للتبديل).
 
-- https://lead-engine3.vercel.app (الـalias الإنتاجي)
-- https://lead-engine-gamma-silk.vercel.app
+- https://lead-engine-lead-691e.vercel.app (الـalias الإنتاجي الثابت — افتح المنصة من هنا دايمًا)
+
+> جلسة الدخول بتتخزن في المتصفح **لكل دومين لوحده**. الدخول من رابط تاني
+> (رابط deployment محدد زي `lead-engine-<hash>-lead-691e.vercel.app` أو alias قديم) هيطلب
+> دخول جديد حتى لو إنت مسجّل في الرابط الثابت. استخدم الرابط الثابت فقط.
 
 ```bash
 curl -s https://lead-engine3.vercel.app/health   # {"status":"ok"}
