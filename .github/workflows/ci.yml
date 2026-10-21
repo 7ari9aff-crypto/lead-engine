@@ -57,5 +57,23 @@ jobs:
       - run: pnpm run lint
       - run: pnpm run test
       - run: pnpm run build
+      # Production serves the COMMITTED lead_engine/static, and main is protected so
+      # no bot can push a rebuild (sync-frontend-static failed on every merge and
+      # two UI fixes sat unshipped). Fail the PR that changes web/ without shipping
+      # its build, naming exactly what to run.
+      - name: Committed static build matches the source
+        working-directory: .
+        run: |
+          built=$(grep -o 'assets/[^"]*' web/dist/index.html | sort)
+          shipped=$(grep -o 'assets/[^"]*' lead_engine/static/index.html | sort)
+          if [ "$built" != "$shipped" ]; then
+            echo "::error::lead_engine/static is stale. Production would serve the old UI."
+            echo "built:   $built"
+            echo "shipped: $shipped"
+            echo "Fix: run 'pnpm build' in web/, replace lead_engine/static/assets with web/dist/assets, and copy web/dist/index.html over lead_engine/static/index.html, then commit."
+            exit 1
+          fi
+          for f in $shipped; do test -f "lead_engine/static/$f" || { echo "::error::missing $f"; exit 1; }; done
+          echo "static build is current: $shipped"
       - name: Dependency audit
         run: pnpm audit --prod
