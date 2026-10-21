@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useLeadEngine, isLiveStatus } from "@/lib/leadEngine/store";
 import { chatStatusLabel } from "@/lib/leadEngine/i18n";
+import { trIndustry, trLocation } from "@/lib/leadEngine/dataLabels";
 import { StatusBadge, TimeAgo, ProgressBar, ScoreRing, ConfirmButton } from "@/components/leadEngine/primitives";
 import {
   Bot, ArrowUp, Square, Copy, Check, SquarePen, PanelRightClose, PanelRightOpen, ChevronDown,
@@ -310,7 +311,7 @@ function Results({ leads, pending, ar, navigate }) {
                 <ScoreRing score={l.icpFit.score} size={38} />
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium truncate">{l.company.name}</div>
-                  <div className="text-[11px] text-muted-foreground truncate">{l.company.industry} · {l.company.location}</div>
+                  <div className="text-[11px] text-muted-foreground truncate">{trIndustry(l.company.industry, lang)} · {trLocation(l.company.location, lang)}</div>
                 </div>
                 <StatusBadge status={l.status} />
               </button>

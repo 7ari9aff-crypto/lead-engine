@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useLeadEngine } from "@/lib/leadEngine/store";
 import { hasContact, fmtNum, tr } from "@/lib/leadEngine/format";
+import { trIndustry, trLocation } from "@/lib/leadEngine/dataLabels";
 import { eventLabel } from "@/lib/leadEngine/i18n";
 import { PageHeader } from "@/components/leadEngine/PageHeader";
 import { StatusBadge, ScoreRing, MatchGlyph, TimeAgo, Pill } from "@/components/leadEngine/primitives";
@@ -248,8 +249,8 @@ export default function LeadDetail() {
             <h2 className="text-sm font-semibold mb-3">{t("ld.summary")}</h2>
             <dl className="space-y-2.5 text-sm">
               <Row label={ar ? "المجال" : "Domain"} value={c.domain} />
-              <Row label={ar ? "الموقع" : "Location"} value={tr(c.location, lang)} />
-              <Row label={ar ? "القطاع" : "Industry"} value={tr(c.industry, lang)} />
+              <Row label={ar ? "الموقع" : "Location"} value={trLocation(tr(c.location, lang), lang)} />
+              <Row label={ar ? "القطاع" : "Industry"} value={trIndustry(tr(c.industry, lang), lang)} />
               <Row label={ar ? "الحجم" : "Size"} value={`${fmtNum(c.size, lang)} ${ar ? "موظف" : "employees"}`} />
               <Row label={ar ? "تأسست" : "Founded"} value={c.founded} />
               <Row label={ar ? "النموذج" : "Model"} value={c.businessModel} />

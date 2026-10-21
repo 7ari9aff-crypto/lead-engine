@@ -4,6 +4,7 @@ import { useLeadEngine } from "@/lib/leadEngine/store";
 import { PageHeader } from "@/components/leadEngine/PageHeader";
 import { Pill, statusLabel } from "@/components/leadEngine/primitives";
 import { fmtDate } from "@/lib/leadEngine/format";
+import { trCity, trIndustry, trLocation } from "@/lib/leadEngine/dataLabels";
 import { Target, Check, GitBranch } from "lucide-react";
 
 export default function ICP() {
@@ -42,8 +43,8 @@ export default function ICP() {
                     The demo shape this page was written against (industry as
                     an array, flat location/companySize) crashed with
                     "industry.join is not a function" — pinned by the walk. */}
-                <Criterion label={lang === "ar" ? "القطاع" : "Industry"} value={asText(icp.criteria.industry)} />
-                <Criterion label={lang === "ar" ? "الموقع" : "Location"} value={asText(icp.criteria.location) || cityList(icp.criteria.cities)} />
+                <Criterion label={lang === "ar" ? "القطاع" : "Industry"} value={asText(icp.criteria.industry, trIndustry, lang)} />
+                <Criterion label={lang === "ar" ? "الموقع" : "Location"} value={asText(icp.criteria.location, trLocation, lang) || cityList(icp.criteria.cities, lang)} />
                 <Criterion label={lang === "ar" ? "كلمات مفتاحية" : "Keywords"} value={[...(icp.criteria.keywords_ar || []), ...(icp.criteria.keywords_en || [])].join("، ")} />
                 <Criterion label={lang === "ar" ? "الحد الأدنى للفروع" : "Min branches"} value={icp.criteria.criteria?.min_branches ? String(icp.criteria.criteria.min_branches) : null} />
                 <Criterion label={lang === "ar" ? "ملاحظات" : "Notes"} value={asText(icp.criteria.criteria?.notes)} />
@@ -80,5 +81,8 @@ function Criterion({ label, value }) {
 }
 
 // shape-tolerant readers: the definition mixes strings, arrays and objects
-const asText = (v) => (Array.isArray(v) ? v.join("، ") : v == null || v === "" ? null : String(v));
-const cityList = (cities) => (Array.isArray(cities) ? cities.map((c) => c?.name).filter(Boolean).join("، ") : null);
+const asText = (v, fn, lang) => {
+  const f = fn ? (x) => fn(String(x), lang) : String;
+  return Array.isArray(v) ? v.map(f).join("، ") : v == null || v === "" ? null : f(v);
+};
+const cityList = (cities, lang) => (Array.isArray(cities) ? cities.map((c) => c?.name).filter(Boolean).map((n) => trCity(n, lang)).join("، ") : null);

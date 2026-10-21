@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useLeadEngine } from "@/lib/leadEngine/store";
 import { tr } from "@/lib/leadEngine/format";
+import { trIndustry, trLocation, matchesLocation } from "@/lib/leadEngine/dataLabels";
 import { PageHeader } from "@/components/leadEngine/PageHeader";
 import { StatusBadge, ScoreRing, TimeAgo, EmptyState, Pill, StaleBanner, ConnectionEmpty, statusLabel } from "@/components/leadEngine/primitives";
 import { listEmptyKind } from "@/lib/leadEngine/connState";
@@ -25,7 +26,7 @@ export default function Leads() {
   const reset = () => { setStatus("ALL"); setVerification("ALL"); setIndustry("ALL"); setMinFit(0); setQ(""); };
 
   const filtered = leads.filter((l) => {
-    if (q && !(l.company.name.toLowerCase().includes(q.toLowerCase()) || (l.company.rawName || "").toLowerCase().includes(q.toLowerCase()) || (l.company.domain || "").includes(q.toLowerCase()) || (l.company.location || "").toLowerCase().includes(q.toLowerCase()))) return false;
+    if (q && !(l.company.name.toLowerCase().includes(q.toLowerCase()) || (l.company.rawName || "").toLowerCase().includes(q.toLowerCase()) || (l.company.domain || "").includes(q.toLowerCase()) || matchesLocation(l.company.location, q))) return false;
     if (status !== "ALL" && l.status !== status) return false;
     if (verification !== "ALL" && l.verificationStatus !== verification) return false;
     if (industry !== "ALL" && l.company.industry !== industry) return false;
@@ -68,7 +69,7 @@ export default function Leads() {
             <Filter label={lang === "ar" ? "القطاع" : "Industry"}>
               <select value={industry} onChange={(e) => setIndustry(e.target.value)} className="w-full h-9 px-2 rounded-lg border border-input bg-background text-sm focus-ring">
                 <option value="ALL">{lang === "ar" ? "الكل" : "All"}</option>
-                {industries.map((i) => <option key={i} value={i}>{i}</option>)}
+                {industries.map((i) => <option key={i} value={i}>{trIndustry(i, lang)}</option>)}
               </select>
             </Filter>
             <Filter label={`${ar ? "مطابقة ICP ≥" : "ICP fit ≥"} ${minFit}%`}>
@@ -111,8 +112,8 @@ export default function Leads() {
                           <div className="font-medium">{l.company.name}</div>
                           {l.company.domain && l.company.domain !== l.company.name && <div className="text-[11px] text-muted-foreground">{l.company.domain}</div>}
                         </td>
-                        <td className="py-3 px-4 text-muted-foreground">{tr(l.company.location, lang)}</td>
-                        <td className="py-3 px-4"><Pill>{tr(l.company.industry, lang)}</Pill></td>
+                        <td className="py-3 px-4 text-muted-foreground">{trLocation(tr(l.company.location, lang), lang)}</td>
+                        <td className="py-3 px-4"><Pill>{trIndustry(tr(l.company.industry, lang), lang)}</Pill></td>
                         <td className="py-3 px-4"><div className="flex items-center justify-center gap-2"><ScoreRing score={l.icpFit.score} size={36} /></div></td>
                         <td className="py-3 px-4"><StatusBadge status={l.status} /></td>
                         <td className="py-3 px-4"><StatusBadge status={l.verificationStatus} /></td>
@@ -133,7 +134,7 @@ export default function Leads() {
                     <ScoreRing score={l.icpFit.score} size={40} />
                     <div className="min-w-0 flex-1">
                       <div className="font-medium truncate">{l.company.name}</div>
-                      <div className="text-[11px] text-muted-foreground">{l.company.location} · {l.company.industry}</div>
+                      <div className="text-[11px] text-muted-foreground">{trLocation(l.company.location, lang)} · {trIndustry(l.company.industry, lang)}</div>
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
