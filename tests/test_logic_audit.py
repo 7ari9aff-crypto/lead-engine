@@ -424,3 +424,19 @@ def test_erase_lead_on_already_erased_lead_reports_no_new_erasure(db):
     from lead_engine import privacy
     _lead(db, "x", "2020-01-01T00:00:00Z", marked="retention-erased")
     assert privacy._anonymize(db, ["x"], "again") == 0
+
+
+# ---- OPS1: the backup verifier must catch a bad restore, not just pass a good one
+def test_backup_compare_flags_missing_and_short_tables():
+    import importlib.util
+    import pathlib
+    spec = importlib.util.spec_from_file_location(
+        "backup_verify", pathlib.Path(__file__).parent.parent / "scripts" / "backup_verify.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    src = {"engine.leads": 121, "engine.jobs": 38, "runtime.jobs": 14}
+    assert mod.compare(src, dict(src)) == []
+    bad = mod.compare(src, {"engine.leads": 120, "runtime.jobs": 14})
+    assert any("engine.leads" in p and "120" in p for p in bad)
+    assert any("MISSING" in p and "engine.jobs" in p for p in bad)
+    assert mod.compare({"a.b": 0}, {"a.b": 0}) == []      # empty tables are fine

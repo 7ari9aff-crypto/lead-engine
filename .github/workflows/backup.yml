@@ -1,0 +1,108 @@
+name: backup
+
+# Daily logical backup of the business schemas (engine, platform, runtime).
+#
+# A dump is only worth keeping if it restores. After pg_dump this job restores the
+# file into a throwaway Postgres 17 container and compares per-table row counts with
+# the live database (scripts/backup_verify.py). A bad dump fails the job; a green run
+# means "restored and matched", not "a file exists".
+#
+# Scope, deliberately: the app role (SUPABASE_DB_URL) cannot read `auth`, `vault` or
+# the legacy `public` tables, and this repo does not store a superuser secret in
+# GitHub. So this covers all live business data and NOT Supabase Auth users. Do not
+# read a green run as a full-database backup.
+#
+# Storage: GitHub artifact, 30-day retention, AES-256 encrypted with BACKUP_PASSPHRASE
+# (the dump holds contact PII, so it never sits in an artifact in clear).
+
+on:
+  schedule:
+    - cron: "30 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      verify:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: restore
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Tooling (pg client 17 to match the server)
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          pip install -q "psycopg[binary]"
+
+      - name: Dump
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then echo "::error::SUPABASE_DB_URL is not set"; exit 1; fi
+          # session-mode pooler port: pg_dump needs session state, not transaction pooling
+          DSN="${SUPABASE_DB_URL/:6543\//:5432/}"
+          # --serializable-deferrable = one consistent snapshot across schemas
+          pg_dump "$DSN" --format=custom --compress=9 --no-owner --no-privileges \
+            --serializable-deferrable -n engine -n platform -n runtime \
+            --file=backup.dump
+          ls -l backup.dump
+          # the same snapshot instant as the dump is not guaranteed by a second
+          # connection, so counts are taken right after under repeatable read; any
+          # row written in between would show up as a mismatch and fail loudly
+          python - <<'PY'
+          import json, os, sys
+          sys.path.insert(0, "scripts")
+          from backup_verify import table_counts
+          dsn = os.environ["SUPABASE_DB_URL"].replace(":6543/", ":5432/")
+          json.dump(table_counts(dsn), open("source_counts.json", "w"))
+          PY
+
+      - name: Restore into a throwaway database and compare
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          RESTORE="postgresql://postgres:restore@localhost:5433/postgres"
+          # roles/schemas the dump references but does not create
+          psql "$RESTORE" -v ON_ERROR_STOP=1 -c "create extension if not exists pgcrypto; create extension if not exists \"uuid-ossp\";"
+          python scripts/backup_verify.py backup.dump "$SUPABASE_DB_URL" "$RESTORE" source_counts.json
+
+      - name: Encrypt
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "::error::BACKUP_PASSPHRASE is not set - refusing to store an unencrypted PII dump"
+            exit 1
+          fi
+          openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:BACKUP_PASSPHRASE \
+            -in backup.dump -out "backup-$(date -u +%F).dump.enc"
+          rm -f backup.dump source_counts.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ github.run_id }}
+          path: backup-*.dump.enc
+          retention-days: 30
+          if-no-files-found: error
