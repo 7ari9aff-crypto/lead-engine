@@ -111,8 +111,15 @@ jobs:
           for r in anon authenticated service_role; do
             psql "$RESTORE" -v ON_ERROR_STOP=1 -c "do \$\$ begin if not exists (select 1 from pg_roles where rolname='$r') then create role $r nologin; end if; end \$\$;"
           done
-          pg_restore --no-owner --no-privileges --exit-on-error -d "$RESTORE" backup_public.dump
-          python scripts/backup_verify.py backup.dump "$BACKUP_DB_URL" "$RESTORE" source_counts.json
+          # RLS policies on public.organizations reference organization_members and
+          # auth.uid() (Supabase Auth), which this backup deliberately does not carry.
+          # The check is about DATA, so restore with policies, triggers and the
+          # row-security flag left out. The dump itself still contains them.
+          pg_restore -l backup_public.dump | grep -vE " POLICY | ROW SECURITY | TRIGGER " > public.list
+          pg_restore -L public.list --no-owner --no-privileges --exit-on-error -d "$RESTORE" backup_public.dump
+          pg_restore -l backup.dump | grep -vE " POLICY | ROW SECURITY " > main.list
+          pg_restore -L main.list --no-owner --no-privileges --exit-on-error -d "$RESTORE" backup.dump
+          python scripts/backup_verify.py "$BACKUP_DB_URL" "$RESTORE" source_counts.json
 
       - name: Encrypt
         env:
@@ -126,7 +133,7 @@ jobs:
             -in backup.dump -out "backup-$(date -u +%F).dump.enc"
           openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:BACKUP_PASSPHRASE \
             -in backup_public.dump -out "backup-public-$(date -u +%F).dump.enc"
-          rm -f backup.dump backup_public.dump source_counts.json
+          rm -f backup.dump backup_public.dump source_counts.json public.list main.list
 
       - uses: actions/upload-artifact@v4
         with:
