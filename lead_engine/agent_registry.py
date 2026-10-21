@@ -346,9 +346,16 @@ class AgentRegistry:
         http_status = None
         if has_key and row.get("base_url"):
             try:
-                response = requests.head(row["base_url"], timeout=5, allow_redirects=True)
+                # SSRF guard: base_url is operator-supplied data. Reject
+                # non-public targets and do NOT follow redirects (a public
+                # host could 302 to an internal address after the check).
+                from .netguard import UnsafeTarget, assert_public_http_url
+                assert_public_http_url(row["base_url"])
+                response = requests.head(row["base_url"], timeout=5, allow_redirects=False)
                 http_status = response.status_code
                 status = "healthy" if response.status_code < 500 else "unhealthy"
+            except UnsafeTarget:
+                status = "blocked_unsafe_target"
             except requests.RequestException:
                 status = "unreachable"
         self.db.execute(
