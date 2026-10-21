@@ -106,14 +106,9 @@ def mount_v6(legacy_app) -> None:
     from infrastructure.repos.doctor_repo import DoctorRepo
 
     settings = Settings.load()
-    try:
-        from lead_engine.db import open_db as _legacy_open_db
-        from lead_engine.secrets import hydrate_environment as _hydrate
-
-        _hydrate(_legacy_open_db(), os.environ.get("LEAD_ENGINE_ORG_ID"))
-    except Exception:
-        pass
     db = Database(settings.database_url)
+    from infrastructure.credentials import hydrate_and_log
+    hydrate_and_log(db, os.environ.get("LEAD_ENGINE_ORG_ID"))
     vault = PiiVault(db, settings)
     gateway = build_gateway()
     model_gateway = build_model_gateway()
