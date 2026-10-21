@@ -50,7 +50,69 @@ def looks_editorial(title: str, url: str) -> bool:
 
 
 def normalize_name(name: str) -> str:
+    """Display-safe cleanup (case + whitespace). NOT used for matching: use
+    name_key(), which also folds Arabic spelling variants."""
     return " ".join(name.lower().split())
+
+
+# --- Arabic-aware matching key ------------------------------------------
+_AR_FOLD = str.maketrans({
+    "أ": "ا", "إ": "ا", "آ": "ا", "ٱ": "ا",   # alef variants
+    "ى": "ي", "ئ": "ي",                          # alef maksura / hamza-on-yeh
+    "ة": "ه",                                    # ta marbuta
+    "ؤ": "و",                                    # hamza-on-waw
+    "گ": "ك", "ک": "ك", "ی": "ي",                # Persian/Urdu letter forms
+})
+_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+# tashkeel (harakat), superscript alef, tatweel
+_AR_MARKS_RE = re.compile("[\u064B-\u065F\u0670\u0640]")
+_NON_WORD_RE = re.compile(r"[^\w\u0600-\u06FF]+", re.UNICODE)
+# Words that describe the TYPE of business, not which business it is. Dropped
+# only when something distinctive remains, so "Dental Clinic" alone is kept.
+_GENERIC_TOKENS = frozenset({
+    "clinic", "clinics", "center", "centre", "centers", "centres", "dental",
+    "dentist", "dentistry", "medical", "hospital", "group", "co", "company",
+    "ltd", "llc", "the", "and", "of", "in", "care", "specialty", "specialized",
+    "specialist", "polyclinic", "service", "services", "health", "healthcare",
+    "department", "dept", "unit", "department", "خدمات", "قسم", "وحده",
+    "عياده", "عيادات", "مركز", "مراكز", "مجمع", "شركه", "مؤسسه", "مستشفي",
+    "اسنان", "طب", "طبي", "في", "و",
+})
+# Honorifics are spelled many ways; fold them to one token so "د. سمير" and
+# "دكتور سمير" (or "Dr." / "Doctor") match.
+_TITLE_FORMS = {"د": "دكتور", "dr": "دكتور", "doctor": "دكتور", "دكتوره": "دكتور",
+                "الدكتور": "دكتور", "الدكتوره": "دكتور", "prof": "بروفيسور",
+                "professor": "بروفيسور", "أ": "", "ا": ""}
+_PAREN_RE = re.compile(r"[\(\[][^\)\]]*[\)\]]")
+# Arabic definite article, optionally fused with the preposition ل / و / ب / ك:
+# الزهراء, للاسنان (ل+الاسنان), والزهراء, بالرياض -> bare stem
+_AR_ARTICLE_RE = re.compile(r"^(?:[لوبك]?ال|لل)(?=\w{3,})")
+
+
+def name_key(name: str | None) -> str:
+    """Stable matching key for a business name, language-aware.
+
+    Collapses spelling variants that real Saudi/Egyptian sources mix freely
+    (أ/إ/آ -> ا, ى -> ي, ة -> ه, tashkeel, tatweel, Arabic-Indic digits,
+    punctuation, the ``ال`` prefix) and drops generic business-type words so
+    "Al Zahra Dental Center (@alzahradental)" and "Al Zahra Dental Clinic"
+    share a key. Returns "" when nothing distinctive is left; callers must
+    treat "" as "do not match by name"."""
+    if not name:
+        return ""
+    s = str(name).lower().translate(_DIGITS)
+    s = _PAREN_RE.sub(" ", s)          # "(@handle)" / "(branch)" is not the name
+    s = _AR_MARKS_RE.sub("", s).translate(_AR_FOLD)
+    s = s.replace("@", " ")
+    tokens = [_TITLE_FORMS.get(t, t) for t in _NON_WORD_RE.sub(" ", s).split() if t]
+    # "al"/"el" as a separate latin article
+    tokens = [t for t in tokens if t not in ("al", "el")]
+    tokens = [_AR_ARTICLE_RE.sub("", t) for t in tokens]
+    tokens = [("طب" if t == "لطب" else t) for t in tokens]
+    distinctive = [t for t in tokens if t and t not in _GENERIC_TOKENS]
+    if not distinctive:
+        return ""
+    return " ".join(sorted(set(distinctive)))
 
 
 def resolve_identity(
@@ -74,6 +136,28 @@ def resolve_identity(
     if known_by_domain or known_by_name:
         return "existing"
     return "new"
+
+
+def name_match_is_safe(candidate_domain: str | None, existing_domain: str | None,
+                       candidate_city: str | None = None,
+                       existing_city: str | None = None) -> bool:
+    """May a NAME match be trusted as "same company"?
+
+    A name is weak evidence, a domain is strong. Merging on name alone collapsed
+    three different "best dental clinic in Riyadh" articles (three domains) and
+    "Jeddah Dental Center" with "Dentistry in Jeddah". Rules:
+      * both sides have a domain and they differ -> different businesses, NEVER merge
+      * both sides have a city and they differ   -> different branches, NEVER merge
+      * otherwise (missing data on either side)  -> name match is acceptable
+    A wrong merge silently destroys a lead; a missed merge only costs a
+    duplicate row that the identity pipeline can still reconcile by domain."""
+    cd, ed = (candidate_domain or "").lower(), (existing_domain or "").lower()
+    if cd and ed and cd != ed:
+        return False
+    cc, ec = (candidate_city or "").strip().lower(), (existing_city or "").strip().lower()
+    if cc and ec and cc != ec:
+        return False
+    return True
 
 
 _EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
