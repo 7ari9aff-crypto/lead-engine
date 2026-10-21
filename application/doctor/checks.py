@@ -301,6 +301,26 @@ def check_provider_health(backend, settings, org, gateway) -> DoctorCheck:
                        "لا مزود فاشل بالكامل", {"providers": summary})
 
 
+_SEARCH_KEYS = ("TAVILY_API_KEY", "EXA_API_KEY", "BRAVE_API_KEY", "SERPER_API_KEY")
+
+
+def _search_keys_in_other_orgs(backend) -> list[tuple[str, str]]:
+    """(env_key, org fingerprint) of active SEARCH keys in the credential store.
+    Names and a non-reversible fingerprint only, never a value. Diagnostic only:
+    any failure (no table in a V6-only DB, no permission) yields no hint."""
+    import hashlib
+
+    try:
+        rows = backend.system_all(
+            "SELECT env_key, organization_id::text AS org FROM "
+            "public.organization_provider_credentials "
+            "WHERE status = 'active' AND env_key = ANY(%s)", (list(_SEARCH_KEYS),))
+    except Exception:
+        return []
+    return [(r["env_key"], hashlib.sha256(str(r["org"]).encode()).hexdigest()[:8])
+            for r in rows or []]
+
+
 def check_providers_configured(backend, settings, org, gateway,
                                production: bool = True) -> DoctorCheck:
     """A pipeline with NO real search provider produces zero candidates and, because
@@ -318,11 +338,19 @@ def check_providers_configured(backend, settings, org, gateway,
     if not real:
         # demo/dev/test run on fakes on purpose; only production is an outage
         status = CheckStatus.FAIL if production else CheckStatus.WARN
-        return DoctorCheck(
-            "providers.configured", "مزودو البحث مضبوطون", status,
-            "لا يوجد مزود بحث حقيقي مسجّل (TAVILY_API_KEY / EXA_API_KEY مفقودان "
-            "أو لم يُحمَّلا لمنظمة الـworker) — كل تشغيل سيرجع صفر شركات",
-            {"search_adapters": adapters, "production": production})
+        cause = ("لا يوجد مزود بحث حقيقي مسجّل (TAVILY_API_KEY / EXA_API_KEY مفقودان "
+                 "أو لم يُحمَّلا لمنظمة الـworker) — كل تشغيل سيرجع صفر شركات")
+        evidence = {"search_adapters": adapters, "production": production}
+        elsewhere = _search_keys_in_other_orgs(backend)
+        if elsewhere:
+            # The silent trap: keys saved through the legacy settings page land in
+            # the logged-in org, but the worker hydrates from LEAD_ENGINE_ORG_ID.
+            cause += (" — لكن توجد مفاتيح بحث محفوظة لمنظمة أخرى "
+                      f"({', '.join(f'{k} @ org#{fp}' for k, fp in elsewhere)}): "
+                      "احفظها تحت منظمة الـworker أو غيّر LEAD_ENGINE_ORG_ID")
+            evidence["keys_in_other_orgs"] = [{"env_key": k, "org": fp} for k, fp in elsewhere]
+        return DoctorCheck("providers.configured", "مزودو البحث مضبوطون", status,
+                           cause, evidence)
     return DoctorCheck("providers.configured", "مزودو البحث مضبوطون", CheckStatus.OK,
                        f"{len(real)} مزود بحث حقيقي", {"search_adapters": adapters})
 

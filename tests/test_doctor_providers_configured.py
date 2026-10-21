@@ -129,3 +129,44 @@ def test_demo_mode_is_not_flagged_as_outage(monkeypatch):
     monkeypatch.delenv("LEAD_ENGINE_ENV", raising=False)
     monkeypatch.delenv("VERCEL_ENV", raising=False)
     assert _real_providers_required() is False
+
+
+class _CredBackend:
+    def __init__(self, rows=None, boom=False):
+        self.rows, self.boom, self.sql = rows or [], boom, None
+
+    def system_all(self, sql, *a):
+        self.sql = sql
+        if self.boom:
+            raise RuntimeError("relation does not exist: postgres://u:PASSWORD@h/db")
+        return self.rows
+
+
+def test_keys_saved_under_another_org_are_called_out():
+    """The trap found in production: legacy settings save under the caller's org,
+    the worker hydrates from LEAD_ENGINE_ORG_ID, so the key never arrives."""
+    b = _CredBackend([{"env_key": "TAVILY_API_KEY", "org": "fc4505fe-382e-4df9-bc2a-f97ae17590db"}])
+    r = checks.check_providers_configured(b, None, None, _Gateway([]), production=True)
+    assert r.status == CheckStatus.FAIL
+    assert "TAVILY_API_KEY @ org#cc2e2f5d" in r.cause
+    assert "fc4505fe" not in r.cause and "fc4505fe" not in str(r.evidence)
+    assert r.evidence["keys_in_other_orgs"] == [{"env_key": "TAVILY_API_KEY", "org": "cc2e2f5d"}]
+    assert "SELECT env_key" in b.sql and "encrypted_value" not in b.sql  # never selects a secret
+
+
+def test_no_hint_when_the_store_has_no_search_keys():
+    r = checks.check_providers_configured(_CredBackend([]), None, None, _Gateway([]), production=True)
+    assert r.status == CheckStatus.FAIL and "org#" not in r.cause
+    assert "keys_in_other_orgs" not in r.evidence
+
+
+def test_unreadable_store_never_breaks_the_check_or_leaks_the_error():
+    r = checks.check_providers_configured(_CredBackend(boom=True), None, None, _Gateway([]), production=True)
+    assert r.status == CheckStatus.FAIL
+    assert "PASSWORD" not in r.cause and "PASSWORD" not in str(r.evidence)
+
+
+def test_healthy_worker_never_queries_the_credential_store():
+    b = _CredBackend([{"env_key": "TAVILY_API_KEY", "org": "x"}])
+    r = checks.check_providers_configured(b, None, None, _Gateway([TavilySearchAdapter()]), production=True)
+    assert r.status == CheckStatus.OK and b.sql is None
