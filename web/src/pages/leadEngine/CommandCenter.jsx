@@ -2,6 +2,7 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useLeadEngine } from "@/lib/leadEngine/store";
+import { summarizeProviderIssues } from "@/lib/leadEngine/format";
 import { PageHeader } from "@/components/leadEngine/PageHeader";
 import { StatusBadge, StatCard, TimeAgo, Pill, TONE_BG, StaleBanner } from "@/components/leadEngine/primitives";
 import { Radar, ClipboardCheck, Server, Gauge, ArrowUpRight, AlertTriangle, Clock, MessageSquare, Activity as ActivityIcon } from "lucide-react";
@@ -18,6 +19,7 @@ export default function CommandCenter() {
   const waitingJobs = jobs.filter((j) => j.status === "WAITING_FOR_USER");
   const pausedJobs = jobs.filter((j) => j.status === "PAUSED");
   const degradedProviders = providers.filter((p) => p.status !== "OPERATIONAL");
+  const providerIssues = summarizeProviderIssues(providers);
   const totalBudget = jobs.reduce((a, j) => a + (j.budget?.used || 0), 0);
   // An unreachable backend must not read as "Healthy / 0 providers" — that
   // is the FAIL-01 lie on the system's own overview (gap register W4e fixed
@@ -36,7 +38,13 @@ export default function CommandCenter() {
     ...readyLeads.slice(0, 3).map((l) => ({ kind: "review", text: `${l.company.name} ${lang === "ar" ? "تنتظر المراجعة" : "awaiting review"}`, to: `/leads/${l.id}`, tone: "primary" })),
     ...waitingJobs.slice(0, 2).map((j) => ({ kind: "question", text: `«${short(j.objective)}» ${lang === "ar" ? "تنتظر إجابتك" : "is waiting for your answer"}`, to: `/jobs/${j.id}`, tone: "warning" })),
     ...pausedJobs.slice(0, 2).map((j) => ({ kind: "paused", text: `«${short(j.objective)}» ${lang === "ar" ? "متوقفة مؤقتًا" : "is paused"}`, to: `/jobs/${j.id}`, tone: "warning" })),
-    ...degradedProviders.slice(0, 2).map((p) => ({ kind: "provider", text: `${p.name}: ${p.health}`, to: p.status === "DISCONNECTED" ? "/credentials" : "/providers", tone: p.status === "DISCONNECTED" ? "danger" : "warning" })),
+    ...(providerIssues.unconfigured.length
+      ? [{ kind: "provider", text: lang === "ar"
+            ? `${providerIssues.unconfigured.length} مزوّد بلا مفتاح: ${providerIssues.unconfigured.slice(0, 4).join("، ")}${providerIssues.unconfigured.length > 4 ? "…" : ""}`
+            : `${providerIssues.unconfigured.length} providers have no API key: ${providerIssues.unconfigured.slice(0, 4).join(", ")}${providerIssues.unconfigured.length > 4 ? "…" : ""}`,
+          to: "/credentials", tone: "warning" }]
+      : []),
+    ...providerIssues.faulty.slice(0, 2).map((p) => ({ kind: "provider", text: `${p.name}: ${p.health}`, to: p.status === "DISCONNECTED" ? "/credentials" : "/providers", tone: p.status === "DISCONNECTED" ? "danger" : "warning" })),
   ];
 
   const recent = [...jobs].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 4);

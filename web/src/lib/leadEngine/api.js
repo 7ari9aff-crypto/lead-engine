@@ -3,6 +3,8 @@
 // in production. Auth: Supabase Bearer token when a session exists; the
 // legacy signed-cookie (password mode) fallback works through credentials.
 
+import { displayCompanyName } from "./format";
+
 const BASE = (import.meta.env.VITE_BACKEND_URL || "").replace(/\/$/, "");
 
 export class ApiError extends Error {
@@ -138,7 +140,11 @@ export function mapLead(row) {
   return {
     id: row.lead_id,
     company: {
-      name: row.name || row.domain || row.lead_id,
+      // Shown everywhere (lists, review queue, search). The extractor stores a page
+      // <title> as the name, so a page title is swapped for the domain here, once;
+      // rawName keeps what is actually stored.
+      name: displayCompanyName({ name: row.name, domain: row.domain }) || row.lead_id,
+      rawName: row.name || null,
       domain: row.domain,
       location: row.city,
       industry: row.industry,
@@ -190,14 +196,26 @@ export function mapProvider(p) {
   // calls, units, last_used. `has_key` — not `key_state`.
   const limit = p.quota_limit ?? null;
   const used = p.quota_used ?? 0;
+  let status = statusMap[p.status] || p.status;
+  let health = p.status_reason || p.status || "";
+  // The server's "active" means "not switched off", not "usable". A provider that
+  // needs a key (key_env set, not local) and has none cannot serve a request, yet
+  // the dashboard painted it green: 19 of 21 live rows on 2026-10-21. Only a row
+  // the server calls active is relabelled; disabled/cooldown/exhausted already say
+  // something more specific and keep their own state.
+  const needsKey = !!p.key_env && !p.is_local;
+  if (status === "OPERATIONAL" && needsKey && p.has_key === false) {
+    status = "UNCONFIGURED";
+    health = `${p.key_env} غير مضبوط`;
+  }
   return {
     id: `${p.name}:${p.task}`,
     name: p.name,
     task: p.task,
     type: p.type || null,
     priority: p.priority ?? null,
-    status: statusMap[p.status] || p.status,
-    health: p.status_reason || p.status || "",
+    status,
+    health,
     lastFailure: p.status_reason || null,
     quota: { used, limit, kind: p.quota_kind || null },
     remaining: limit != null ? Math.max(0, limit - used) : null,
