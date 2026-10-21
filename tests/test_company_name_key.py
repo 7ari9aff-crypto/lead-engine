@@ -25,14 +25,16 @@ from domain.acquisition.company import name_key as k
     ("عيادة ٢٤ ساعة", "عيادة 24 ساعة"),
     # word order and punctuation must not matter
     ("Smile Dental, Riyadh!", "riyadh smile dental"),
+    # geography and marketing filler are not part of the identity
+    ("Dentakay Dental Clinic in Riyadh, Saudi Arabia", "Dentakay Dental Clinic"),
+    ("Best Dental Clinic Fresh Smile", "Fresh Smile Dental"),
+    ("عيادة الزهراء الرياض", "عيادة الزهراء"),
 ])
 def test_same_business_same_key(a, b):
     assert k(a) and k(a) == k(b), (k(a), k(b))
 
 
 @pytest.mark.parametrize("a,b", [
-    # different CITY = different branch/business: must stay separate
-    ("Elite Dental Clinic Jeddah", "Elite Dental Riyadh"),
     # different distinctive word
     ("Al Zahra Dental Clinic", "Al Noor Dental Clinic"),
     ("عيادة الزهراء", "عيادة النور"),
@@ -102,3 +104,55 @@ def test_conflicting_cities_veto_a_name_match():
 
 def test_domain_veto_beats_city_agreement():
     assert safe("a.com", "b.com", "Riyadh", "Riyadh") is False
+
+
+def test_city_is_not_in_the_key_so_branches_are_separated_by_the_veto():
+    """Design decision: the key ignores the city (the same business is written
+    with and without it). Two branches in different cities share a key and are
+    kept apart by name_match_is_safe, which vetoes a city conflict."""
+    a, b = "Elite Dental Clinic Jeddah", "Elite Dental Riyadh"
+    assert k(a) == k(b) == "elite"
+    assert safe(None, None, "Jeddah", "Riyadh") is False
+
+
+def test_page_titles_do_not_leak_geography_or_marketing_into_the_key():
+    # real production titles from the V6 companies table
+    key = k("dental clinic - obeid specialized hospital")
+    assert key == "obeid"
+    key = k("best dental hospital in saudi arabia | dental clinics in riyadh, dammam, jeddah")
+    assert key == ""            # nothing distinctive: must not match by name
+
+
+# ---------------------------------------------------------------------------
+# business_name_from_title: the domain is the witness; never guess a position
+# ---------------------------------------------------------------------------
+from domain.acquisition.company import business_name_from_title as bn  # noqa: E402
+
+
+@pytest.mark.parametrize("title,domain,expected", [
+    # brand is LAST (legacy clean_title kept the first part and lost it)
+    ("dental care services in saudi arabia | kimshealth", "kimshealth.co", "kimshealth"),
+    # brand is FIRST
+    ("Alpha Dental Clinic | Best Dental", "alpha-dental.sa", "Alpha Dental Clinic"),
+    ("kharsa clinics: patient-centered dental excellence | your trusted specialists",
+     "kharsaclinics.com", "kharsa clinics"),
+])
+def test_segment_confirmed_by_domain_is_kept(title, domain, expected):
+    assert bn(title, domain) == expected
+
+
+@pytest.mark.parametrize("title,domain", [
+    ("Dental Clinic - Obeid Specialized Hospital", "obeidhospitals.com"),  # 'obeid' != label
+    ("أفضل عيادات أسنان بالرياض - اوكي كلينيك", "okclinics.sa"),            # Arabic vs Latin domain
+    ("What is The Best Dental Clinic in Jeddah 2026 ? : How to Choose", "magrabihealth.com"),
+    ("Dental Clinic in Riyadh : r/Riyadh", None),
+    ("Time: 10:30 Clinic", "clinic.com"),     # generic domain label must not match anything
+    ("Just One Segment", "segment.com"),
+    ("", "x.com"),
+])
+def test_unconfirmed_titles_are_returned_unchanged_never_guessed(title, domain):
+    assert bn(title, domain) == " ".join(title.split())
+
+
+def test_two_competing_segments_means_no_decision():
+    assert bn("Noor Clinic | Noor Clinic Riyadh", "noorclinic.sa") == "Noor Clinic | Noor Clinic Riyadh"

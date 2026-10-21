@@ -81,7 +81,7 @@ def test_merged_companies_are_not_matched(db, org, uows):
 
 # -- the handler's decision: name alone must never override domain/city -----
 def _match(tx, title, domain, city):
-    return AcquisitionPipelineHandler._name_match(tx, title, domain, city)
+    return AcquisitionPipelineHandler._name_match(title, domain, city, tx)
 
 
 def test_same_name_different_domain_is_not_merged(db, org, uows):
@@ -121,3 +121,51 @@ def test_generic_title_never_matches(db, org, uows):
         _create(tx, "Dental Clinic", "obeidhospitals.com")
     with uows(org) as tx:
         assert _match(tx, "Dental Clinic", None, "Riyadh") is None
+
+
+def test_ingest_names_company_by_domain_confirmed_segment_and_keeps_raw_title(
+        db, org, uows, fake_gateway, worker_factory):
+    """Full journey: a result titled '<tagline> | kimshealth' on kimshealth.co is
+    stored as company 'kimshealth', while the raw title stays as provenance."""
+    from application.usecases.campaigns import CreateCampaign
+    from infrastructure.repos.system import JobRuntimePg, PlansReaderPg
+    from runtime import leasing
+    from tests.v6.conftest import SAMPLE_ICP
+
+    gateway, fakes = fake_gateway
+    raw_title = "dental care services in saudi arabia | kimshealth"
+    fakes["search"]._results = [
+        {"match": "dental clinic in Riyadh", "always": True,
+         "url": "https://kimshealth.co/dental", "title": raw_title,
+         "snippet": "dental clinic in Riyadh"},
+    ]
+    # The pipeline emits outbox events. Drain them with a relay (as the other
+    # e2e tests do) so no unpublished events leak into tests that assume an
+    # empty outbox (test_outbox_relay asserts exact tick() counts).
+    from infrastructure.events.relay import IdempotentConsumer, OutboxRelay
+
+    relay = OutboxRelay(db, consumer=IdempotentConsumer(db, "name-test", lambda e: None))
+    worker = worker_factory({"acquisition.run": AcquisitionPipelineHandler()}, gateway,
+                            relay=relay)
+    job_id = CreateCampaign(uows, PlansReaderPg(db), JobRuntimePg(db)).execute(
+        org, "Riyadh dental", SAMPLE_ICP, budget_cents=0)["job_id"]
+    for _ in range(12):
+        worker.run_once()
+        if leasing.get_job(db, org, job_id)["state"] in (
+                "READY_FOR_REVIEW", "PARTIAL_SUCCESS", "FAILED", "CANCELLED"):
+            break
+
+    while relay.tick():            # publish everything this run emitted
+        pass
+
+    with uows(org) as tx:
+        co = tx.cursor.execute(
+            "SELECT canonical_name, name_key FROM company_identity.companies "
+            "WHERE domain = 'kimshealth.co'").fetchone()
+        obs = tx.cursor.execute(
+            "SELECT value FROM claims_evidence.company_observations WHERE field = 'name' "
+            "AND company_id = (SELECT id FROM company_identity.companies "
+            "WHERE domain = 'kimshealth.co')").fetchall()
+    assert co["canonical_name"] == "kimshealth"
+    assert co["name_key"] == "kimshealth"
+    assert [o["value"] for o in obs] == [raw_title]       # provenance untouched
