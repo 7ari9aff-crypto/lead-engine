@@ -1,0 +1,20 @@
+-- APPLIED 2026-10-21 with owner approval (role backup_reader). Password was generated
+-- out of band and lives only in the GitHub secret BACKUP_DB_URL; the line below is a placeholder.
+-- Why: pg_dump as the app role (lead_engine) aborts on RLS tables
+--   ("query would be affected by row-level security policy for table activity_events")
+-- and --enable-row-security would only dump ONE tenant per run, silently missing the
+-- others. A dedicated read-only role that bypasses RLS is the correct backup identity,
+-- and it keeps the app role's RLS enforcement untouched.
+--
+-- Blast radius: SELECT only, no write/DDL, no login from the app. If its password leaks
+-- an attacker can READ every tenant's data, so it is stored only as the GitHub secret
+-- BACKUP_DB_URL and used by .github/workflows/backup.yml. Rotate by ALTER ROLE.
+
+create role backup_reader login bypassrls password 'REPLACE_WITH_STRONG_RANDOM_PASSWORD' connection limit 2;
+grant connect on database postgres to backup_reader;
+grant usage on schema engine, platform, runtime to backup_reader;
+grant select on all tables in schema engine, platform, runtime to backup_reader;
+grant select on all sequences in schema engine, platform, runtime to backup_reader;
+alter default privileges in schema engine, platform, runtime grant select on tables to backup_reader;
+alter default privileges in schema engine, platform, runtime grant select on sequences to backup_reader;
+alter role backup_reader set default_transaction_read_only = on;
