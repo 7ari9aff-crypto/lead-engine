@@ -66,7 +66,9 @@ _AR_FOLD = str.maketrans({
 _DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
 # tashkeel (harakat), superscript alef, tatweel
 _AR_MARKS_RE = re.compile("[\u064B-\u065F\u0670\u0640]")
-_NON_WORD_RE = re.compile(r"[^\w\u0600-\u06FF]+", re.UNICODE)
+# The Arabic block also holds punctuation (، ؛ ؟ and the Arabic percent/decimal
+# marks); those separate words, they are not letters.
+_NON_WORD_RE = re.compile(r"[^\w\u0600-\u06FF]+|[\u060C\u061B\u061F\u066A-\u066D\u06D4]+", re.UNICODE)
 # Words that describe the TYPE of business, not which business it is. Dropped
 # only when something distinctive remains, so "Dental Clinic" alone is kept.
 _GENERIC_TOKENS = frozenset({
@@ -120,6 +122,9 @@ def name_key(name: str | None) -> str:
     tokens = [_AR_ARTICLE_RE.sub("", t) for t in tokens]
     tokens = [("طب" if t == "لطب" else t) for t in tokens]
     distinctive = [t for t in tokens if t and t not in _GENERIC_TOKENS]
+    # a bare number/year ("2025") or punctuation is not a business name
+    if not any(ch.isalpha() for t in distinctive for ch in t):
+        return ""
     if not distinctive:
         return ""
     return " ".join(sorted(set(distinctive)))
