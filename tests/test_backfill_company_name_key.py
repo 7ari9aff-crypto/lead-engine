@@ -37,3 +37,19 @@ def test_different_city_or_org_never_grouped():
                  row("2", "Elite Dental", city="Riyadh")])["merge_candidates"] == []
     assert plan([row("1", "Elite Dental", org="a"),
                  row("2", "Elite Dental", org="b")])["merge_candidates"] == []
+
+
+def test_stale_key_is_cleared_when_the_name_is_now_generic():
+    """A key written by an older rule must not keep matching once the name is
+    judged generic: it is set back to NULL (None), not silently left behind."""
+    rows = [{"id": "1", "org_id": "o", "canonical_name": "best dental hospital in saudi arabia",
+             "domain": None, "city": "Riyadh", "name_key": "arabia best saudi"}]
+    out = plan(rows)
+    assert out["updates"] == [("1", None)]
+    assert out["skipped_generic"] == 1
+
+
+def test_generic_row_with_no_key_needs_no_write():
+    rows = [{"id": "1", "org_id": "o", "canonical_name": "Dental Clinic",
+             "domain": None, "city": None, "name_key": None}]
+    assert plan(rows)["updates"] == []
