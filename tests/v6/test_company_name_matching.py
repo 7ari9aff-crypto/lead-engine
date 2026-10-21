@@ -139,7 +139,14 @@ def test_ingest_names_company_by_domain_confirmed_segment_and_keeps_raw_title(
          "url": "https://kimshealth.co/dental", "title": raw_title,
          "snippet": "dental clinic in Riyadh"},
     ]
-    worker = worker_factory({"acquisition.run": AcquisitionPipelineHandler()}, gateway)
+    # The pipeline emits outbox events. Drain them with a relay (as the other
+    # e2e tests do) so no unpublished events leak into tests that assume an
+    # empty outbox (test_outbox_relay asserts exact tick() counts).
+    from infrastructure.events.relay import IdempotentConsumer, OutboxRelay
+
+    relay = OutboxRelay(db, consumer=IdempotentConsumer(db, "name-test", lambda e: None))
+    worker = worker_factory({"acquisition.run": AcquisitionPipelineHandler()}, gateway,
+                            relay=relay)
     job_id = CreateCampaign(uows, PlansReaderPg(db), JobRuntimePg(db)).execute(
         org, "Riyadh dental", SAMPLE_ICP, budget_cents=0)["job_id"]
     for _ in range(12):
@@ -147,6 +154,9 @@ def test_ingest_names_company_by_domain_confirmed_segment_and_keeps_raw_title(
         if leasing.get_job(db, org, job_id)["state"] in (
                 "READY_FOR_REVIEW", "PARTIAL_SUCCESS", "FAILED", "CANCELLED"):
             break
+
+    while relay.tick():            # publish everything this run emitted
+        pass
 
     with uows(org) as tx:
         co = tx.cursor.execute(
