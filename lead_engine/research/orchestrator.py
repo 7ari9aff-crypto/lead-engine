@@ -288,7 +288,7 @@ class ResearchOrchestrator:
         return self._gate(reason, detail, agent_run_id)
 
     def _verify_emails(self, agent_run_id: str) -> int:
-        from ..providers.email import VerificationPipeline
+        from ..providers.email import VerificationPipeline, fact_outcome
 
         verifier = VerificationPipeline(self.router)
         verified = 0
@@ -296,13 +296,20 @@ class ResearchOrchestrator:
             "SELECT fact_id, subject_id, value FROM research_facts"
             " WHERE field='email' AND status IN ('UNVERIFIED','VERIFIED')"
             " AND job_id=?", (self.job_id,))
+        # facts already tried in this job (an earlier slice or sweep) are not paid
+        # for again; an unresolved one stays UNVERIFIED so a LATER job retries it
+        tried = set(self.manager.get_state(self.job_id, "_emails_tried") or [])
         for row in rows:
             if self.manager.jobs.current(self.job_id) in (CANCELLED, PAUSED):
                 break
+            if row["fact_id"] in tried:
+                continue
             if self._out_of_time():
                 break
             verdict = verifier.verify(row["value"])
-            outcome = "verified" if verdict.get("status") == "DELIVERABLE" else "refuted"
+            tried.add(row["fact_id"])
+            self.manager.set_state(self.job_id, "_emails_tried", sorted(tried))
+            outcome = fact_outcome(verdict)
             self.store.verify_fact(
                 row["fact_id"], outcome=outcome,
                 confidence=verdict.get("confidence"), provider=verdict.get("via"),
@@ -513,7 +520,8 @@ class ResearchOrchestrator:
     def _gate(self, reason: str, detail: str, agent_run_id: str) -> dict:
         # the review gate ends this pass: drop the resume markers so a job that
         # is reopened later starts clean instead of replaying stale verdicts
-        self.manager.clear_state(self.job_id, "_finalizing", "_verdicts", "_stop")
+        self.manager.clear_state(self.job_id, "_finalizing", "_verdicts", "_stop",
+                                 "_emails_tried")
         self.manager.ready_for_review(self.job_id, reason, detail)
         self._finish_run(agent_run_id, "COMPLETED")
         return self._summary(READY_FOR_REVIEW, note=detail)

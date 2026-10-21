@@ -267,3 +267,126 @@ def test_chronic_capacity_failure_ends_in_failed_not_an_endless_loop(db):
         db.execute("UPDATE jobs SET resume_at=NULL WHERE job_id=?", (j,))
     assert seen == [1, 2, 3], seen
     assert jm.current(j) == "FAILED"
+
+
+# ---- L11: Hunter verifier parsing (documented fields: accept_all, webmail,
+# disposable, block flags; status enum valid|invalid|accept_all|webmail|disposable|unknown)
+def _hunter(data):
+    from lead_engine.providers.email import HunterProvider
+    p = HunterProvider.__new__(HunterProvider)
+    p.name = "hunter"
+    p.current_key = lambda: "k"
+    p._http = lambda *a, **k: None
+    p._json = lambda r: {"data": data}
+    return HunterProvider.verify(p, "x@y.com")
+
+
+@pytest.mark.parametrize("payload", [
+    {"result": "valid", "score": 90, "status": "accept_all"},
+    {"result": "risky", "score": 70, "accept_all": True},
+    {"result": "valid", "score": 90, "accept_all": True, "status": "valid"},
+])
+def test_hunter_catch_all_is_never_deliverable(payload):
+    r = _hunter(payload)
+    assert r["status"] == "CATCH_ALL", r
+    assert r["confidence"] <= 0.5
+
+
+def test_hunter_webmail_address_is_not_invalid():
+    """A Gmail/Outlook mailbox is a real, deliverable personal address."""
+    r = _hunter({"result": "valid", "score": 95, "webmail": True, "status": "webmail"})
+    assert r["status"] != "INVALID", r
+    assert r["status"] in ("DELIVERABLE", "RISKY")
+
+
+def test_hunter_disposable_is_still_invalid():
+    for payload in ({"result": "valid", "score": 90, "status": "disposable"},
+                    {"result": "valid", "score": 90, "disposable": True}):
+        assert _hunter(payload)["status"] == "INVALID"
+
+
+def test_hunter_block_flag_is_not_deliverable():
+    """block=true: the server refused verification (greylisting/anti-probe)."""
+    r = _hunter({"result": "valid", "score": 90, "block": True})
+    assert r["status"] in ("UNKNOWN", "RISKY"), r
+
+
+def test_hunter_plain_valid_and_invalid_unchanged():
+    assert _hunter({"result": "valid", "score": 95, "status": "valid"})["status"] == "DELIVERABLE"
+    inv = _hunter({"result": "invalid", "score": 5, "status": "invalid"})
+    assert inv["status"] == "INVALID" and inv["confidence"] >= 0.85
+
+
+# ---- L12: "could not verify" must never be recorded as "proved wrong"
+import pytest as _pytest  # noqa: E402
+
+
+def _email_fact_db(tmp_path, email="dr.salem@clinic.example", job="job-vx"):
+    from lead_engine.db import Database
+    from lead_engine.truth import FactsStore
+    d = Database(tmp_path / "v.db")
+    fid = FactsStore(d).record_fact("company", "clinic.example", "email", email,
+                                    source_url="https://clinic.example",
+                                    provider="tavily", job_id=job)["fact_id"]
+    return d, fid
+
+
+@_pytest.mark.parametrize("status,expected", [
+    ("DELIVERABLE", "VERIFIED"),
+    ("INVALID", "STALE"),            # positively proved wrong
+    ("UNKNOWN", "UNVERIFIED"),       # verifier down / no key / timed out
+    ("RISKY", "UNVERIFIED"),
+    ("CATCH_ALL", "UNVERIFIED"),
+])
+def test_verify_tool_outcome_depends_on_proof_not_on_absence_of_proof(tmp_path, status, expected):
+    from lead_engine.research import tools
+
+    d, fid = _email_fact_db(tmp_path)
+
+    class V:  # stand-in pipeline returning a fixed verdict
+        def __init__(self, router): pass
+        def verify(self, value):
+            return {"status": status, "confidence": 0.5, "via": "stub",
+                    "details": {"reason": "t"}}
+
+    class Mgr:
+        def bump_counter(self, *a, **k): pass
+
+    from lead_engine.truth import FactsStore
+    ctx = type("C", (), {"store": FactsStore(d), "router": None, "manager": Mgr(),
+                         "job_id": "job-vx"})()
+    orig = tools.VerificationPipeline
+    tools.VerificationPipeline = V
+    try:
+        out = tools._tool_verify_fact(ctx, {"fact_id": fid})
+    finally:
+        tools.VerificationPipeline = orig
+    assert out["status"] == expected, out
+
+
+def test_unresolved_emails_are_not_reverified_in_every_slice(tmp_path):
+    """An email we could not verify stays UNVERIFIED, so the sweep would pick it up
+    again on every slice and pay a provider call each time."""
+    from lead_engine.db import Database
+    from lead_engine.research import ResearchJobManager
+    from lead_engine.research.orchestrator import ResearchOrchestrator
+    from lead_engine.truth import FactsStore
+
+    d = Database(tmp_path / "r.db")
+    manager = ResearchJobManager(d)
+    job_id = manager.create("o")
+    FactsStore(d).record_fact("company", "c.example", "email", "a@c.example",
+                              source_url="https://c.example", provider="tavily",
+                              job_id=job_id)
+    calls = []
+
+    class R:
+        def route(self, task, payload, **kw):
+            calls.append(task)
+            return {"provider": "hunter", "status": "UNKNOWN", "confidence": 0.2,
+                    "details": {"reason": "no key"}}, {"provider": "hunter"}
+
+    orch = ResearchOrchestrator(d, {}, job_id, router=R())
+    orch._verify_emails("run-1")
+    orch._verify_emails("run-2")      # next slice / retry
+    assert calls.count("email_verify") == 1, calls

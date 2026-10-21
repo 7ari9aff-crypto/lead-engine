@@ -16,7 +16,7 @@ from typing import Callable
 
 from ..agent_registry import AgentRegistry
 from ..pipeline.normalize import clean_title, domain_from_url, extract_contacts, is_social
-from ..providers.email import VerificationPipeline
+from ..providers.email import VerificationPipeline, fact_outcome
 from ..truth import FactsStore
 from .qualification import QualificationError, qualify_from_facts
 
@@ -193,7 +193,7 @@ def _tool_verify_fact(ctx: ToolContext, args: dict) -> dict:
         return {"error": "fact_id غير موجود"}
     if fact["field"] == "email":
         verdict = VerificationPipeline(ctx.router).verify(fact["value"])
-        outcome = "verified" if verdict.get("status") == "DELIVERABLE" else "refuted"
+        outcome = fact_outcome(verdict)
         updated = ctx.store.verify_fact(
             fact_id, outcome=outcome, confidence=verdict.get("confidence"),
             provider=verdict.get("via"), quote=json.dumps(

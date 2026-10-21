@@ -75,14 +75,29 @@ class HunterProvider(BaseProvider):
             "unknown": (STATUS_UNKNOWN, 0.2),
         }
         status, confidence = mapping.get(result, (STATUS_UNKNOWN, 0.2))
-        # catch_all / webmail_disposable / disposable sub-statuses
+        # Hunter documents two parallel signals: the string `status`
+        # (valid|invalid|accept_all|webmail|disposable|unknown) and boolean flags
+        # (accept_all, disposable, webmail, block). Read both; the flags win.
         hunter_status = data.get("status") or ""
-        if hunter_status in ("catch_all",):
-            status, confidence = STATUS_CATCH_ALL, 0.3
-        elif hunter_status in ("webmail", "webmail_disposable", "disposable"):
+        accept_all = bool(data.get("accept_all")) or hunter_status == "accept_all"
+        disposable = bool(data.get("disposable")) or hunter_status == "disposable"
+        webmail = bool(data.get("webmail")) or hunter_status == "webmail"
+        if disposable:
             status, confidence = STATUS_INVALID, 0.9
+        elif accept_all:
+            # the server accepts ANY address, so a "valid" says nothing about
+            # this mailbox: never DELIVERABLE (module contract)
+            status, confidence = STATUS_CATCH_ALL, 0.3
+        elif data.get("block"):
+            # the server refused to be probed (greylisting / anti-verification)
+            status, confidence = STATUS_UNKNOWN, 0.2
+        elif webmail and status == STATUS_DELIVERABLE:
+            # Gmail/Outlook is a real personal mailbox, not an invalid one; a
+            # shared domain just carries less business-identity signal
+            confidence = min(confidence, 0.6)
         return {"provider": self.name, "status": status, "confidence": confidence,
                 "details": {"hunter_result": result, "hunter_status": hunter_status,
+                             "accept_all": accept_all, "webmail": webmail,
                              "score": score}, "units": 1}
 
     def find(self, domain: str) -> dict:
@@ -230,3 +245,20 @@ class VerificationPipeline:
     def _result(status, confidence, reason, method, provider="pipeline"):
         return {"provider": provider, "status": status, "confidence": confidence,
                 "details": {"reason": reason}, "method": method, "units": 0}
+
+
+def fact_outcome(verdict: dict) -> str:
+    """Map a verification verdict onto what we may conclude about a stored fact.
+
+    verified   - the mailbox was positively confirmed (DELIVERABLE).
+    refuted    - it was positively proved wrong (INVALID).
+    unresolved - UNKNOWN / RISKY / CATCH_ALL: we could NOT tell. A missing key, a
+                 down provider or a catch-all domain says nothing about the address,
+                 so the fact must stay as it was instead of being demoted to STALE.
+    """
+    status = (verdict or {}).get("status")
+    if status == STATUS_DELIVERABLE:
+        return "verified"
+    if status == STATUS_INVALID:
+        return "refuted"
+    return "unresolved"
