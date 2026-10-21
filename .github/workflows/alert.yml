@@ -1,0 +1,40 @@
+name: alert
+
+# Turns a failed (or recovered) run of a critical workflow into a GitHub Issue, which
+# GitHub emails to the repo owner. No webhook, no extra secret. One open issue per
+# workflow: repeat failures comment on it, the next green run closes it.
+#
+# Why this exists: scheduled workers failed 24 times (worker-tick, v6-worker,
+# daily-benchmark) without anyone being told.
+#
+# Security: runs on `workflow_run` with the repo token, so it must never act on
+# attacker-controlled text. It reads only the event's own fields (workflow name,
+# conclusion, url, sha) and checks out nothing from the triggering run.
+
+on:
+  workflow_run:
+    workflows: [worker-tick, v6-worker, daily-benchmark, build-push, backup]
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  notify:
+    # PR-triggered runs are not production signals; scheduled/dispatch/push on main are
+    if: ${{ github.event.workflow_run.event != 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Open / update / close the alert issue
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          WORKFLOW_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: python scripts/failure_alert.py
