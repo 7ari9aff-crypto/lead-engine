@@ -18,6 +18,7 @@ from application.doctor.checks import (
     check_outbox_stall,
     check_pii_plaintext,
     check_provider_health,
+    check_providers_configured,
     check_queue_starved,
     check_rls_enforced,
     check_schedule_stalled,
@@ -30,6 +31,18 @@ from application.doctor.checks import (
     check_workers_alive,
     check_zero_candidate_runs,
 )
+
+
+from infrastructure.config import _is_production  # noqa: E402
+
+
+def _real_providers_required() -> bool:
+    """True when the operator declared that fakes are not acceptable:
+    LEAD_ENGINE_V6_PROVIDERS=real (the v6-worker workflow sets this) or a
+    production deployment. Demo/dev/test run on fakes on purpose."""
+    import os
+    mode = (os.environ.get("LEAD_ENGINE_V6_PROVIDERS") or "").strip().lower()
+    return mode == "real" or _is_production()
 
 
 def build_doctor(backend, vault=None, gateway=None, model_gateway=None) -> Doctor:
@@ -57,6 +70,9 @@ def build_doctor(backend, vault=None, gateway=None, model_gateway=None) -> Docto
     # checks needing composition objects
     doctor.register("pii.vault", lambda b, s, org: check_vault_roundtrip(b, s, org, vault))
     doctor.register("providers.health", lambda b, s, org: check_provider_health(b, s, org, gateway))
+    doctor.register("providers.configured",
+                    lambda b, s, org: check_providers_configured(
+                        b, s, org, gateway, production=_real_providers_required()))
     doctor.register("models.gateway", lambda b, s, org: check_models(b, s, org, model_gateway))
     return doctor
 
