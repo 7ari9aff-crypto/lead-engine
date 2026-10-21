@@ -199,7 +199,7 @@ curl -X POST https://<host>/mcp -H 'Content-Type: application/json' \
 > دخول جديد حتى لو إنت مسجّل في الرابط الثابت. استخدم الرابط الثابت فقط.
 
 ```bash
-curl -s https://lead-engine3.vercel.app/health   # {"status":"ok"}
+curl -s https://lead-engine-lead-691e.vercel.app/health   # {"status":"ok"}
 ```
 
 ### الـworker الدوري (cron)
