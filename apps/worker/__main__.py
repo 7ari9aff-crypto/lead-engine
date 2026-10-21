@@ -31,18 +31,13 @@ def main(argv: list[str] | None = None) -> int:
     from infrastructure.uow import PgUowFactory
     from runtime.worker import Worker
 
-    # Legacy credential hydration: the operator's real keys live in the
-    # legacy encrypted credential store — reuse it instead of duplicating.
-    try:
-        from lead_engine.db import open_db as _legacy_open_db
-        from lead_engine.secrets import hydrate_environment as _hydrate
-
-        _hydrate(_legacy_open_db(), os.environ.get("LEAD_ENGINE_ORG_ID"))
-    except Exception:
-        pass  # tests / V6-only environments have no legacy store
-
     settings = Settings.load()
     db = Database(settings.database_url)
+    # Operator keys live in the encrypted credential store (same table the
+    # legacy app writes). Reads it directly and LOGS the outcome: a worker
+    # with zero keys used to look identical to a healthy one.
+    from infrastructure.credentials import hydrate_and_log
+    hydrate_and_log(db, os.environ.get("LEAD_ENGINE_ORG_ID"))
     vault = PiiVault(db, settings)
     gateway = build_gateway()
     model_gateway = build_model_gateway()
