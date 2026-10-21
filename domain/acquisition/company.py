@@ -74,7 +74,17 @@ _GENERIC_TOKENS = frozenset({
     "dentist", "dentistry", "medical", "hospital", "group", "co", "company",
     "ltd", "llc", "the", "and", "of", "in", "care", "specialty", "specialized",
     "specialist", "polyclinic", "service", "services", "health", "healthcare",
-    "department", "dept", "unit", "department", "خدمات", "قسم", "وحده",
+    "department", "dept", "unit", "خدمات", "قسم", "وحده",
+    # geography: WHERE a business is says nothing about WHICH business it is.
+    # (A different city is handled separately, as a veto, by name_match_is_safe.)
+    "saudi", "arabia", "ksa", "riyadh", "jeddah", "jedda", "dammam", "khobar",
+    "mecca", "makkah", "medina", "madinah", "egypt", "cairo", "giza", "alexandria",
+    "uae", "dubai", "abudhabi", "السعوديه", "رياض", "جده", "دمام", "خبر", "مكه",
+    "مدينه", "مصر", "قاهره", "دبي",
+    # marketing filler that appears in page titles, not in business names
+    "best", "top", "leading", "trusted", "your", "for", "with", "near", "you",
+    "all", "needs", "excellence", "premium", "quality", "افضل", "اشهر", "دليل",
+    "دليلك", "شامل", "الشامل", "لاختيار", "اختيار",
     "عياده", "عيادات", "مركز", "مراكز", "مجمع", "شركه", "مؤسسه", "مستشفي",
     "اسنان", "طب", "طبي", "في", "و",
 })
@@ -136,6 +146,45 @@ def resolve_identity(
     if known_by_domain or known_by_name:
         return "existing"
     return "new"
+
+
+_TITLE_SPLIT_RE = re.compile(r"\s+[-|–—»]\s+|\s*[|:،]\s+")
+
+
+def _alnum(text: str) -> str:
+    return re.sub(r"[^a-z0-9\u0600-\u06FF]", "", text.lower())
+
+
+def business_name_from_title(title: str, domain: str | None) -> str:
+    """Pick the business name out of a search-result title, or return it unchanged.
+
+    Titles look like "<tagline> - <Brand>", "<Brand> | <tagline>" or just a
+    page headline, so NO fixed position is right (the legacy clean_title always
+    kept the first part and drops "... - اوكي كلينيك"). The domain is the one
+    reliable witness: keep the segment that the domain's registrable label
+    spells (okclinics.sa <- "اوكي كلينيك" via Latin/Arabic overlap is NOT
+    attempted; only Latin containment is, because transliteration would be
+    guessing). If no segment is confirmed by the domain, the title is returned
+    UNCHANGED: a long honest title beats a confidently wrong name."""
+    title = " ".join((title or "").split())
+    if not title or not domain:
+        return title
+    parts = [p.strip() for p in _TITLE_SPLIT_RE.split(title) if p and p.strip()]
+    if len(parts) < 2:
+        return title
+    label = _alnum(domain.lower().removeprefix("www.").split(".")[0])
+    if len(label) < 4:                      # too short to be evidence
+        return title
+    if label in _GENERIC_TOKENS or name_key(label) == "":
+        return title                        # "clinic.com" would match any title
+    hits = []
+    for part in parts:
+        flat = _alnum(part)
+        # the segment must be (almost) the brand, not a sentence that merely
+        # mentions it: bounded length and the label covers most of it
+        if len(flat) >= 4 and (label in flat or flat in label) and len(flat) <= len(label) + 12:
+            hits.append(part)
+    return hits[0] if len(hits) == 1 else title
 
 
 def name_match_is_safe(candidate_domain: str | None, existing_domain: str | None,
