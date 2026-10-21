@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useLeadEngine } from "@/lib/leadEngine/store";
 import { hasContact, tr } from "@/lib/leadEngine/format";
+import { trIndustry, trLocation } from "@/lib/leadEngine/dataLabels";
 import { PageHeader } from "@/components/leadEngine/PageHeader";
 import { StatusBadge, ScoreRing, TimeAgo, EmptyState, StaleBanner, ConnectionEmpty } from "@/components/leadEngine/primitives";
 import { listEmptyKind } from "@/lib/leadEngine/connState";
@@ -76,7 +77,7 @@ export default function ReviewQueue() {
                           <StatusBadge status={busy ? "IN_RESEARCH" : l.verificationStatus} />
                         </div>
                         <div className="text-xs text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5">
-                          <span>{tr(c.industry, lang)}</span><span>· {tr(c.location, lang)}</span>
+                          <span>{trIndustry(tr(c.industry, lang), lang)}</span><span>· {trLocation(tr(c.location, lang), lang)}</span>
                           <span>· {c.size} {ar ? "موظف" : "employees"}</span>
                           <span>· <TimeAgo iso={l.lastUpdated} /></span>
                         </div>
