@@ -1,17 +1,17 @@
 # Legacy retirement plan (SQLite / `engine.*` / `public.*` -> V6)
 
-Status: **proposal, no code or data changed.** Measured against production on 2026-10-21.
+Status: **proposal, no code or data changed.** Measured against production on 2026-10-21 (re-measured and corrected after the first draft).
 
 ## Why not "just stop it"
 
 | Signal | Legacy | V6 |
 |---|---|---|
-| Last activity | today 06:38 UTC | today 09:07 UTC |
-| Driven by `worker-tick` (every 5 min) | yes (`lead_engine.worker`) | no |
+| Last write | `engine.leads` 2026-10-14, `public.leads` 2026-09-17 | V6 job runs today 09:07 UTC, but with 0 results (no provider keys) |
+| Driven by `worker-tick` (every 5 min) | yes (`lead_engine.worker`), but its jobs now fail `NO_CAPACITY:reasoning` | no (GitHub Actions `v6-worker`) |
 | Leads | `engine.leads` 121, `public.leads` 126 | `projects.lead_projections` 3 |
-| Jobs | 38 (1 QUEUED now) | 15 `acquisition.run` (13 PARTIAL_SUCCESS) |
+| Jobs | 38 (23 CANCELLED, 5 FAILED, 5 READY_FOR_REVIEW, 4 COMPLETED, 1 QUEUED) | 15 (14 `acquisition.run` all PARTIAL_SUCCESS, 1 READY_FOR_REVIEW) |
 
-Stopping legacy today would stop lead production. V6 also imports `lead_engine`
+Neither pipeline is producing new leads today (both lack search/LLM provider keys), so stopping legacy would not lose current output; the risk is losing the ability to resume it, plus the shared code V6 imports. V6 also imports `lead_engine`
 for auth, `open_db` and secret hydration (`v6api/bridge.py`,
 `apps/api/__main__.py`, `apps/worker/__main__.py`).
 
@@ -20,7 +20,7 @@ risk is behavioural, not volume.
 
 ## Phases (each is its own PR, CI green, reversible)
 
-1. **Parity first.** Find why 13/14 V6 jobs end `PARTIAL_SUCCESS` and why
+1. **Parity first.** Find why all 14 V6 `acquisition.run` jobs end `PARTIAL_SUCCESS` (first cause found: no search provider key reaches the worker) and why
    projections are 3 vs 121 leads. Add a parity test: same ICP input, legacy and
    V6 produce equivalent leads.
 2. **Shadow run.** Keep legacy as the source of truth, run V6 on the same jobs,
