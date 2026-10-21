@@ -94,6 +94,10 @@ jobs:
           RESTORE="postgresql://postgres:restore@localhost:5433/postgres"
           # roles/schemas the dump references but does not create
           psql "$RESTORE" -v ON_ERROR_STOP=1 -c "create extension if not exists pgcrypto; create extension if not exists \"uuid-ossp\";"
+          # `-t public.organizations` brings its trigger but not the function the trigger
+          # calls. Recreate it (same body as production) rather than widening the dump
+          # to the whole `public` schema, which the backup role cannot read anyway.
+          psql "$RESTORE" -v ON_ERROR_STOP=1 -c "create or replace function public.touch_updated_at() returns trigger language plpgsql set search_path to '' as \$\$ begin new.updated_at = now(); return new; end; \$\$;"
           python scripts/backup_verify.py backup.dump "$BACKUP_DB_URL" "$RESTORE" source_counts.json
 
       - name: Encrypt
