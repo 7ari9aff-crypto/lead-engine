@@ -477,15 +477,33 @@ def test_alert_never_matches_a_pull_request_with_the_same_title():
     assert m.decide(pr, "worker-tick", "failure") == "create"
 
 
-# ---- OPS9: every workflow that ships or protects production must be watched by alert.yml
-def test_alert_watches_the_frontend_sync_workflow():
+# ---- OPS9: the frontend can never silently stop updating.
+# 2026-10-21: sync-frontend-static tried `git push` to protected main (GH006) and failed
+# on every merge, so two merged UI fixes were never served. A bot cannot fix that (PRs it
+# opens with GITHUB_TOKEN do not trigger the required checks), so the gate moved into CI:
+# a PR that changes web/ without shipping lead_engine/static now fails.
+def test_frontend_staleness_is_gated_in_ci_not_by_an_unpushable_bot():
     import pathlib
     import yaml
     root = pathlib.Path(__file__).parent.parent / ".github" / "workflows"
+
+    # the workflow that can never succeed under branch protection must not come back
+    assert not (root / "sync-frontend.yml").exists(), (
+        "main is protected: a workflow that git-pushes to it fails with GH006 on every merge")
+
+    # ...and alert.yml must not watch a workflow that does not exist
     alert = yaml.safe_load((root / "alert.yml").read_text(encoding="utf-8"))
-    # PyYAML parses the bare key `on` as True
     watched = (alert.get("on") or alert.get(True))["workflow_run"]["workflows"]
-    sync_name = yaml.safe_load((root / "sync-frontend.yml").read_text(encoding="utf-8"))["name"]
-    assert sync_name in watched, (
-        "sync-frontend-static failed on 2026-10-21 (GH006) and nobody was told: "
-        "the frontend silently stopped updating")
+    assert "sync-frontend-static" not in watched
+
+    # the replacement: CI compares the built bundle with the committed one
+    ci = yaml.safe_load((root / "ci.yml").read_text(encoding="utf-8"))
+    steps = ci["jobs"]["frontend"]["steps"]
+    guard = [s for s in steps if "static build matches" in s.get("name", "")]
+    assert guard, "the frontend job must fail when lead_engine/static is stale"
+    script = guard[0]["run"]
+    assert "web/dist/index.html" in script and "lead_engine/static/index.html" in script
+    assert "exit 1" in script
+    # it must run AFTER the build it compares against
+    names = [s.get("name") or s.get("run", "") for s in steps]
+    assert names.index(guard[0]["name"]) > names.index("pnpm run build")
