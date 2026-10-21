@@ -13,7 +13,7 @@ name: alert
 
 on:
   workflow_run:
-    workflows: [worker-tick, v6-worker, daily-benchmark, build-push, backup]
+    workflows: [worker-tick, v6-worker, daily-benchmark, build-push, backup, sync-frontend-static]
     types: [completed]
 
 permissions:
