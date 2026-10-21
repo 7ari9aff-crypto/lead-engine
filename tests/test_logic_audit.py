@@ -475,3 +475,17 @@ def test_alert_never_matches_a_pull_request_with_the_same_title():
     m = _alert_mod()
     pr = [{"number": 3, "title": m.issue_title("worker-tick"), "pull_request": {}}]
     assert m.decide(pr, "worker-tick", "failure") == "create"
+
+
+# ---- OPS9: every workflow that ships or protects production must be watched by alert.yml
+def test_alert_watches_the_frontend_sync_workflow():
+    import pathlib
+    import yaml
+    root = pathlib.Path(__file__).parent.parent / ".github" / "workflows"
+    alert = yaml.safe_load((root / "alert.yml").read_text(encoding="utf-8"))
+    # PyYAML parses the bare key `on` as True
+    watched = (alert.get("on") or alert.get(True))["workflow_run"]["workflows"]
+    sync_name = yaml.safe_load((root / "sync-frontend.yml").read_text(encoding="utf-8"))["name"]
+    assert sync_name in watched, (
+        "sync-frontend-static failed on 2026-10-21 (GH006) and nobody was told: "
+        "the frontend silently stopped updating")
