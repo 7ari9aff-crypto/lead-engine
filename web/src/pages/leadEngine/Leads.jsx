@@ -109,7 +109,7 @@ export default function Leads() {
                       <tr key={l.id} onClick={() => navigate(`/leads/${l.id}`)} onKeyDown={(e) => e.key === "Enter" && navigate(`/leads/${l.id}`)} tabIndex={0} className="border-b border-border/50 hover:bg-muted/30 focus:bg-muted/40 focus:outline-none cursor-pointer transition">
                         <td className="py-3 px-4">
                           <div className="font-medium">{l.company.name}</div>
-                          <div className="text-[11px] text-muted-foreground">{l.company.domain}</div>
+                          {l.company.domain && l.company.domain !== l.company.name && <div className="text-[11px] text-muted-foreground">{l.company.domain}</div>}
                         </td>
                         <td className="py-3 px-4 text-muted-foreground">{tr(l.company.location, lang)}</td>
                         <td className="py-3 px-4"><Pill>{tr(l.company.industry, lang)}</Pill></td>
