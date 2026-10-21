@@ -6,3 +6,4 @@ ruff~=0.8.4
 # threshold pinned in pytest.ini. Without this the suite can silently lose
 # coverage as new features land.
 pytest-cov~=6.0.0
+pynacl>=1.5.0   # scripts/push_env_to_github_secrets.py (sealed-box encryption)
