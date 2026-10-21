@@ -177,7 +177,30 @@ def check_uncertain_effects(backend, settings, org) -> DoctorCheck:
     return DoctorCheck("effects.uncertain", "آثار خارجية غير محسومة", CheckStatus.OK, "نظيف")
 
 
+ZERO_CANDIDATE_STREAK_FAIL = 3
+
+
 def check_zero_candidate_runs(backend, settings, org) -> DoctorCheck:
+    """One empty run can be a bad ICP (WARN). A streak of consecutive empty runs
+    is an outage (FAIL): 13 in a row went unnoticed for three weeks because the
+    24h window only ever showed a single WARN buried in latency noise."""
+    recent = backend.system_all(
+        """SELECT id::text, state, finished_at FROM runtime.jobs
+           WHERE job_type = 'acquisition.run'
+             AND state IN ('PARTIAL_SUCCESS', 'READY_FOR_REVIEW')
+           ORDER BY finished_at DESC NULLS LAST LIMIT 10""")
+    streak = 0
+    for r in recent:
+        if r["state"] == "PARTIAL_SUCCESS":
+            streak += 1
+        else:
+            break
+    if streak >= ZERO_CANDIDATE_STREAK_FAIL:
+        return DoctorCheck(
+            "honesty.zero_candidates", "تشغيلات بلا مرشحين", CheckStatus.FAIL,
+            f"{streak} تشغيلات متتالية خلصت بلا مرشحين — عطل في الاكتشاف "
+            "(مفاتيح البحث/المزودون) مش مشكلة ICP",
+            {"streak": streak, "job_ids": [r["id"] for r in recent[:streak][:5]]})
     rows = backend.system_all(
         """SELECT id::text, job_type, finished_at FROM runtime.jobs
            WHERE state = 'PARTIAL_SUCCESS'
@@ -276,6 +299,32 @@ def check_provider_health(backend, settings, org, gateway) -> DoctorCheck:
                            {"providers": summary})
     return DoctorCheck("providers.health", "صحة المزودين (24س)", CheckStatus.OK,
                        "لا مزود فاشل بالكامل", {"providers": summary})
+
+
+def check_providers_configured(backend, settings, org, gateway,
+                               production: bool = True) -> DoctorCheck:
+    """A pipeline with NO real search provider produces zero candidates and, because
+    the gateway fails before it books a ledger row, leaves no trace for
+    providers.health to see. From 2026-10-01 to 10-21 every V6 run finished
+    PARTIAL_SUCCESS with 0 companies and 0 provider calls while the dashboard
+    looked healthy. Missing credentials is an outage, not a warning."""
+    if gateway is None:
+        return DoctorCheck("providers.configured", "مزودو البحث مضبوطون", CheckStatus.WARN,
+                           "بوابة المزودين غير مركّبة في هذه العملية")
+    from contracts.providers import Capability
+
+    adapters = [type(a).__name__ for a in gateway.adapters(Capability.SEARCH_COMPANIES)]
+    real = [n for n in adapters if "Fake" not in n]
+    if not real:
+        # demo/dev/test run on fakes on purpose; only production is an outage
+        status = CheckStatus.FAIL if production else CheckStatus.WARN
+        return DoctorCheck(
+            "providers.configured", "مزودو البحث مضبوطون", status,
+            "لا يوجد مزود بحث حقيقي مسجّل (TAVILY_API_KEY / EXA_API_KEY مفقودان "
+            "أو لم يُحمَّلا لمنظمة الـworker) — كل تشغيل سيرجع صفر شركات",
+            {"search_adapters": adapters, "production": production})
+    return DoctorCheck("providers.configured", "مزودو البحث مضبوطون", CheckStatus.OK,
+                       f"{len(real)} مزود بحث حقيقي", {"search_adapters": adapters})
 
 
 def check_models(backend, settings, org, model_gateway) -> DoctorCheck:
