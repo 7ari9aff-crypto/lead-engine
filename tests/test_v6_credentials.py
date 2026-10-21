@@ -138,3 +138,19 @@ def test_hydration_runs_before_the_provider_gateway_is_built():
     for path in ("apps/worker/__main__.py", "apps/api/__main__.py", "v6api/bridge.py"):
         src = (ROOT / path).read_text(encoding="utf-8")
         assert src.index("hydrate_and_log(db") < src.index("build_gateway()"), path
+
+
+def test_log_identifies_the_org_without_exposing_its_id():
+    """CI masks the raw org id as ***, so the log carries a fingerprint instead."""
+    res = hydrate_environment(lambda org: [], ORG, environ=_env())
+    assert ORG not in res.summary() and "fc4505fe" not in res.summary()
+    assert f"org#{res.org_fingerprint}" in res.summary()
+    assert res.org_fingerprint == "cc2e2f5d"                       # sha256(org)[:8], stable
+    other = hydrate_environment(lambda org: [], "96773dcc-73ed-41be-b2c3-7800eabb04cc", environ=_env())
+    assert other.org_fingerprint != res.org_fingerprint             # distinguishes v1 from V6 org
+
+
+def test_fingerprint_is_present_even_when_nothing_loaded():
+    res = hydrate_environment(lambda org: [], ORG, environ={})      # no encryption key
+    assert "org#cc2e2f5d" in res.summary() and "ENCRYPTION_KEY" in res.summary()
+    assert hydrate_environment(lambda org: [], None, environ=_env()).org_fingerprint == "none"
