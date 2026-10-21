@@ -55,12 +55,16 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client-17
           pip install -q "psycopg[binary]"
+          # the runner image ships client 16 earlier on PATH; a 16 pg_dump refuses a 17
+          # server ("server version mismatch"), so pin the 17 binaries explicitly
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
 
       - name: Dump
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
           if [ -z "$SUPABASE_DB_URL" ]; then echo "::error::SUPABASE_DB_URL is not set"; exit 1; fi
+          pg_dump --version | grep -q " 17\." || { echo "::error::wrong pg_dump: $(pg_dump --version)"; exit 1; }
           # session-mode pooler port: pg_dump needs session state, not transaction pooling
           DSN="${SUPABASE_DB_URL/:6543\//:5432/}"
           # --serializable-deferrable = one consistent snapshot across schemas
