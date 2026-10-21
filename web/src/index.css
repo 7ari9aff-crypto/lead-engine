@@ -236,3 +236,18 @@
 /* start/end are physical here: the layout never mirrors, even when the text is Arabic */
 .text-start { text-align: left; }
 .text-end { text-align: right; }
+
+/*
+ * Arabic joining. Arabic letters connect to each other, so any letter-spacing
+ * (Tailwind's tracking-tight is -0.025em, tracking-wider +0.05em) pulls the
+ * joins apart or crushes them, and `uppercase` is meaningless in Arabic.
+ * Rather than touching every utility class in the JSX, neutralise them once
+ * for Arabic. Placed after @tailwind utilities so it wins on order; the
+ * explicit selectors keep specificity above the single-class utilities.
+ * Monospace/numeric elements are excluded: spacing there is intentional
+ * (e.g. the 2FA code field uses tracking-widest on Latin digits).
+ */
+:lang(ar) :where([class*="tracking-"], .uppercase):not(.font-mono):not(.tnum) {
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+}
