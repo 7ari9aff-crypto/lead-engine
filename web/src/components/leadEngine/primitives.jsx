@@ -178,11 +178,26 @@ export function ProgressBar({ value, max = 100, tone = "primary", className }) {
   );
 }
 
+// Colour carries meaning, so it must separate "good enough to review" from
+// "poor". Previously everything under 65 was red: a 60 (reviewable) looked the
+// same as a 6.7 (junk), which made the whole table read as failing.
+export function scoreTone(score) {
+  // Number(null) === 0: an unknown score must read as unknown, not as "0 = bad".
+  if (score == null || score === "") return "muted";
+  const n = Number(score);
+  if (!Number.isFinite(n)) return "muted";
+  if (n >= 80) return "success";
+  if (n >= 50) return "warning";
+  if (n >= 25) return "info";
+  return "danger";
+}
+
 export function ScoreRing({ score, size = 56 }) {
+  const safe = Number.isFinite(Number(score)) ? Math.min(100, Math.max(0, Number(score))) : 0;
   const r = (size - 6) / 2;
   const c = 2 * Math.PI * r;
-  const off = c - (score / 100) * c;
-  const tone = score >= 80 ? "hsl(var(--success))" : score >= 65 ? "hsl(var(--warning))" : "hsl(var(--danger))";
+  const off = c - (safe / 100) * c;
+  const tone = `hsl(var(--${scoreTone(score) === "muted" ? "muted-foreground" : scoreTone(score)}))`;
   return (
     <div className="relative grid place-items-center" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90">
