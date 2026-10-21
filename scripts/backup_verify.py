@@ -12,7 +12,6 @@ between the dump and the count would otherwise be false alarms).
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 
 import psycopg
@@ -47,16 +46,16 @@ def compare(source: dict[str, int], restored: dict[str, int]) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
-    dump, source_dsn, restore_dsn = argv[1], argv[2], argv[3]
-    expected = json.loads(open(argv[4]).read()) if len(argv) > 4 else None
+    """argv: <source_dsn> <restored_dsn> [source_counts.json]. The workflow restores
+    (it needs list files to skip the Supabase-only policies); this only compares."""
+    source_dsn, restore_dsn = argv[1], argv[2]
+    expected = json.loads(open(argv[3]).read()) if len(argv) > 3 else None
     src = expected if expected is not None else table_counts(source_dsn)
     if not src:
         print("::error::source reported zero tables - refusing to call this a backup")
         return 2
     # public.organizations is restored by the workflow first (FK target of 15 engine
     # tables); the schemas dump is restored here and then compared table by table
-    subprocess.run(["pg_restore", "--no-owner", "--no-privileges", "--exit-on-error",
-                    "-d", restore_dsn, dump], check=True)
     problems = compare(src, table_counts(restore_dsn))
     for p in problems:
         print(f"::error::{p}")
