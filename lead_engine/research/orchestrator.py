@@ -129,6 +129,12 @@ class ResearchOrchestrator:
         ctx = self.manager.context(self.job_id)
         objective = ctx["objective"]
         plan = ctx.get("plan")
+        if (ctx.get("counters") or {}).get("_finalizing"):
+            # a previous slice finished discovery and was cut off inside
+            # finalize: resume there, never re-run the (billed) discovery loop
+            stop = (ctx.get("counters") or {}).get("_stop") or [None, None]
+            return self._finalize(agent_run_id, stop_reason=stop[0],
+                                  stop_detail=stop[1])
         if not plan:
             self.manager.set_phase(self.job_id, "DISCOVERING", "planning")
             plan = self._make_plan(objective, agent_run_id)
@@ -146,10 +152,7 @@ class ResearchOrchestrator:
                 # State is already durable (plan, facts, counters, steps), so
                 # the next slice resumes here. Finalize is deliberately NOT run:
                 # verify/qualify/materialize must not be cut in half.
-                out = self._summary(TIME_SLICE,
-                                    note="yielded before the request limit")
-                out["yielded"] = True
-                return out
+                return self._yield_summary()
             ok, exceeded, snap = self.manager.budget_check(self.job_id)
             if not ok:
                 # a budget stop does NOT skip closure: whatever was learned
@@ -178,8 +181,16 @@ class ResearchOrchestrator:
                 return self._summary(WAITING_FOR_USER,
                                      note=turn.get("note") or "waiting for user input")
 
+        if stop_reason:
+            self.manager.set_state(self.job_id, "_stop", [stop_reason, stop_detail])
+        self.manager.set_state(self.job_id, "_finalizing", True)
         return self._finalize(agent_run_id, stop_reason=stop_reason,
                               stop_detail=stop_detail)
+
+    def _yield_summary(self) -> dict:
+        out = self._summary(TIME_SLICE, note="yielded before the request limit")
+        out["yielded"] = True
+        return out
 
     def _out_of_time(self) -> bool:
         return (self.deadline is not None
@@ -257,8 +268,12 @@ class ResearchOrchestrator:
         re-discovers (directive §25)."""
         self.manager.set_phase(self.job_id, "VERIFYING", "verification sweep")
         self._verify_emails(agent_run_id)
+        if self._out_of_time():
+            return self._yield_summary()
         self.manager.set_phase(self.job_id, "QUALIFYING", "evidence-grounded fit")
         verdicts = self._qualify_all(agent_run_id)
+        if verdicts is None:      # ran out of request time; progress is saved
+            return self._yield_summary()
         materialized = self._materialize_leads(verdicts)
         candidates = int(self.manager.counters(self.job_id).get("candidates") or 0)
         target = int((self.manager.context(self.job_id).get("plan") or {})
@@ -284,6 +299,8 @@ class ResearchOrchestrator:
         for row in rows:
             if self.manager.jobs.current(self.job_id) in (CANCELLED, PAUSED):
                 break
+            if self._out_of_time():
+                break
             verdict = verifier.verify(row["value"])
             outcome = "verified" if verdict.get("status") == "DELIVERABLE" else "refuted"
             self.store.verify_fact(
@@ -307,10 +324,17 @@ class ResearchOrchestrator:
             "SELECT DISTINCT subject_id FROM research_facts"
             " WHERE job_id=? AND subject_kind='company'"
             " ORDER BY subject_id", (self.job_id,))
-        verdicts = {}
+        # verdicts earned in earlier slices are kept, never recomputed: each one
+        # cost a model call
+        verdicts = dict(self.manager.get_state(self.job_id, "_verdicts") or {})
         for row in subjects:
             if self.manager.jobs.current(self.job_id) in (CANCELLED, PAUSED):
                 break
+            if row["subject_id"] in verdicts:
+                continue
+            if self._out_of_time():
+                self.manager.set_state(self.job_id, "_verdicts", verdicts)
+                return None
             step_id = self.registry.start_step(agent_run_id,
                                                f"qualify:{row['subject_id']}",
                                                input_data={})
@@ -323,6 +347,7 @@ class ResearchOrchestrator:
                     "fit_score": verdict["fit_score"], "tier": verdict["tier"],
                     "why": verdict["why"][:3]})
                 verdicts[row["subject_id"]] = verdict
+                self.manager.set_state(self.job_id, "_verdicts", verdicts)
             except QualificationError as exc:
                 self.registry.finish_step(step_id, "FAILED", error=str(exc)[:300])
             self.manager.bump_counter(self.job_id, "qualifications")
@@ -486,6 +511,9 @@ class ResearchOrchestrator:
         return json.dumps(digest, ensure_ascii=False)[:2500]
 
     def _gate(self, reason: str, detail: str, agent_run_id: str) -> dict:
+        # the review gate ends this pass: drop the resume markers so a job that
+        # is reopened later starts clean instead of replaying stale verdicts
+        self.manager.clear_state(self.job_id, "_finalizing", "_verdicts", "_stop")
         self.manager.ready_for_review(self.job_id, reason, detail)
         self._finish_run(agent_run_id, "COMPLETED")
         return self._summary(READY_FOR_REVIEW, note=detail)

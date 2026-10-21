@@ -130,6 +130,36 @@ class ResearchJobManager:
             (json.dumps(counters, ensure_ascii=False), utcnow(), job_id))
         return counters[key]
 
+    # Resumable finalize state. Lives beside the numeric counters in the same
+    # JSON column (no migration); every counter reader asks for keys by name,
+    # so the non-numeric entry is invisible to them.
+    def get_state(self, job_id: str, key: str, default=None):
+        ctx = self.context(job_id)
+        return (ctx.get("counters") or {}).get(key, default) if ctx else default
+
+    def set_state(self, job_id: str, key: str, value) -> None:
+        ctx = self.context(job_id)
+        if not ctx:
+            raise ValueError(f"no research context for {job_id}")
+        counters = dict(ctx.get("counters") or {})
+        counters[key] = value
+        self.db.execute(
+            "UPDATE research_context SET counters_json=?, updated_at=? WHERE job_id=?",
+            (json.dumps(counters, ensure_ascii=False, default=str), utcnow(), job_id))
+
+    def clear_state(self, job_id: str, *keys: str) -> None:
+        ctx = self.context(job_id)
+        if not ctx:
+            return
+        counters = dict(ctx.get("counters") or {})
+        if not any(k in counters for k in keys):
+            return
+        for k in keys:
+            counters.pop(k, None)
+        self.db.execute(
+            "UPDATE research_context SET counters_json=?, updated_at=? WHERE job_id=?",
+            (json.dumps(counters, ensure_ascii=False, default=str), utcnow(), job_id))
+
     def set_counter(self, job_id: str, key: str, value: int) -> None:
         ctx = self.context(job_id)
         if not ctx:
