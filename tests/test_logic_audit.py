@@ -210,3 +210,60 @@ def test_v6_pool_disables_prepared_statements(monkeypatch):
     except Exception:
         pass
     assert captured.get("kwargs", {}).get("prepare_threshold", "missing") is None, captured
+
+
+# ---- L10: PAUSED jobs whose resume_at has passed must be woken by the worker tick
+def _paused(jm, db, resume_at, org=None):
+    j = jm.create_job("icp-x")
+    from lead_engine import queue
+    queue.lease_next(db, "w1", 600)
+    jm.pause(j, "NO_CAPACITY:reasoning", resume_at)
+    db.execute("UPDATE jobs SET worker_id=NULL, lease_expires_at=NULL WHERE job_id=?", (j,))
+    return j
+
+
+def test_wake_due_paused_requeues_jobs_past_resume_at(db):
+    from lead_engine import queue
+    jm = JobManager(db)
+    j = _paused(jm, db, "2026-01-01T00:00:00Z")
+    assert queue.wake_due_paused(db) == 1
+    assert jm.current(j) == "RESUMING"
+    # and the very next lease picks it up
+    assert queue.lease_next(db, "w2", 600)["job_id"] == j
+
+
+def test_wake_due_paused_leaves_future_resume_at_alone(db):
+    from lead_engine import queue
+    jm = JobManager(db)
+    j = _paused(jm, db, "2999-01-01T00:00:00Z")
+    assert queue.wake_due_paused(db) == 0
+    assert jm.current(j) == "PAUSED"
+
+
+def test_worker_tick_wakes_due_paused_jobs(db):
+    from lead_engine.worker import run_worker_tick
+    jm = JobManager(db)
+    j = _paused(jm, db, "2026-01-01T00:00:00Z")
+    result = run_worker_tick(db, "w-tick", settings={})
+    assert result["woken"] == 1
+    assert jm.current(j) != "PAUSED"
+
+
+def test_chronic_capacity_failure_ends_in_failed_not_an_endless_loop(db):
+    """wake -> lease -> pause(NO_CAPACITY) repeated: the attempts cap must end it."""
+    from lead_engine import queue
+    jm = JobManager(db)
+    j = jm.create_job("icp-x")
+    seen = []
+    for _ in range(10):
+        queue.wake_due_paused(db)
+        queue.reclaim_expired(db)
+        leased = queue.lease_next(db, "w", 600)
+        if not leased:
+            break
+        seen.append(leased["attempts"])
+        # the worker's real behaviour on NO_CAPACITY: queue.fail -> backoff/FAILED
+        queue.fail(db, j, "NO_CAPACITY:reasoning")
+        db.execute("UPDATE jobs SET resume_at=NULL WHERE job_id=?", (j,))
+    assert seen == [1, 2, 3], seen
+    assert jm.current(j) == "FAILED"

@@ -164,6 +164,34 @@ def expire_stale_paused(db, stale_after_hours: int = 48) -> int:
     return len(rows)
 
 
+def wake_due_paused(db) -> int:
+    """PAUSED -> RESUMING for jobs whose resume_at has passed.
+
+    pause() records a resume_at ("the scheduler retries later") but nothing ever
+    called jobs_due_for_resume(), so a job paused for capacity stayed PAUSED
+    forever even after the provider came back (three production jobs sat 7 days).
+    One atomic UPDATE .. RETURNING: two concurrent ticks cannot wake the same job.
+    The attempts cap still applies at lease time, so a chronic failure ends in
+    FAILED rather than looping."""
+    if _is_pg(db):
+        rows = db.query(
+            "UPDATE jobs SET state='RESUMING', updated_at=now()"
+            " WHERE state='PAUSED' AND resume_at IS NOT NULL AND resume_at <= now()"
+            " RETURNING job_id")
+    else:
+        rows = db.query(
+            "UPDATE jobs SET state='RESUMING', updated_at=?"
+            " WHERE state='PAUSED' AND resume_at IS NOT NULL"
+            " AND resume_at <= strftime('%Y-%m-%dT%H:%M:%SZ','now')"
+            " RETURNING job_id", (_now(),))
+    for row in rows:
+        db.execute(
+            "INSERT INTO job_events (ts, job_id, from_state, to_state, reason)"
+            " VALUES (?,?,?,?,?)",
+            (_now(), row["job_id"], "PAUSED", "RESUMING", "resume_at reached"))
+    return len(rows)
+
+
 def complete(db, job_id: str) -> None:
     db.execute(
         "UPDATE jobs SET state='COMPLETED', worker_id=NULL, lease_expires_at=NULL,"

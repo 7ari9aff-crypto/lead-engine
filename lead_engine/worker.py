@@ -34,11 +34,12 @@ def run_worker_tick(db, worker_id: str, settings: dict | None = None,
     started = time.monotonic()
     budget = tick_budget_seconds() if budget_seconds is None else budget_seconds
     result = {"worker_id": worker_id, "reclaimed": 0, "stale_runs_reaped": 0,
-              "paused_expired": 0, "retention_erased": 0,
+              "paused_expired": 0, "woken": 0, "retention_erased": 0,
               "leased": False, "job_id": None,
               "state": None, "error": None, "yielded": False}
     result["reclaimed"] = queue.reclaim_expired(db)
     result["paused_expired"] = queue.expire_stale_paused(db)
+    result["woken"] = queue.wake_due_paused(db)
     try:
         from .agent_registry import reclaim_stale_runs
 
