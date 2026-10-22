@@ -95,6 +95,7 @@ def mount_v6(legacy_app) -> None:
 
     from v6api.app import Container  # noqa: F401 — typing surface
     from application.handlers.pipeline import AcquisitionPipelineHandler
+    from infrastructure.providers.manus_engine import build_manus_stage
     from infrastructure.config import Settings
     from infrastructure.events.relay import OutboxRelay
     from infrastructure.events.webhook_consumer import WebhookDispatchConsumer
@@ -118,7 +119,7 @@ def mount_v6(legacy_app) -> None:
         settings=settings, db=db, vault=vault,
         gateway=gateway, model_gateway=model_gateway,
         doctor=doctor,
-        handlers={"acquisition.run": AcquisitionPipelineHandler()},
+        handlers={"acquisition.run": AcquisitionPipelineHandler(manus=build_manus_stage())},
         relay=OutboxRelay(
             db, consumer=WebhookDispatchConsumer(db, settings.master_key),
             batch_size=settings.relay_batch_size),

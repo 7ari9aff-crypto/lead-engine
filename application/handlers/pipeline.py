@@ -70,12 +70,27 @@ def _best_status(current: VerificationStatus | None,
 
 
 class AcquisitionPipelineHandler:
+    def __init__(self, manus: Any | None = None):
+        # ManusStageConfig or None. Only consulted when the ICP asks for Manus.
+        self._manus = manus
+
     def __call__(self, ctx: JobContext, ops: JobOps) -> str:
         checkpoint = dict(ctx.checkpoint or {})
         phase = checkpoint.get("phase", "PLANNING")
         if phase == "PLANNING":
             checkpoint = self._plan(ctx, ops)
             phase = checkpoint["phase"]
+        if phase == "MANUS":
+            from application.handlers.manus_stage import run_stage
+
+            outcome = run_stage(self, ctx, ops, checkpoint, self._manus)
+            if outcome == "PARKED":
+                return "PARKED"
+            if ops.cancel_requested():
+                return self._cancelled_outcome(ctx, ops)
+            checkpoint = {**outcome, "phase": "ENRICHING", "enrich_index": 0}
+            ops.checkpoint(checkpoint, state="ENRICHING")
+            phase = "ENRICHING"
         if phase == "DISCOVERING":
             checkpoint = self._discover(ctx, ops, checkpoint)
             phase = checkpoint["phase"]
@@ -99,6 +114,24 @@ class AcquisitionPipelineHandler:
         return "READY_FOR_REVIEW"
 
     # ------------------------------------------------------------------
+    def _cancelled_outcome(self, ctx: JobContext, ops: JobOps) -> str:
+        self._cancelled(ctx, ops)
+        return "CANCELLED"
+
+    def _ingest_manus_company(self, tx, ctx: JobContext, ck: dict[str, Any],
+                              company: dict[str, Any]) -> str | None:
+        """A Manus company enters through the SAME ingest path as a search
+        result (identity resolution, dedup, claims, vault). Only contacts the
+        verifier confirmed on the company's own site are put in the snippet, so
+        nothing Manus merely asserted can reach storage."""
+        confirmed = " ".join(v for v in (
+            company.get("phone") if company.get("phone_verified") else None,
+            company.get("email") if company.get("email_verified") else None) if v)
+        raw = {"url": company["website"], "title": company["name"],
+               "snippet": confirmed, "provider": "manus"}
+        entry = {"q": f"manus:{company.get('city') or ''}", "city": company.get("city") or ""}
+        return self._ingest_result(tx, ctx, ck, entry, raw)
+
     def _cancelled(self, ctx: JobContext, ops: JobOps) -> bool:
         if ops.cancel_requested():
             if ops.apply_cancellation():
@@ -164,8 +197,14 @@ class AcquisitionPipelineHandler:
             raise DomainError(
                 "ICP produced zero queries — add cities/keywords instead of silently doing nothing"
             )
+        from application.handlers.manus_stage import wants_manus
+
         checkpoint = {
-            "phase": "DISCOVERING",
+            "phase": "MANUS" if wants_manus(icp) else "DISCOVERING",
+            "icp": ({"industry": icp.get("industry"), "country": icp.get("country"),
+                     "cities": icp.get("cities"), "keywords_en": icp.get("keywords_en"),
+                     "keywords_ar": icp.get("keywords_ar")}
+                    if wants_manus(icp) else None),
             "queries": plan["queries"],
             "results_per_query": plan["results_per_query"],
             "query_index": 0,

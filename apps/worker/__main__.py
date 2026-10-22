@@ -20,6 +20,7 @@ def main(argv: list[str] | None = None) -> int:
 
     from v6api.dependencies import Container
     from application.handlers.pipeline import AcquisitionPipelineHandler
+    from infrastructure.providers.manus_engine import build_manus_stage
     from infrastructure.config import MIGRATIONS_DIR, Settings
     from infrastructure.doctor.registry import build_doctor
     from infrastructure.events.relay import OutboxRelay
@@ -47,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
     container = Container(
         settings=settings, db=db, vault=vault, gateway=gateway,
         model_gateway=model_gateway, doctor=doctor,
-        handlers={"acquisition.run": AcquisitionPipelineHandler()},
+        handlers={"acquisition.run": AcquisitionPipelineHandler(manus=build_manus_stage())},
         relay=OutboxRelay(
             db, consumer=WebhookDispatchConsumer(db, settings.master_key),
             batch_size=settings.relay_batch_size),
