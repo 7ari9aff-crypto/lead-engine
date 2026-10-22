@@ -16,6 +16,12 @@
 - `LEAD_ENGINE_COOKIE_SECURE` — if set to any non-empty value, cookies get `Secure`. Leave unset for the preview (internal proxy is HTTP).
 - Cookie is `HttpOnly`, `SameSite=Lax`, 12-hour TTL.
 
+## Adding a search tool or a model (no code)
+Edit `config/providers.yaml` (see the commented examples there and ADR-0010):
+a `rest_search` entry for any JSON search API, an `openai_compat` entry for any
+OpenAI-compatible model. It is registered only when `enabled` is not false and
+its `env_key` has a value. Built-in vendors keep working without the file.
+
 ## API keys (all optional)
 Missing keys → the provider is filtered out and the router falls back to the next one. The app boots and serves the dashboard with zero API keys. See `.env.example` for the full list.
 
