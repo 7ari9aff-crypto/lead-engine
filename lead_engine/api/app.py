@@ -1738,6 +1738,7 @@ KEY_FIELDS = [
     {"name": "TAVILY_API_KEY", "group": "search"},
     {"name": "BRAVE_SEARCH_API_KEY", "group": "search"},
     {"name": "EXA_API_KEY", "group": "search"},
+    {"name": "MANUS_API_KEY", "group": "agent"},
     {"name": "GEMINI_API_KEY", "group": "llm"},
     {"name": "GROQ_API_KEY", "group": "llm"},
     {"name": "OPENROUTER_API_KEY", "group": "llm"},
@@ -1750,7 +1751,7 @@ KEY_FIELDS = [
     {"name": "SUPABASE_SERVICE_KEY", "group": "storage"},
     {"name": "OLLAMA_BASE_URL", "group": "local", "plain": True},
 ]
-KEY_GROUPS = {"search": "البحث", "llm": "النماذج اللغوية", "data": "بيانات الأشخاص والشركات",
+KEY_GROUPS = {"search": "البحث", "agent": "وكلاء البحث العميق", "llm": "النماذج اللغوية", "data": "بيانات الأشخاص والشركات",
               "email": "البريد", "storage": "التخزين (Supabase)", "local": "محلي (Ollama)"}
 
 
@@ -1885,6 +1886,7 @@ PROVIDER_DOCS = {
     "TAVILY_API_KEY": ("tavily", "https://app.tavily.com/home"),
     "BRAVE_SEARCH_API_KEY": ("brave", "https://api-dashboard.search.brave.com/app/keys"),
     "EXA_API_KEY": ("exa", "https://dashboard.exa.ai/api-keys"),
+    "MANUS_API_KEY": ("manus", "https://manus.im/app#settings/integrations/api"),
     "GEMINI_API_KEY": ("gemini", "https://aistudio.google.com/apikey"),
     "GROQ_API_KEY": ("groq", "https://console.groq.com/keys"),
     "OPENROUTER_API_KEY": ("openrouter", "https://openrouter.ai/settings/keys"),

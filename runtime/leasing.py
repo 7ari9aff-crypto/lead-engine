@@ -144,6 +144,48 @@ def resume_job(db, org_id: str, job_id: str) -> bool:
         return cur.rowcount == 1
 
 
+PARK_PREFIX = "parked:"
+
+
+def park(db, job_id: str, lease_token: str, lease_version: int, reason: str) -> None:
+    """Fenced wait on a slow external system (e.g. a Manus research task).
+
+    Unlike ``fail`` this does not burn the attempt and does not finish the job:
+    the checkpoint is kept, the lease is released, and the job sits in
+    WAITING_FOR_CAPACITY until ``wake_parked`` requeues it. The ``parked:``
+    prefix in last_error marks jobs parked HERE, so waits that have another
+    cause are never woken by mistake.
+    """
+    with db.tx_system() as conn, conn.cursor() as cur:
+        cur.execute(
+            """UPDATE runtime.jobs
+               SET state = 'WAITING_FOR_CAPACITY',
+                   attempts = GREATEST(attempts - 1, 0),
+                   last_error = %s, updated_at = now(),
+                   lease_expires_at = NULL, lease_token = NULL
+               WHERE id = %s AND lease_token::text = %s AND lease_version = %s""",
+            ((PARK_PREFIX + " " + reason)[:800], job_id, lease_token, lease_version),
+        )
+        if cur.rowcount == 0:
+            raise LeaseLostError(f"job {job_id} lease lost on park")
+
+
+def wake_parked(db, queues: list[str] | None = None, min_age_seconds: int = 0) -> int:
+    """Requeue jobs parked by ``park``. Jobs with a pending cancellation are
+    woken too, so the worker can turn the request into CANCELLED."""
+    with db.tx_system() as conn, conn.cursor() as cur:
+        cur.execute(
+            """UPDATE runtime.jobs
+               SET state = 'QUEUED', updated_at = now()
+               WHERE state = 'WAITING_FOR_CAPACITY'
+                 AND last_error LIKE %s
+                 AND (%s::text[] IS NULL OR queue = ANY(%s::text[]))
+                 AND updated_at <= now() - make_interval(secs => %s)""",
+            (PARK_PREFIX + "%", queues, queues, min_age_seconds),
+        )
+        return cur.rowcount
+
+
 def complete(db, job_id: str, lease_token: str, lease_version: int,
              state: str = "READY_FOR_REVIEW") -> None:
     with db.tx_system() as conn, conn.cursor() as cur:

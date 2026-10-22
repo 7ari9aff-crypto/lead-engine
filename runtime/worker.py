@@ -41,6 +41,12 @@ class JobOps:
                           self.ctx.lease_version, state,
                           lease_seconds=self._settings.lease_seconds)
 
+    def park(self, reason: str) -> None:
+        """Wait on a slow external system without burning an attempt. The
+        checkpoint is kept; ``leasing.wake_parked`` requeues the job."""
+        leasing.park(self._db, self.ctx.job_id, self.ctx.lease_token,
+                     self.ctx.lease_version, reason)
+
     def heartbeat(self) -> bool:
         return leasing.heartbeat(self._db, self.ctx.job_id, self.ctx.lease_token,
                                  self._settings.lease_seconds)
@@ -66,6 +72,10 @@ class JobOps:
 
 Handler = Callable[[JobContext, JobOps], str]
 
+# Returned by a handler that called ``ops.park``: the job is already waiting.
+PARKED = "PARKED"
+PARK_MIN_AGE_S = 45          # poll a parked Manus task about once a minute, not in a hot loop
+
 
 class Worker:
     """One binary, many subscriptions. run_once returns True when it did work."""
@@ -87,6 +97,7 @@ class Worker:
     def run_maintenance(self) -> dict[str, int]:
         """Reaper + relay tick + effect reconciliation + sentinel — idempotent."""
         requeued = leasing.reclaim_expired(self._db)
+        leasing.wake_parked(self._db, queues=self._queues, min_age_seconds=PARK_MIN_AGE_S)
         dispatched = self._relay.tick() if self._relay else 0
         flagged = self._reconcile_uncertain_effects()
         pruned = self._prune_heartbeats()
@@ -177,6 +188,8 @@ class Worker:
 
         try:
             terminal_state = handler(ctx, ops)
+            if terminal_state == PARKED:
+                return True            # handler parked the job itself (fenced)
             leasing.complete(self._db, ctx.job_id, ctx.lease_token, ctx.lease_version,
                              terminal_state)
         except LeaseLostError:

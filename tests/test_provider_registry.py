@@ -280,3 +280,14 @@ def test_shipped_config_file_is_valid_and_inert():
     assert cfg is not None
     report = build_from_config(cfg, gateway=ProviderGateway())
     assert report.registered == []
+
+
+# ------------------------------------------------- Manus key in Settings
+def test_settings_accepts_a_manus_key_pool_and_masks_it():
+    from lead_engine.api import app as api
+
+    assert any(f["name"] == "MANUS_API_KEY" for f in api.KEY_FIELDS)
+    assert "agent" in api.KEY_GROUPS
+    masked = api._mask("sk-aaaaaaaa1,sk-bbbbbbbb2,sk-cccccccc3", plain=False)
+    assert "3" in masked and "sk-bbbbbbbb2" not in masked      # count shown, no middle key
+    assert "MANUS_API_KEY" in api.PROVIDER_DOCS
