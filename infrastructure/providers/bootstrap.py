@@ -90,7 +90,37 @@ def build_gateway() -> ProviderGateway:
         # catch-all/ambiguous domains get a real second opinion.
         if _key("HUNTER_API_KEY"):
             gateway.register(HunterVerifyAdapter())
+    _apply_registry(gateway=gateway)
     return gateway
+
+
+def _apply_registry(*, gateway=None, model_gateway=None) -> None:
+    """Add tools/models declared in config/providers.yaml ON TOP of the built-in
+    set. Absent file = no change. A malformed file raises at boot (loud), never
+    silently drops a tool."""
+    import logging
+
+    from infrastructure.providers.registry import build_from_config, load_registry_config
+
+    config = load_registry_config()
+    if config is None:
+        return
+    # Built-ins above already registered tavily/exa/apollo/hunter/smtp/gemini;
+    # a file entry for one of those ids only re-prioritises, never duplicates.
+    existing = {a.spec.provider_id for caps in
+                (gateway.adapters(c) for c in _caps()) for a in caps} if gateway else set()
+    config = {**config,
+              "providers": [e for e in config["providers"] if e.get("id") not in existing],
+              "models": [] if model_gateway is None else config["models"]}
+    report = build_from_config(config, gateway=gateway, model_gateway=model_gateway)
+    logging.getLogger(__name__).info(
+        "registry: registered=%s skipped=%s", report.registered, report.skipped)
+
+
+def _caps():
+    from contracts.providers import Capability
+
+    return list(Capability)
 
 
 def build_model_gateway() -> ModelGateway:
@@ -102,4 +132,5 @@ def build_model_gateway() -> ModelGateway:
         model_gateway.register("reasoning", GeminiReasonModel(), priority=10)
     model_gateway.register("reasoning", FakeModel(), priority=99)
     model_gateway.register("planning", FakeModel())
+    _apply_registry(model_gateway=model_gateway)
     return model_gateway

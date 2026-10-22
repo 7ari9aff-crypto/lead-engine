@@ -1,0 +1,44 @@
+# Provider & model registry (extends ADR-0009). Add a search tool or a model by
+# adding an entry here -- no code change, no PR to adapters.
+#
+# An entry is registered only if: enabled is not false AND its env_key holds a
+# value (comma/newline separated list = ordered key pool, rotated on 401/403/429).
+# Built-ins (tavily, exa, apollo, hunter, smtp-verify, gemini) are wired in
+# bootstrap.py already; list them here only to change nothing -- ids that are
+# already registered are ignored.
+#
+# Capabilities
+#   providers: search_companies | enrich_company | find_contact | verify_email
+#   models:    reasoning | planning | classification | extraction
+# Lower priority number wins; the gateway falls to the next on
+# RATE_LIMIT / CAPACITY / TRANSIENT / AMBIGUOUS.
+version: 1
+
+providers: []
+  # Example: any JSON search API, described declaratively.
+  # - id: brave
+  #   kind: rest_search
+  #   capability: search_companies
+  #   priority: 30
+  #   enabled: true
+  #   env_key: BRAVE_API_KEY
+  #   cost_cents_per_call: 0
+  #   settings:
+  #     url: https://api.search.brave.com/res/v1/web/search
+  #     method: GET
+  #     auth: {type: header, name: X-Subscription-Token}
+  #     body: {q: "{query}", count: "{max_results}"}
+  #     results_path: web.results
+  #     fields: {title: title, url: url, snippet: description}
+
+models: []
+  # Example: any OpenAI-compatible model (GLM, Qwen, DeepSeek, OpenRouter, local).
+  # - id: glm
+  #   kind: openai_compat
+  #   capability: reasoning
+  #   priority: 5
+  #   enabled: true
+  #   env_key: GLM_API_KEY
+  #   settings:
+  #     base_url: https://open.bigmodel.cn/api/paas/v4
+  #     model: glm-5.3
